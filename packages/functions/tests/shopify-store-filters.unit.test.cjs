@@ -1438,3 +1438,102 @@ describe("store-filters/barry-m — isBarryMPolish", () => {
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.BarryMShopify, isBarryMPolish);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Phase C review follow-ups: vendor aliases on brand stores (C1).
+
+const { readFileSync: readSeedFile } = require("node:fs");
+const { resolve: resolveSeedPath } = require("node:path");
+const {
+  resolveBrandStoreVendor,
+  resolveShopifyVendor,
+} = require("../dist/lib/connectors/shopify-generic");
+
+const SEED_SQL = readSeedFile(resolveSeedPath(__dirname, "../../../docs/seed_data_sources.sql"), "utf8");
+
+/** The seeded `data_source.metadata` of `name` (docs/seed_data_sources.sql). */
+function seedMetadata(name) {
+  const start = SEED_SQL.indexOf(`'${name}',`);
+  assert.notEqual(start, -1, `${name} not seeded`);
+  const tuple = SEED_SQL.slice(start, SEED_SQL.indexOf("::jsonb", start));
+  const literal = tuple.slice(tuple.indexOf("'{"), tuple.lastIndexOf("}'") + 1);
+  return JSON.parse(literal.slice(1).replace(/''/g, "'"));
+}
+
+/** Runs the connector over `products` with the source's seeded settings (offline: no AI, no fetch). */
+async function pullFixture(source, products, metadata = seedMetadata(source)) {
+  const originalFetch = globalThis.fetch;
+  const originalEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
+  delete process.env.AZURE_OPENAI_ENDPOINT;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    headers: { get: () => null },
+    text: async () => JSON.stringify({ products }),
+  });
+  try {
+    const settings = readSourceSettings(metadata, source);
+    const connector = new ShopifyGenericConnector(source, null, { currency: settings.currency, settings });
+    const result = await connector.pullProducts({ searchTerm: "", page: 1, pageSize: 500, maxRecords: 500 });
+    return result.records;
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalEndpoint !== undefined) process.env.AZURE_OPENAI_ENDPOINT = originalEndpoint;
+  }
+}
+
+/** The ingested record for the product titled `title` (by `rawTitle`). */
+function recordFor(records, title) {
+  const record = records.find((entry) => entry.normalized.rawTitle === title);
+  assert.ok(record, `no record for ${title}`);
+  return record;
+}
+
+describe("resolveBrandStoreVendor — brand stores consult vendorAliases first (C1)", () => {
+  const aliases = readSourceSettings(seedMetadata("WetNWildShopify")).vendorAliases;
+
+  it("maps an aliased vendor to the canonical brand, matching case- and whitespace-insensitively", () => {
+    assert.equal(resolveBrandStoreVendor("Markwins WNW", aliases, "Wet N Wild"), "Wet n Wild");
+    assert.equal(resolveBrandStoreVendor("  WET N WILD   beauty ", aliases, "Wet N Wild"), "Wet n Wild");
+  });
+
+  it("falls back to resolveShopifyVendor exactly without an alias match or without aliases", () => {
+    for (const vendor of ["Other Brand", "vendor-unknown", "", null, "STELLA CHROMA", "LONDONTOWN"]) {
+      for (const brand of ["Stella Chroma", "Londontown"]) {
+        assert.equal(resolveBrandStoreVendor(vendor, aliases, brand), resolveShopifyVendor(vendor, brand));
+        assert.equal(resolveBrandStoreVendor(vendor, {}, brand), resolveShopifyVendor(vendor, brand));
+        assert.equal(resolveBrandStoreVendor(vendor, undefined, brand), resolveShopifyVendor(vendor, brand));
+      }
+    }
+  });
+
+  it("leaves a brand store without vendorAliases byte-for-byte unchanged", async () => {
+    // Londontown's seed has no vendorAliases: its records are identical with and without settings.
+    assert.equal(seedMetadata("LondontownShopify").vendorAliases, undefined);
+    const withSettings = await pullFixture("LondontownShopify", LONDONTOWN);
+    const withoutAliases = await pullFixture("LondontownShopify", LONDONTOWN, { currency: "USD" });
+    assert.ok(withSettings.length > 0);
+    assert.deepEqual(withSettings, withoutAliases);
+    assert.ok(withSettings.every((record) => record.normalized.brand === resolveShopifyVendor("LONDONTOWN", "Londontown")));
+  });
+});
+
+describe("wet n wild and Olive & June through the connector (C1)", () => {
+  it("wet n wild records carry the catalog brand Wet n Wild", async () => {
+    const records = await pullFixture("WetNWildShopify", WET_N_WILD);
+    assert.equal(records.length, 6);
+    // The fixture's vendors are "Markwins WNW" and "wet n wild Beauty".
+    assert.ok(records.every((record) => record.normalized.brand === "Wet n Wild"), records.map((r) => r.normalized.brand).join());
+  });
+
+  it("Olive & June records carry the canonical brand Olive & June", async () => {
+    const records = await pullFixture("OliveAndJuneShopify", OLIVE_AND_JUNE);
+    assert.equal(records.length, 13);
+    // The accepted products are listed under "Olive and June", "Olive-and-June" and "Olive & June".
+    assert.ok(records.every((record) => record.normalized.brand === "Olive & June"), records.map((r) => r.normalized.brand).join());
+    const withGel = await pullFixture("OliveAndJuneShopify", OLIVE_AND_JUNE, { ...seedMetadata("OliveAndJuneShopify"), includeGel: true });
+    assert.equal(withGel.length, 24);
+    assert.ok(withGel.every((record) => record.normalized.brand === "Olive & June"));
+  });
+});

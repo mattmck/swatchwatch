@@ -582,7 +582,7 @@ export class ShopifyGenericConnector implements ProductConnector {
           asNonEmptyString(product.vendor),
           // The brand the record will carry (a placeholder vendor resolves to the store's brand;
           // a retailer listing's vendor goes through the source's alias map).
-          retailer ? retailer.brand : resolveShopifyVendor(product.vendor, this.brandName),
+          retailer ? retailer.brand : resolveBrandStoreVendor(product.vendor, this.settings?.vendorAliases, this.brandName),
           asNonEmptyString(product.handle),
           ...tags,
           // The record's derived collections and finishes, as the enriched record carries them.
@@ -607,6 +607,7 @@ export class ShopifyGenericConnector implements ProductConnector {
         enrichShopifyRecord(product, {
           baseUrl: this.baseUrl,
           brandName: this.brandName,
+          ...(this.settings ? { vendorAliases: this.settings.vendorAliases } : {}),
           source: this.source,
           storeCurrency: storeCurrency.currency,
           category,
@@ -950,6 +951,29 @@ function collapseVendorKey(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/** The `vendorAliases` target for `vendor` (keys matched lower-cased and whitespace-collapsed), else null. */
+function vendorAliasFor(vendor: string | null, aliases: Record<string, string> | undefined): string | null {
+  if (!vendor || !aliases) {
+    return null;
+  }
+  const key = collapseVendorKey(vendor);
+  const alias = Object.entries(aliases).find(([aliasKey]) => collapseVendorKey(aliasKey) === key);
+  return alias ? alias[1] : null;
+}
+
+/**
+ * The brand of a product on a brand store: the source's `vendorAliases` entry for the vendor
+ * first (wet n wild lists products as "Markwins WNW" and "wet n wild Beauty"), else exactly
+ * `resolveShopifyVendor`, so a brand store without aliases is unchanged.
+ */
+export function resolveBrandStoreVendor(
+  vendor: unknown,
+  aliases: Record<string, string> | undefined,
+  brandName: string
+): string {
+  return vendorAliasFor(asNonEmptyString(vendor), aliases) ?? resolveShopifyVendor(vendor, brandName);
+}
+
 /**
  * The brand a retailer (or feed) listing belongs to: the source's `vendorAliases` entry for the
  * vendor (matched lower-cased and whitespace-collapsed), else the vendor as `resolveShopifyVendor`
@@ -963,12 +987,9 @@ export function resolveRetailerVendor(
   kind: SourceKind = "brand"
 ): string | null {
   const normalized = asNonEmptyString(vendor);
-  if (normalized) {
-    const key = collapseVendorKey(normalized);
-    const alias = Object.entries(aliases).find(([aliasKey]) => collapseVendorKey(aliasKey) === key);
-    if (alias) {
-      return alias[1];
-    }
+  const alias = vendorAliasFor(normalized, aliases);
+  if (alias) {
+    return alias;
   }
   if (kind !== "brand" && (!normalized || PLACEHOLDER_VENDORS.has(normalized.toLowerCase()))) {
     return null;
@@ -1095,6 +1116,8 @@ function gateRetailerListing(
 export interface ShopifyEnrichContext {
   baseUrl: string;
   brandName: string;
+  /** The source's `vendorAliases` (brand mode: consulted before the raw vendor). */
+  vendorAliases?: Record<string, string>;
   /** The connector source name (store title parsers and retailer release tags are per source). */
   source: string;
   storeCurrency: string | null;
@@ -1109,7 +1132,7 @@ export async function enrichShopifyRecord(
   product: ShopifyProduct,
   context: ShopifyEnrichContext
 ): Promise<ConnectorProductRecord> {
-  const { baseUrl, brandName, source, storeCurrency, category: productCategory, retailer } = context;
+  const { baseUrl, brandName, vendorAliases, source, storeCurrency, category: productCategory, retailer } = context;
   const externalId = asNonEmptyString(product.id) as string;
   const rawTitle = asNonEmptyString(product.title) as string;
   // Retailer titles ("Vendor | Shade", or a retailer-mode "Brand Line - Shade - #CODE") are parsed
@@ -1122,7 +1145,7 @@ export async function enrichShopifyRecord(
   const productType = asNonEmptyString(product.product_type);
 
   const handle = asNonEmptyString(product.handle);
-  const vendor = retailer ? retailer.brand : resolveShopifyVendor(product.vendor, brandName);
+  const vendor = retailer ? retailer.brand : resolveBrandStoreVendor(product.vendor, vendorAliases, brandName);
   // A retailer's tags are its own merchandising, not the brand's collections, and its listing
   // never sets the legacy finish identity key: canonical finishes come from the tags at
   // materialization (tags, then descriptors, then description text).
