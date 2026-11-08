@@ -488,3 +488,36 @@ describe("loadBuyLinksForShades: source kind and missing listings (fake rows)", 
     assert.equal(links.get("7").url, "https://shop-a.example/p");
   });
 });
+
+describe("availability contract: normalized_json.available (Task 14)", () => {
+  it("reads the connector's boolean available first, then the Shopify variants", () => {
+    const sql = BUY_LINK_CANDIDATES_SQL.replace(/--[^\n]*/g, "").replace(/\s+/g, " ");
+    const match = /COALESCE\( CASE WHEN jsonb_typeof\(ep\.normalized_json -> 'available'\) = 'boolean' THEN \(ep\.normalized_json ->> 'available'\)::boolean END, CASE WHEN jsonb_typeof\(ep\.normalized_json -> 'variants'\) = 'array'/.exec(sql);
+    assert.ok(match, "available = COALESCE(normalized available, variants derivation)");
+    assert.match(sql, /END \) AS available,/);
+  });
+
+  it("a variant-less listing whose normalized available is false sorts after one with true", async () => {
+    // The fake query stands in for the SQL: for a feed listing without variants the COALESCE
+    // returns normalized_json.available as is.
+    const listing = (normalized) => ({
+      shadeId: "1",
+      url: normalized.productUrl,
+      sourceEnabled: true,
+      lastSeenAt: normalized.seen,
+      fetchedAt: normalized.seen,
+      externalProductId: normalized.id,
+      price: null,
+      currency: null,
+      missingSince: null,
+      available: typeof normalized.available === "boolean" ? normalized.available : null,
+      sourceMetadata: { kind: "feed" },
+    });
+    const soldOut = listing({ id: "1", productUrl: "https://feed.example/sold-out", available: false, seen: T("2026-11-07T00:00:00Z") });
+    const live = listing({ id: "2", productUrl: "https://feed.example/live", available: true, seen: T("2026-10-01T00:00:00Z") });
+    const links = await loadBuyLinksForShades(["1"], async () => ({ rows: [soldOut, live] }));
+    assert.equal(links.get("1").url, "https://feed.example/live");
+    const reversed = await loadBuyLinksForShades(["1"], async () => ({ rows: [live, soldOut] }));
+    assert.equal(reversed.get("1").url, "https://feed.example/live");
+  });
+});

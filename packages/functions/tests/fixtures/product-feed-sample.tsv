@@ -1,0 +1,8 @@
+id	title	description	link	image_link	additional_image_link	availability	price	brand	gtin	product_type	color	item_group_id
+EX-001	Moonlit Garden	<p>A deep blue <b>holo</b> polish.</p>	https://lacquer.example/products/moonlit-garden	https://cdn.lacquer.example/moonlit-garden.jpg	https://cdn.lacquer.example/moonlit-garden-2.jpg,https://cdn.lacquer.example/moonlit-garden-3.jpg	in stock	12.50 USD	Example Lacquer	096200010000	Nail Polish	Blue	EX-G1
+EX-002	Copper Comet	Copper shimmer.	https://lacquer.example/products/copper-comet	https://cdn.lacquer.example/copper-comet.jpg		in stock	14.00 USD	Example Lacquer	5012345678900	Nail Polish	Orange	
+EX-003	Velvet Fog		https://lacquer.example/products/velvet-fog	https://cdn.lacquer.example/velvet-fog.jpg		in stock	12.50 USD	Example Lacquer	4006381333932	Nail Polish	Grey	
+EX-004	Plain Jane		https://lacquer.example/products/plain-jane			in stock	12.50 USD	Example Lacquer		Nail Polish		
+EX-005	Sold Out Sunset		https://lacquer.example/products/sold-out-sunset	https://cdn.lacquer.example/sold-out-sunset.jpg		out of stock	12.50 USD	Example Lacquer		Nail Polish	Red	
+EX-006	Galaxy Duo		https://lacquer.example/products/galaxy-duo			in stock	24.00 USD	Example Lacquer		Nail Polish		
+EX-007	Celestial Stamping Plate		https://lacquer.example/products/celestial-plate			in stock	9.00 USD	Example Lacquer		Nail Art > Stamping Plates		

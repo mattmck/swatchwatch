@@ -67,6 +67,7 @@ import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
+import { ProductFeedConnector } from "../lib/connectors/product-feed";
 import { isFeatureEnabled } from "../lib/feature-flags";
 import {
   ProductConnector,
@@ -169,6 +170,14 @@ const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> 
   HoloTaco: (_source, baseUrl, settings) => new HoloTacoShopifyConnector(baseUrl, { currency: settings.currency }),
   Shopify: (source, baseUrl, settings) =>
     new ShopifyGenericConnector(source, baseUrl, { currency: settings.currency, settings }),
+  // The feed URL is data_source.base_url unless metadata.feedUrl overrides it.
+  ProductFeed: (source, baseUrl, settings) => {
+    const feedUrl = settings.feedUrl ?? baseUrl?.trim();
+    if (!feedUrl) {
+      throw new Error(`${source}: no feed URL (set data_source.base_url or metadata.feedUrl)`);
+    }
+    return new ProductFeedConnector(source, feedUrl, settings);
+  },
 };
 
 function hasRunnableConnector(source: SupportedConnectorSource): boolean {

@@ -64,7 +64,11 @@ export interface BuyLinkCandidate {
   currency?: string | null;
   /** `external_product.missing_since`; non-null drops the candidate. */
   missingSince?: Date | string | null;
-  /** Variant availability: true if any variant is available, false if all known ones are sold out, null if unknown. */
+  /**
+   * Availability: the connector's own `normalized_json.available` (feeds, WooCommerce, Big Cartel)
+   * when it is a boolean, else the Shopify variants: true if any variant is available, false if all
+   * known ones are sold out, null if unknown.
+   */
   available?: boolean | null;
 }
 
@@ -235,14 +239,20 @@ export const BUY_LINK_CANDIDATES_SQL = `SELECT
        ep.normalized_json ->> 'price'          AS price,
        ep.normalized_json ->> 'currency'       AS currency,
        ep.missing_since                        AS "missingSince",
-       CASE WHEN jsonb_typeof(ep.normalized_json -> 'variants') = 'array' THEN
-         CASE
-           WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(ep.normalized_json -> 'variants') v
-                        WHERE jsonb_typeof(v) = 'object' AND (v ->> 'available') = 'true') THEN true
-           WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(ep.normalized_json -> 'variants') v
-                        WHERE jsonb_typeof(v) = 'object' AND (v ->> 'available') = 'false') THEN false
+       COALESCE(
+         -- A connector's own availability (feeds, WooCommerce, Big Cartel); a non-boolean value reads as unknown.
+         CASE WHEN jsonb_typeof(ep.normalized_json -> 'available') = 'boolean'
+           THEN (ep.normalized_json ->> 'available')::boolean END,
+         -- Shopify-style listings: any variant available, else any variant sold out.
+         CASE WHEN jsonb_typeof(ep.normalized_json -> 'variants') = 'array' THEN
+           CASE
+             WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(ep.normalized_json -> 'variants') v
+                          WHERE jsonb_typeof(v) = 'object' AND (v ->> 'available') = 'true') THEN true
+             WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(ep.normalized_json -> 'variants') v
+                          WHERE jsonb_typeof(v) = 'object' AND (v ->> 'available') = 'false') THEN false
+           END
          END
-       END                                     AS available,
+       )                                       AS available,
        ds.metadata                             AS "sourceMetadata"
      FROM shade_source_product ssp
      JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
