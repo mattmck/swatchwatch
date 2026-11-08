@@ -20,6 +20,7 @@ const { isOliveAndJunePolish } = require("../dist/lib/connectors/store-filters/o
 const { isPiggyPaintPolish } = require("../dist/lib/connectors/store-filters/piggy-paint");
 const { isWetNWildPolish } = require("../dist/lib/connectors/store-filters/wet-n-wild");
 const { isPenelopeLuzPolish } = require("../dist/lib/connectors/store-filters/penelope-luz");
+const { isNoodlesPolish } = require("../dist/lib/connectors/store-filters/noodles");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -402,6 +403,7 @@ describe("store-filters — shopifyStoreProductVerdict", () => {
       "LemmingLacquerShopify",
       "LondontownShopify",
       "ManucuristShopify",
+      "NoodlesNailPolishShopify",
       "OliveAndJuneShopify",
       "PahlishShopify",
       "PenelopeLuzShopify",
@@ -1247,5 +1249,59 @@ describe("store-filters/penelope-luz — isPenelopeLuzPolish", () => {
 
   it("is registered for PenelopeLuzShopify", () => {
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.PenelopeLuzShopify, isPenelopeLuzPolish);
+  });
+});
+
+// noodlesnailpolish.com/products.json, fetched 2026-11-08 (57 products, one page), all kept.
+// Every product_type is empty; the page is 56 single shades and the gift card.
+const NOODLES = require("./fixtures/noodles-products.json").products;
+
+describe("store-filters/noodles — isNoodlesPolish", () => {
+  it("keeps the 56 shades of the 57 fixture products (the generic gate keeps none)", () => {
+    assert.equal(NOODLES.length, 57);
+    const kept = gateAccepts(NOODLES, "NoodlesNailPolishShopify");
+    assert.equal(kept.length, 56);
+    assert.ok(!kept.some((product) => product.title === "Noodles Nail Polish Gift Card"));
+    assert.equal(gateAccepts(NOODLES, "NotARealShopify").length, 0);
+  });
+
+  it("keeps shades and toppers by their description", () => {
+    for (const title of [
+      "Secret Garden", // crelly with metallic glitters
+      "Witchful Thinking", // jelly with shifting flakies
+      "Lover", // clear based topper
+      "Polar Night", // creme with holo flakies
+      "Moonlight Magic", // holo crelly
+      "Misty Harbors", // description opens with a pigment-supply update
+      "Berries & Cream",
+    ]) {
+      const product = storeProduct(NOODLES, title);
+      assert.equal(isNoodlesPolish(product), true, title);
+      assert.equal(gateKeeps("NoodlesNailPolishShopify", product), true, title);
+    }
+  });
+
+  it("drops the gift card, sets, bundles, mystery listings and merch", () => {
+    assert.equal(isNoodlesPolish(storeProduct(NOODLES, "Noodles Nail Polish Gift Card")), false);
+    const shadeBody = storeProduct(NOODLES, "Secret Garden").body_html;
+    for (const title of [
+      "Holiday Collection Set", // set
+      "Fall Bundle", // bundle
+      "Topper Duo", // duo
+      "Winter Trio", // trio
+      "Mystery Polish", // grab bag
+      "Noodles Sticker", // merch
+      "Noodles T-Shirt", // apparel
+    ]) {
+      assert.equal(isNoodlesPolish({ title, product_type: "", tags: [], body_html: shadeBody }), false, title);
+    }
+  });
+
+  it("drops a listing whose description names no polish, finish or effect", () => {
+    assert.equal(isNoodlesPolish({ title: "Nail File", product_type: "", tags: [], body_html: "<p>A glass nail file.</p>" }), false);
+  });
+
+  it("is registered for NoodlesNailPolishShopify", () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.NoodlesNailPolishShopify, isNoodlesPolish);
   });
 });

@@ -5,6 +5,7 @@ import { isHypnoticPolishPolish } from "./hypnotic-polish.js";
 import { isLemmingLacquerPolish } from "./lemming-lacquer.js";
 import { isLondontownPolish } from "./londontown.js";
 import { isManucuristPolish } from "./manucurist.js";
+import { isNoodlesPolish } from "./noodles.js";
 import { isOliveAndJunePolish } from "./olive-and-june.js";
 import { isPahlishPolish } from "./pahlish.js";
 import { isPenelopeLuzPolish } from "./penelope-luz.js";
@@ -39,6 +40,7 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   OliveAndJuneShopify: isOliveAndJunePolish,
   PiggyPaintShopify: isPiggyPaintPolish,
   PenelopeLuzShopify: isPenelopeLuzPolish,
+  NoodlesNailPolishShopify: isNoodlesPolish,
   WetNWildShopify: isWetNWildPolish,
 };
 

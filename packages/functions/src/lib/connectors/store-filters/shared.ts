@@ -12,7 +12,12 @@ export function lowerTrim(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
-/** A string field with its HTML tags replaced by spaces; anything else is "". */
+/**
+ * A string field as plain text: `<style>` and `<script>` elements removed (Noodles descriptions open
+ * with kilobytes of inline CSS), then every other tag replaced by a space; anything else is "".
+ */
 export function stripHtml(value: unknown): string {
-  return typeof value === "string" ? value.replace(/<[^>]*>/g, " ") : "";
+  return typeof value === "string"
+    ? value.replace(/<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ").replace(/<[^>]*>/g, " ")
+    : "";
 }
