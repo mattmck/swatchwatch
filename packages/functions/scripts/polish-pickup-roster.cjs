@@ -19,7 +19,11 @@ const SEED_PATH = path.resolve(__dirname, "../../../docs/seed_data_sources.sql")
 
 async function main() {
   const asJson = process.argv.includes("--json");
-  const response = await fetch(ROSTER_URL, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" } });
+  // One request; a stalled shop must not hang the script.
+  const response = await fetch(ROSTER_URL, {
+    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    signal: AbortSignal.timeout(30_000),
+  });
   if (!response.ok) throw new Error(`GET ${ROSTER_URL} failed: HTTP ${response.status}`);
   let body;
   try {

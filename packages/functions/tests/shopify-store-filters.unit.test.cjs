@@ -1825,7 +1825,11 @@ describe("store-filters/polish-pickup — isPolishPickupPolish on the November 2
     const ipu = kept.filter((product) => product.product_type.trim() === "IPU");
     assert.equal(kept.length, 75);
     assert.deepEqual(
-      ipu.map((product) => [product.title, classifyIngestedProduct(product).category]),
+      // Same input shape the gate builds (`gateShopifyProduct` maps product_type → productType).
+      ipu.map((product) => [
+        product.title,
+        classifyIngestedProduct({ title: product.title, productType: product.product_type, tags: product.tags }).category,
+      ]),
       [
         ["Cuticle caviar by Sassy Sauce Polish | Vanilla Candy Rock Candy", "treatment"],
         ["Base Coat by Vibrant Scents | One of a Kind - Scented Double Bond Base Coat", "base_coat"],
