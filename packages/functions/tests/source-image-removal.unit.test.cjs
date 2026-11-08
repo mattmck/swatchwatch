@@ -61,6 +61,10 @@ function makeDb({ enabled = false, sourceExists = true } = {}) {
     if (/FROM data_source/.test(sql)) {
       return { rows: state.sources.filter((s) => s.name === params[0]).map((s) => ({ dataSourceId: s.data_source_id, enabled: s.enabled })) };
     }
+    if (/FROM ingestion_job/.test(sql)) {
+      assert.match(sql, /status IN \('queued', 'running'\)/);
+      return { rows: [{ activeJobs: params[0] === 7 ? state.activeJobs ?? 0 : 0 }] };
+    }
     if (/DELETE FROM swatch/.test(sql)) {
       const id = params[0];
       if (state.failSwatchDeleteFor === id) {
@@ -196,10 +200,11 @@ describe("runSourceImageRemovalBatch", () => {
     const result = (await runSourceImageRemovalBatch(deps, { ...base, dryRun: false })).result;
     assert.equal(result.imagesDeleted, 2);
     assert.equal(result.blobsDeleted, 0);
-    assert.equal(result.failures.length, 1);
-    assert.equal(result.failures[0].imageId, 11);
-    // Names the blob that failed, so the operator can delete the orphan by hand.
-    assert.match(result.failures[0].error, /^blob https?:\/\/\S+: boom$/);
+    // Every blob is attempted and every failure names its blob (4 variants + the original), so
+    // the operator can delete the orphans by hand.
+    assert.equal(result.failures.length, 5);
+    assert.ok(result.failures.every((f) => f.imageId === 11 && /^blob https?:\/\/\S+: boom$/.test(f.error)));
+    assert.match(result.failures[4].error, /\/7\/b\.jpg: boom$/);
     assert.ok(!state.images.some((i) => i.image_id === 11));
   });
 });
@@ -248,15 +253,56 @@ describe("runSourceImageRemovalBatch guards", () => {
     assert.deepEqual(realDb.deps.deleted, [], "no blob delete for a URL that is not ours");
   });
 
-  it("aborts with source_enabled when the source is re-enabled during the batch", async () => {
+  it("aborts with source_enabled when the source is re-enabled during the batch, keeping the partial result", async () => {
     const { state, deps } = makeDb();
-    state.afterReRead = () => {
-      state.sources[0].enabled = true;
+    // Image 10 (labeled) is re-read and kept; image 11 is removed but its blob delete fails; the
+    // source is re-enabled right after image 11's re-read (the FOR SHARE lock means a real enable
+    // lands only between transactions), so image 12's transaction stops before touching it.
+    deps.deleteBlob = async (url) => {
+      if (url.endsWith("/7/b.jpg")) throw new Error("boom");
+      deps.deleted.push(url);
+      return true;
+    };
+    state.afterReRead = (imageId) => {
+      if (imageId === 11) state.sources[0].enabled = true;
     };
     const outcome = await runSourceImageRemovalBatch(deps, { ...base, dryRun: false });
     assert.equal(outcome.status, "source_enabled");
-    // Image 10 (labeled) was re-read before the flip; nothing after it was removed.
-    assert.ok(state.images.some((i) => i.image_id === 11));
+    assert.ok(!state.images.some((i) => i.image_id === 11));
+    assert.ok(state.images.some((i) => i.image_id === 12));
+    // The partial result survives the abort: what was removed, the orphan's URL, where to resume.
+    const partial = outcome.result;
+    assert.equal(partial.scanned, 2);
+    assert.equal(partial.imagesDeleted, 1);
+    assert.deepEqual(partial.kept, [{ imageId: 10, reason: "labeled" }]);
+    assert.equal(partial.failures.length, 1);
+    assert.match(partial.failures[0].error, /^blob .*\/7\/b\.jpg: boom$/);
+    assert.equal(partial.nextAfterImageId, 11);
+  });
+
+  it("refuses with source_busy while an ingestion job of the source is queued or running", async () => {
+    const { state, statements, deps } = makeDb();
+    state.activeJobs = 2;
+    const outcome = await runSourceImageRemovalBatch(deps, { ...base, dryRun: false });
+    assert.deepEqual(outcome, { status: "source_busy", activeJobs: 2 });
+    assert.ok(!statements.some((sql) => /image_asset/.test(sql)));
+    assert.deepEqual(deps.deleted, []);
+  });
+
+  it("keeps deleting the other blobs of an image after one variant delete fails", async () => {
+    const { deps } = makeDb();
+    deps.deleteBlob = async (url) => {
+      if (/\.w128\.webp$/.test(url)) throw new Error("variant boom");
+      deps.deleted.push(url);
+      return true;
+    };
+    const result = (await runSourceImageRemovalBatch(deps, { ...base, dryRun: false })).result;
+    // Image 11: 4 variants + original attempted; the 128px variant failed, the rest were deleted.
+    assert.equal(result.blobsDeleted, 1);
+    assert.equal(deps.deleted.filter((u) => u.includes("/7/b.jpg")).length, 4);
+    assert.ok(deps.deleted.some((u) => u.endsWith("/7/b.jpg")));
+    assert.equal(result.failures.length, 1);
+    assert.match(result.failures[0].error, /^blob .*\.w128\.webp: variant boom$/);
   });
 
   it("stops after the time budget and returns the cursor of the last finished image", async () => {

@@ -69,7 +69,12 @@ export interface SourceImageRemovalResult {
 export type SourceImageRemovalOutcome =
   | { status: "ok"; result: SourceImageRemovalResult }
   | { status: "not_found" }
-  | { status: "source_enabled" };
+  /** The source is enabled (before the scan), or was re-enabled mid-batch: `result` then holds the
+   *  work done so far (counts, kept, failures with their blob URLs, the cursor of the last finished
+   *  image) so nothing an operator needs is lost when the batch stops. */
+  | { status: "source_enabled"; result?: SourceImageRemovalResult }
+  /** A queued or running ingestion job of the source could still write images: wait for it. */
+  | { status: "source_busy"; activeJobs: number };
 
 interface ImageFlags {
   imageId: number;
@@ -148,6 +153,19 @@ export async function runSourceImageRemovalBatch(
   if (source.rows[0].enabled === true) return { status: "source_enabled" };
   const dataSourceId = Number(source.rows[0].dataSourceId);
 
+  // An in-flight job of this source could upload a new image or reuse a stored URL after this
+  // scan (a new row pointing at a deleted blob): refuse while any job of the source is queued or
+  // running. Jobs cannot be queued for a disabled source, so draining is a matter of waiting.
+  const jobs = await deps.query(
+    `SELECT count(*)::int AS "activeJobs"
+     FROM ingestion_job
+     WHERE data_source_id = $1
+       AND status IN ('queued', 'running')`,
+    [dataSourceId]
+  );
+  const activeJobs = Number(jobs.rows[0]?.activeJobs ?? 0);
+  if (activeJobs > 0) return { status: "source_busy", activeJobs };
+
   const scan = await deps.query(
     `SELECT ${IMAGE_FLAGS_SQL}
      FROM image_asset ia
@@ -223,7 +241,12 @@ export async function runSourceImageRemovalBatch(
         return { flags, swatches: swatches.rows.length };
       });
     } catch (error) {
-      if (error instanceof SourceReEnabledError) return { status: "source_enabled" };
+      if (error instanceof SourceReEnabledError) {
+        // This image was rolled back: report what the earlier images did and where to resume.
+        result.scanned = processed - 1;
+        result.nextAfterImageId = processed > 1 ? images[processed - 2].imageId : options.afterImageId;
+        return { status: "source_enabled", result };
+      }
       result.failures.push({ imageId: scanned.imageId, error: errorMessage(error) });
       continue;
     }
@@ -242,19 +265,19 @@ export async function runSourceImageRemovalBatch(
     if (!deps.ownsBlob(removed.flags.storageUrl)) continue; // vendor URL: no blob of ours
     // The row is already gone, so a failure names the blob: it is the operator's only way to
     // find the orphan and delete it by hand (a re-run cannot see it any more).
+    // Each blob is attempted on its own: one failed variant must not leave the others behind.
     const storageUrl = removed.flags.storageUrl;
-    let deleting = storageUrl;
-    try {
-      for (const size of IMAGE_VARIANT_SIZES) {
-        const variantUrl = imageVariantStorageUrl(storageUrl, size);
-        if (!variantUrl) continue;
-        deleting = variantUrl;
-        await deps.deleteBlob(variantUrl);
+    const blobUrls = IMAGE_VARIANT_SIZES.map((size) => imageVariantStorageUrl(storageUrl, size)).filter(
+      (url): url is string => url !== null
+    );
+    blobUrls.push(storageUrl);
+    for (const url of blobUrls) {
+      try {
+        const deleted = await deps.deleteBlob(url);
+        if (url === storageUrl && deleted) result.blobsDeleted += 1;
+      } catch (error) {
+        result.failures.push({ imageId: scanned.imageId, error: `blob ${url}: ${errorMessage(error)}` });
       }
-      deleting = storageUrl;
-      if (await deps.deleteBlob(storageUrl)) result.blobsDeleted += 1;
-    } catch (error) {
-      result.failures.push({ imageId: scanned.imageId, error: `blob ${deleting}: ${errorMessage(error)}` });
     }
   }
 

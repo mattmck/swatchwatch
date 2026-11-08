@@ -91,10 +91,26 @@ export async function removeSourceImages(
   if (outcome.status === "not_found") {
     return { status: 404, jsonBody: { error: "source_not_found", message: `No data source named ${parsed.sourceName}` } };
   }
-  if (outcome.status === "source_enabled") {
+  if (outcome.status === "source_busy") {
     return {
       status: 409,
-      jsonBody: { error: "source_enabled", message: `Disable ${parsed.sourceName} before removing its images` },
+      jsonBody: {
+        error: "source_busy",
+        message: `${parsed.sourceName} has ${outcome.activeJobs} queued or running ingestion job(s); wait for them to finish, then retry`,
+        activeJobs: outcome.activeJobs,
+      },
+    };
+  }
+  if (outcome.status === "source_enabled") {
+    // A mid-batch re-enable still reports the images already removed, the failures (with their
+    // blob URLs) and the cursor to resume from once the source is disabled again.
+    return {
+      status: 409,
+      jsonBody: {
+        error: "source_enabled",
+        message: `Disable ${parsed.sourceName} before removing its images`,
+        ...(outcome.result ? { result: outcome.result } : {}),
+      },
     };
   }
 

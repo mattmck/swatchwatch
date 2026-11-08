@@ -57,6 +57,17 @@ async function main() {
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
+      // A 409 source_enabled raised mid-batch still carries the work done so far: print the
+      // failures (each names its blob) before stopping, they are the only pointer to an orphan.
+      try {
+        const body = JSON.parse(text);
+        if (body && body.result && Array.isArray(body.result.failures)) {
+          for (const failure of body.result.failures) console.warn(`  image ${failure.imageId}: ${failure.error}`);
+          if (typeof body.result.nextAfterImageId === "number") afterImageId = body.result.nextAfterImageId;
+        }
+      } catch {
+        // not JSON: the HTTP error below is all we have
+      }
       throw new Error(`HTTP ${response.status} ${text}`.trim());
     }
     const batch = await response.json();
