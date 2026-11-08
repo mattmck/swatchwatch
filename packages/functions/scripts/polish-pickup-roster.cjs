@@ -21,7 +21,15 @@ async function main() {
   const asJson = process.argv.includes("--json");
   const response = await fetch(ROSTER_URL, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" } });
   if (!response.ok) throw new Error(`GET ${ROSTER_URL} failed: HTTP ${response.status}`);
-  const body = await response.json();
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error(`${ROSTER_URL} did not return JSON (products.json did not return JSON)`);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error(`${ROSTER_URL} did not return a JSON object (products.json did not return JSON)`);
+  }
   const products = Array.isArray(body.products) ? body.products : [];
 
   const counts = new Map();

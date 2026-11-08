@@ -1822,7 +1822,7 @@ describe("store-filters/polish-pickup — isPolishPickupPolish on the November 2
     assert.equal(byType.Merchandise, undefined);
     assert.equal(byType["Hand & Nail"], undefined);
     assert.equal(byType["Gift Cards"], undefined);
-const ipu = kept.filter((product) => product.product_type.trim() === "IPU");
+    const ipu = kept.filter((product) => product.product_type.trim() === "IPU");
     assert.equal(kept.length, 75);
     assert.deepEqual(
       ipu.map((product) => [product.title, classifyIngestedProduct(product).category]),
