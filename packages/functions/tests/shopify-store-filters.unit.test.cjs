@@ -18,6 +18,7 @@ const { isLondontownPolish } = require("../dist/lib/connectors/store-filters/lon
 const { isManucuristPolish } = require("../dist/lib/connectors/store-filters/manucurist");
 const { isOliveAndJunePolish } = require("../dist/lib/connectors/store-filters/olive-and-june");
 const { isPiggyPaintPolish } = require("../dist/lib/connectors/store-filters/piggy-paint");
+const { isWetNWildPolish } = require("../dist/lib/connectors/store-filters/wet-n-wild");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -406,6 +407,7 @@ describe("store-filters — shopifyStoreProductVerdict", () => {
       "PolishPickupShopify",
       "StellaChromaShopify",
       "SweetAndSourLacquerShopify",
+      "WetNWildShopify",
     ]);
   });
 
@@ -1135,5 +1137,57 @@ describe("store-filters/piggy-paint — isPiggyPaintPolish", () => {
 
   it("is registered for PiggyPaintShopify", () => {
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.PiggyPaintShopify, isPiggyPaintPolish);
+  });
+});
+
+// wetnwildbeauty.com/products.json, fetched 2026-11-08 (250 products on page 1), trimmed to 62.
+// wet n wild is a cosmetics store; its 6 polishes on page 1 are typed Nail Polishes.
+const WET_N_WILD = require("./fixtures/wet-n-wild-products.json").products;
+
+describe("store-filters/wet-n-wild — isWetNWildPolish", () => {
+  it("with the filter keeps the 6 polishes of the 62 fixture products (the generic gate also keeps 4 primers and a lip treatment)", () => {
+    assert.equal(WET_N_WILD.length, 62);
+    const kept = gateAccepts(WET_N_WILD, "WetNWildShopify");
+    assert.equal(kept.length, 6);
+    assert.ok(kept.every((product) => product.product_type === "Nail Polishes"));
+    assert.equal(gateAccepts(WET_N_WILD, "NotARealShopify").length, 10);
+  });
+
+  it("keeps nail color, nail polish and Wild Shine listings", () => {
+    for (const title of [
+      "Fast Dry AF Nail Color | Get Stoned",
+      "Fast Dry AF Nail Color | Cotton Candy",
+      "Fast Dry AF Nail Color | Red Light District",
+      "Fast Dry AF Nail Color | Sorry, I'm Latte",
+      "Fast Dry AF Nail Color | Southern Belle",
+      "Fast Dry AF Nail Color | Out Of Pistachios",
+    ]) {
+      const product = storeProduct(WET_N_WILD, title);
+      assert.equal(isWetNWildPolish(product), true, title);
+      assert.equal(gateKeeps("WetNWildShopify", product), true, title);
+    }
+    assert.equal(isWetNWildPolish({ title: "Wild Shine Nail Color | Black Creme", product_type: "", tags: [] }), true);
+    assert.equal(isWetNWildPolish({ title: "Wild Shine | Fierce", product_type: "", tags: [] }), true);
+  });
+
+  it("drops every cosmetic, including the primers and lip treatment the generic gate reads as coats", () => {
+    for (const title of [
+      "Photo Focus Matte Face Primer", // face primer (base_coat by the generic gate)
+      "Photo Focus Matte Finish Setting Mist", // setting spray
+      "Perfect Pout Lip Treatment", // lip treatment
+      "TWIZZLERS Lip Gloss | Strawberry", // lip gloss
+      "Chameleon Chrome Eyeshadow | Lunar Voltage", // eyeshadow
+      "4-Piece Makeup Brush Set", // brush set
+      "SLANTED TWEEZERS", // tool
+      "Headband | Tigger", // accessory
+    ]) {
+      const product = storeProduct(WET_N_WILD, title);
+      assert.equal(isWetNWildPolish(product), false, title);
+      assert.equal(gateKeeps("WetNWildShopify", product), false, title);
+    }
+  });
+
+  it("is registered for WetNWildShopify", () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.WetNWildShopify, isWetNWildPolish);
   });
 });
