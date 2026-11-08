@@ -11,6 +11,8 @@ const {
   shopifyStoreProductVerdict,
 } = require("../dist/lib/connectors/store-filters");
 const { ShopifyGenericConnector, isBundle } = require("../dist/lib/connectors/shopify-generic");
+const { isHarlowAndCoPolish } = require("../dist/lib/connectors/store-filters/harlow-and-co");
+const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
 // pahlish.com/products.json, fetched 2026-10-18 (all 36 products, one page), trimmed.
@@ -383,9 +385,10 @@ describe("store-filters/sweet-and-sour — isSweetAndSourPolish (#273 batch 3)",
 });
 
 describe("store-filters — shopifyStoreProductVerdict", () => {
-  it("registers filters for Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour and Polish Pickup only", () => {
+  it("registers filters for Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour, Polish Pickup and Harlow & Co only", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
       "CirqueColorsShopify",
+      "HarlowAndCoShopify",
       "LemmingLacquerShopify",
       "PahlishShopify",
       "PolishPickupShopify",
@@ -469,6 +472,125 @@ describe("ShopifyGenericConnector applies the store pre-filter", () => {
         ["Beauty and the Base Smoothing Base Coat", "base_coat"],
         ["Magic Mirror Quick Dry Topcoat", "top_coat"],
       ]
+    );
+  });
+});
+
+// harlowandco.org/products.json, fetched 2026-11-08 (1,537 products over 7 pages), trimmed to 102:
+// the first 60 non-"Nail Polish" products, 40 polishes across the six polish vendors, and
+// set-titled polishes (fixture _note). Harlow & Co is a multi-brand retailer (metadata.kind =
+// "retailer"); its titles are bare shade names.
+const HARLOW = require("./fixtures/harlow-and-co-products.json").products;
+
+const HARLOW_ACCEPTED = [
+  // ILNP
+  "Save The Date", "Cherry", "Overcoat", "Building Blocks", "Overload", "Summer Stargazing",
+  "Cream Pop", "Compass", "Black Orchid", "Woven", "Jet Setter",
+  // KBShimmer
+  "Candy Cane Crush", "Shell We?", "Comet At Me Bro", "Give It A Whirl", "Grow With The Flow",
+  "Race Against Slime", "Constellation Prize", "Ice and Easy",
+  // Cirque
+  "Enchanted", "Citron Jelly", "Socialite", "Trinket", "Showgirl", "Grape Jelly", "Pony Up",
+  "Wishful Thinking", "Thunderbolt", "La Rougeanne",
+  // Color Club
+  "What's Your Sign?", "Blue Heaven", "Shattered", "Rock On", "Piece Out", "Angel Kiss",
+  // Polished for Days
+  "It's a Knife When...", "Truth or Dare", "Birds of a Feather", "Diva in Disguise",
+  // Emily de Molly
+  "Disarm", "The Romantics", "Places To Be", "Love Is The Law",
+];
+
+const harlow = (title) => {
+  const product = HARLOW.find((p) => p.title === title);
+  assert.ok(product, `Harlow fixture has no product titled ${title}`);
+  return product;
+};
+
+describe("store-filters/harlow-and-co — isHarlowAndCoPolish", () => {
+  it("defers every Nail Polish / Nail Polishes listing to the generic gate (null), except set-titled ones", () => {
+    for (const title of HARLOW_ACCEPTED) {
+      assert.equal(isHarlowAndCoPolish(harlow(title)), null, title);
+    }
+  });
+
+  it("drops the non-polish product types (stickers, scrubs, oils, magnets, lotion, stamping plates, apparel)", () => {
+    const rejected = HARLOW.filter((p) => !/^Nail Polish(?:es)?$/.test(p.product_type));
+    assert.equal(rejected.length, 58);
+    for (const product of rejected) {
+      assert.equal(isHarlowAndCoPolish(product), false, `${product.vendor} | ${product.title}`);
+    }
+    assert.equal(isHarlowAndCoPolish({ title: "Harlow Gift Card", product_type: "Gift Card", vendor: "Harlow & Co." }), false);
+  });
+
+  it("drops the non-polish vendors even under a polish product type", () => {
+    for (const vendor of ["MILV", "Lina Nail Art Supplies", "Deco Beauty", "Walton Wood Farm", "Cutie Oils", "Simply Polished", "Harlow & Co."]) {
+      assert.equal(isHarlowAndCoPolish({ title: "Mystery Item", product_type: "Nail Polish", vendor }), false, vendor);
+    }
+  });
+
+  it("drops set, collection and bundle titles (the parser's set regex)", () => {
+    for (const title of ["It's Fall Good Collection", "Cirque Holiday Duo", "Mini Trio", "Polish Bundle", "Mani Kit", "Winter Combo"]) {
+      assert.equal(isHarlowAndCoPolish({ title, product_type: "Nail Polish", vendor: "Cirque" }), false, title);
+    }
+    // The parser reads "Set" as a set word wherever it stands, so the ILNP shade "Set Sail" goes too.
+    assert.equal(isHarlowAndCoPolish(harlow("Set Sail")), false);
+  });
+
+  it("does not drop a shade whose name only contains a set word inside another word", () => {
+    assert.equal(isHarlowAndCoPolish({ title: "Settle Down", product_type: "Nail Polish", vendor: "ILNP" }), null);
+    assert.equal(isHarlowAndCoPolish({ title: "Kitten Heels", product_type: "Nail Polish", vendor: "Cirque" }), null);
+  });
+});
+
+describe("HarlowAndCoShopify retailer ingestion", () => {
+  let originalFetch;
+  let originalEndpoint;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
+    delete process.env.AZURE_OPENAI_ENDPOINT; // keep color-name detection offline
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ products: HARLOW }),
+    });
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalEndpoint !== undefined) process.env.AZURE_OPENAI_ENDPOINT = originalEndpoint;
+    else delete process.env.AZURE_OPENAI_ENDPOINT;
+  });
+
+  const settings = readSourceSettings({
+    kind: "retailer",
+    currency: "CAD",
+    vendorAliases: { Cirque: "Cirque Colors", "piCture pOlish": "Picture Polish" },
+  });
+
+  it("accepts the 43 single-shade polishes from the fixture under their brands, and nothing else", async () => {
+    const connector = new ShopifyGenericConnector("HarlowAndCoShopify", "https://www.harlowandco.org", {
+      currency: "CAD",
+      settings,
+    });
+    const result = await connector.pullProducts({ searchTerm: "", page: 1, pageSize: 200, maxRecords: 200 });
+    assert.equal(result.metadata.fetchedProductCount, 102);
+    assert.equal(result.records.length, 43);
+    assert.deepEqual(result.records.map((r) => r.normalized.name).sort(), [...HARLOW_ACCEPTED].sort());
+    const brands = new Set(result.records.map((r) => r.normalized.brand));
+    assert.deepEqual([...brands].sort(), [
+      "Cirque Colors",
+      "Color Club",
+      "Emily de Molly",
+      "ILNP",
+      "KBShimmer",
+      "Polished for Days",
+    ]);
+    // The shared classifier reads two listings' descriptions as toppers; the rest are colors.
+    assert.deepEqual(
+      result.records.filter((r) => r.normalized.productCategory !== "color").map((r) => [r.normalized.name, r.normalized.productCategory]).sort(),
+      [["Compass", "topper"], ["Ice and Easy", "topper"]]
     );
   });
 });

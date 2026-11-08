@@ -802,6 +802,7 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   LemmingLacquerShopify: "https://lemminglacquer.com",
   SweetAndSourLacquerShopify: "https://sweetandsourlacquer.com",
   PolishPickupShopify: "https://polishpickup.com",
+  HarlowAndCoShopify: "https://www.harlowandco.org",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 

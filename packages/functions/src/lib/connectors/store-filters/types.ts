@@ -6,6 +6,7 @@ export interface StoreFilterProduct {
   handle?: unknown;
   body_html?: unknown;
   variants?: unknown;
+  vendor?: unknown;
 }
 
 /**
