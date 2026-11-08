@@ -308,4 +308,13 @@ describe("Polish Pickup retailer kind", () => {
     assert.equal(isShopifyRetailerSource("PolishPickupShopify"), true);
     assert.equal(isShopifyRetailerSource("NightOwlLacquerShopify"), false);
   });
+
+  it("seeds Harlow & Co enabled as a CAD retailer without imagesPermitted", () => {
+    const tuple = seedTuple(SEED_SQL, "HarlowAndCoShopify");
+    assert.match(tuple, /,\s*true,\s*'\{/, "HarlowAndCoShopify must be seeded enabled");
+    assert.match(tuple, /"kind": "retailer"/);
+    assert.match(tuple, /"currency": "CAD"/);
+    assert.doesNotMatch(tuple, /"imagesPermitted"/);
+    assert.doesNotMatch(tuple, /"pendingApproval"/);
+  });
 });

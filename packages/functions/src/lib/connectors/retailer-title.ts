@@ -30,11 +30,17 @@ export function isRetailerSetSegment(segment: string): boolean {
 
 const PRE_ORDER_REGEX = /^\s*(?:\*PRE-ORDER\*|PRE-ORDER:)\s*/i;
 const VENDOR_CODE_REGEX = /^#\s*([A-Z0-9][A-Z0-9.-]*)$/i;
-const TRAILING_CODE_REGEX = /\s+#([A-Z0-9][A-Z0-9.-]*)$/i;
+// At least two characters: "Lucky #7" is a shade number, not a vendor code.
+const TRAILING_CODE_REGEX = /\s+#([A-Z0-9][A-Z0-9.-]+)$/i;
 const TRAILING_SIZE_REGEX = /\s*\(?\d*\.?\d+\s*(?:oz|ml)\.?\)?$/i;
 const TRAILING_MULTIPACK_REGEX = /\s*\d+X Nail Lacquer$/i;
 const TRAILING_FINISH_REGEX = /\s*\((?:magnetic|thermal|flakie|shimmer|holo)\)$/i;
 const LEADING_LACQUER_SET_REGEX = /^\s*Lacquer Set\b/i;
+
+/** A code written at the end of a sentence ("#1122.") loses the dot. */
+function trimCode(code: string): string {
+  return code.replace(/\.+$/, "");
+}
 
 function normalizeSpace(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
@@ -78,12 +84,12 @@ export function parseRetailerTitle(
   for (const segment of segments) {
     const code = VENDOR_CODE_REGEX.exec(segment);
     if (code) {
-      vendorCode = code[1];
+      vendorCode = trimCode(code[1]);
       continue;
     }
     // A code glued to the end of a segment ("Skinny Dip 0.5 oz #1122").
     const inlineCode = TRAILING_CODE_REGEX.exec(segment);
-    if (inlineCode) vendorCode ??= inlineCode[1];
+    if (inlineCode) vendorCode ??= trimCode(inlineCode[1]);
     const stripped = segment
       .replace(TRAILING_CODE_REGEX, "")
       .replace(TRAILING_SIZE_REGEX, "")

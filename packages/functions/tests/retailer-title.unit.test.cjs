@@ -90,3 +90,11 @@ test("reads a vendor code with a dot, and a code glued to the end of a segment",
   partial(p("Essie Skinny Dip 0.5 oz #1122", "Essie"), { shadeName: "Skinny Dip", vendorCode: "1122" });
   partial(p("Zoya - Laurie .5 oz. - #ZP433", "Zoya"), { shadeName: "Laurie", vendorCode: "ZP433" });
 });
+
+test("keeps a short trailing number in the name, and trims a trailing dot from a code", () => {
+  const lucky = p("Orly Lucky #7", "Orly");
+  partial(lucky, { shadeName: "Lucky #7", vendorCode: null });
+  partial(p("Essie Strut with it - #182.1", "Essie"), { vendorCode: "182.1" });
+  partial(p("Essie Skinny Dip 0.5 oz #1122.", "Essie"), { shadeName: "Skinny Dip", vendorCode: "1122" });
+  partial(p("Essie Skinny Dip - #1122.", "Essie"), { vendorCode: "1122" });
+});

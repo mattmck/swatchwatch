@@ -1,5 +1,5 @@
 {
- "_note": "beyondpolish.com/products.json fetched 2026-11-08 (17,508 products over 71 pages), trimmed: 8 lacquer-typed products per lacquer vendor, every product_type at least twice, 10 Gel & Lacquer combos, 10 Gel Polish, 5 Nail Set-tagged lacquers, 5 Hair/Body; body_html cut to 300 chars, at most 2 variants and 2 images",
+ "_note": "beyondpolish.com/products.json fetched 2026-11-08 (17,508 products over 71 pages), trimmed: 8 lacquer-typed products per lacquer vendor, every product_type at least twice, 12 Gel & Lacquer combos, 12 Gel Polish, 5 Nail Set-tagged lacquers, 5 Hair/Body; body_html cut to 300 chars, at most 2 variants and 2 images",
  "products": [
   {
    "id": 7428298539059,

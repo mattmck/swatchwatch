@@ -746,7 +746,7 @@ const hypnoticListing = (title, product_type, extra = {}) => ({ title, product_t
 describe("store-filters/hypnotic-polish — isHypnoticPolishPolish", () => {
   it("accepts polishes, including a *PRE-ORDER* listing", () => {
     for (const title of ["ILNP - Turquoise Water", "*PRE-ORDER* ILNP - Molten", "Cosmic Polish - Star Garnet (Magnetic)"]) {
-      assert.notEqual(isHypnoticPolishPolish(hypnoticListing(title, "Nail Polish")), false, title);
+      assert.strictEqual(isHypnoticPolishPolish(hypnoticListing(title, "Nail Polish")), null, title);
     }
     assert.equal(isHypnoticPolishPolish(hypnotic("*PRE-ORDER* ILNP - Molten")), null);
   });
@@ -827,6 +827,11 @@ describe("HypnoticPolishShopify — connector over the fixture", () => {
     assert.ok(byName("Bee's Knees", "The Pond Spirit"));
     const topCoat = byName("Starrily", "Eclipse");
     assert.equal(topCoat.normalized.productCategory, "top_coat");
+    // product_type "Nail Polish" with both "|| Top Coat" and "|| Topper" tags: the tags decide,
+    // and topper beats coat wording. (No fixture polish carries only the Top Coat tag.)
+    const tagged = byName("KBShimmer", "In A Flurry");
+    assert.ok(tagged, "KBShimmer - In A Flurry");
+    assert.equal(tagged.normalized.productCategory, "topper");
     assert.ok(records.every((r) => !String(r.normalized.name).includes("PRE-ORDER")));
   });
 });

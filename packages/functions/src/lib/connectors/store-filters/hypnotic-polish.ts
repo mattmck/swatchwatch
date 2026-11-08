@@ -4,8 +4,8 @@ import type { StoreFilterProduct } from "./types.js";
  * Hypnotic Polish (hypnoticpolish.com) product filter.
  *
  * Hypnotic Polish is an EU multi-brand retailer (metadata.kind = "retailer", EUR, 998 products
- * from 16 vendors on 2026-11-08). Its `product_type` is "Nail Polish" on polishes and "Top Coat",
- * "Base Coat", "Topper" or "Treatment" on the coats, which the generic gate classifies with
+ * from 16 vendors on 2026-11-08). Its `product_type` is "Nail Polish" on polishes and "Top Coat"
+ * or "Base Coat" on the coats (toppers and treatments come from names and tags), which the generic gate classifies with
  * their category. This filter only removes what the generic gate would let through:
  *
  * - `Cuticle Treatment` and `Accessories` product types (cuticle care, magnets, brushes);
