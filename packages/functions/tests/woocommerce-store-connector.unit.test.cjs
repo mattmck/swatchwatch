@@ -248,6 +248,17 @@ describe("WooCommerceStoreConnector: fixture", () => {
     assert.equal(brand.normalized.vendorCode, "RET-998877");
   });
 
+  it("drops a mystery or grab bag before the category gate, even under Nail Polish", async () => {
+    const bags = ["Mystery Bag", "Halloween Grab Bag", "Surprise Bag of Polish", "Blind Bag Nail Polish"].map((name, i) => ({
+      ...SAMPLE[0],
+      id: 6000 + i,
+      name,
+    }));
+    const { fetchImpl } = stubFetch({ [pageUrl(1)]: JSON.stringify([...bags, SAMPLE[0]]) });
+    const result = await connector(fetchImpl).instance.pullProducts(PULL);
+    assert.deepEqual(result.records.map((record) => record.externalId), ["4211"]);
+  });
+
   it("fails the pull on a Store API error status", async () => {
     const { fetchImpl } = stubFetch({ [pageUrl(1)]: { status: 403, body: "" } });
     await assert.rejects(connector(fetchImpl).instance.pullProducts(PULL), /Store API request failed: HTTP 403/);

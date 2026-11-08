@@ -70,6 +70,7 @@ import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
 import { ProductFeedConnector } from "../lib/connectors/product-feed";
 import { WooCommerceStoreConnector } from "../lib/connectors/woocommerce-store";
 import { SitemapJsonLdConnector } from "../lib/connectors/sitemap-jsonld";
+import { BigCartelConnector } from "../lib/connectors/big-cartel";
 import { isFeatureEnabled } from "../lib/feature-flags";
 import {
   ConnectorCheckpointSupersededError,
@@ -194,6 +195,12 @@ const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> 
   },
   // The Store API under data_source.base_url; robots.txt is checked before any product request.
   WooCommerce: (source, baseUrl, settings) => new WooCommerceStoreConnector(source, baseUrl, settings),
+  // The v0 API at api.bigcartel.com/{metadata.subdomain}. A Big Cartel product names no maker, so
+  // metadata.brand is required: a record is never given another brand (no Holo Taco fallback).
+  BigCartel: (source, baseUrl, settings) => {
+    if (!settings.brand) throw new Error(`BigCartel source ${source} has no metadata.brand`);
+    return new BigCartelConnector(source, baseUrl, settings);
+  },
 };
 
 function hasRunnableConnector(source: SupportedConnectorSource): boolean {
@@ -204,7 +211,8 @@ function isRunnableConnectorSource(value: string): value is SupportedConnectorSo
   return isSupportedSource(value) && hasRunnableConnector(value);
 }
 
-function createConnector(
+/** The connector for a source (exported for tests); throws when its protocol has none or its settings are incomplete. */
+export function createConnector(
   source: SupportedConnectorSource,
   baseUrl: string | null | undefined,
   settings: SourceSettings

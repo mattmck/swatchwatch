@@ -17,6 +17,7 @@ export type SupportedConnectorSource =
   | "ClionadhShopify"
   | "CndShopify"
   | "ColorClubShopify"
+  | "ColoresDeCarolBigCartel"
   | "CosIng"
   | "CoteShopify"
   | "CrackedPolishShopify"
@@ -34,6 +35,7 @@ export type SupportedConnectorSource =
   | "GS1Lookup"
   | "GardenPathLacquersShopify"
   | "GlamPolishShopify"
+  | "GlistenAndGlowBigCartel"
   | "GreatLakesLacquerShopify"
   | "HarlowAndCoShopify"
   | "HoloTacoShopify"
@@ -67,10 +69,13 @@ export type SupportedConnectorSource =
   | "PacificaShopify"
   | "PahlishShopify"
   | "PaintItPrettyPolishShopify"
+  | "PaintedPolishBigCartel"
   | "PenelopeLuzShopify"
   | "PicturePolishWooCommerce"
   | "PiggyPaintShopify"
+  | "PoetryCowgirlBigCartel"
   | "PolishPickupShopify"
+  | "PotionPolishBigCartel"
   | "PotionPolishShopify"
   | "PrismParadeShopify"
   | "RakutenAdvertising"
@@ -104,6 +109,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   ClionadhShopify: "Shopify",
   CndShopify: "Shopify",
   ColorClubShopify: "Shopify",
+  ColoresDeCarolBigCartel: "BigCartel",
   CosIng: "GS1",
   CoteShopify: "Shopify",
   CrackedPolishShopify: "Shopify",
@@ -121,6 +127,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   GS1Lookup: "GS1",
   GardenPathLacquersShopify: "Shopify",
   GlamPolishShopify: "Shopify",
+  GlistenAndGlowBigCartel: "BigCartel",
   GreatLakesLacquerShopify: "Shopify",
   HarlowAndCoShopify: "Shopify",
   HoloTacoShopify: "HoloTaco",
@@ -154,10 +161,13 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   PacificaShopify: "Shopify",
   PahlishShopify: "Shopify",
   PaintItPrettyPolishShopify: "Shopify",
+  PaintedPolishBigCartel: "BigCartel",
   PenelopeLuzShopify: "Shopify",
   PicturePolishWooCommerce: "WooCommerce",
   PiggyPaintShopify: "Shopify",
+  PoetryCowgirlBigCartel: "BigCartel",
   PolishPickupShopify: "Shopify",
+  PotionPolishBigCartel: "BigCartel",
   PotionPolishShopify: "Shopify",
   PrismParadeShopify: "Shopify",
   RakutenAdvertising: "Custom",
@@ -192,6 +202,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "ClionadhShopify",
   "CndShopify",
   "ColorClubShopify",
+  "ColoresDeCarolBigCartel",
   "CosIng",
   "CoteShopify",
   "CrackedPolishShopify",
@@ -209,6 +220,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "GS1Lookup",
   "GardenPathLacquersShopify",
   "GlamPolishShopify",
+  "GlistenAndGlowBigCartel",
   "GreatLakesLacquerShopify",
   "HarlowAndCoShopify",
   "HoloTacoShopify",
@@ -242,10 +254,13 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "PacificaShopify",
   "PahlishShopify",
   "PaintItPrettyPolishShopify",
+  "PaintedPolishBigCartel",
   "PenelopeLuzShopify",
   "PicturePolishWooCommerce",
   "PiggyPaintShopify",
+  "PoetryCowgirlBigCartel",
   "PolishPickupShopify",
+  "PotionPolishBigCartel",
   "PotionPolishShopify",
   "PrismParadeShopify",
   "RakutenAdvertising",

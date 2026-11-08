@@ -265,7 +265,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     false,
-    '{"priority":"medium","mvp":"no","notes":"Potion Polish store. Moved to Big Cartel (/products.json returns a bare array with name/permalink as of 2026-10-14), which the Shopify connector cannot read; disabled."}'::jsonb
+    '{"priority":"medium","mvp":"no","notes":"Potion Polish store. Moved to Big Cartel (/products.json returns a bare array with name/permalink as of 2026-10-14), which the Shopify connector cannot read; disabled. Superseded by PotionPolishBigCartel."}'::jsonb
   ),
   (
     'StarrilyShopify',
@@ -744,6 +744,51 @@ VALUES
     NULL,
     false,
     '{"brand": "KBShimmer", "currency": "USD", "priority": "high", "mvp": "no", "pendingApproval": true, "blocked": "cloudflare", "notes": "KBShimmer brand store (US, USD) on WordPress. KNOWN BLOCKED: every path answers a Cloudflare challenge (403) to automated requests (November 2026 probe), so the Store API cannot be read. Registered disabled so the admin console lists it as a known-blocked source; KBShimmer is reached through resellers instead (Harlow & Co, Beyond Polish; docs/brand-sources-evaluation-2026-11.md). Enable only with KBShimmer''s written OK recorded here as ''Acceptable use confirmed by <name, role> at KBShimmer on <date> via <channel>: <summary>'' and access that does not hit the challenge.", "verification": {"checkedAt": "2026-11-08", "storeApi": false, "cloudflareChallenge": true, "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'PaintedPolishBigCartel',
+    'api',
+    'https://paintedpolish.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    false,
+    '{"brand": "Painted Polish", "subdomain": "paintedpolish", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Painted Polish brand store on Big Cartel, read through the Big Cartel v0 API (BigCartel connector, brand sources plan Task 17). Painted Polish''s own domain answered 404 for /products.json on 2026-11-08 and sits behind Cloudflare; the v0 API answers under the subdomain paintedpolish. Verified 2026-11-08: https://api.bigcartel.com/paintedpolish/products.json answered 200 with 287 products (135 active, 152 sold-out); the shared connector gate (categories as product type and tags) keeps 47 of them, so a store filter may be needed before enabling. The store currency comes from the API''s store.json at ingest time. Terms: not read yet. REGISTERED DISABLED AND PENDING: the owner reads Big Cartel''s API License Agreement (linked from developers.bigcartel.com/api/v0) and the store''s terms and asks for the OK, records it here as ''Acceptable use confirmed by <name, role> at Painted Polish on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "productsJsonUrl": "https://api.bigcartel.com/paintedpolish/products.json", "products": 287, "connectorGatePass": 47, "storeJson": null, "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'PotionPolishBigCartel',
+    'api',
+    'https://www.potionpolish.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    false,
+    '{"brand": "Potion Polish", "subdomain": "potionpolish", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Potion Polish brand store on Big Cartel, read through the Big Cartel v0 API (BigCartel connector, brand sources plan Task 17). Replaces the disabled PotionPolishShopify row (the store moved from Shopify to Big Cartel). Verified 2026-11-08: https://api.bigcartel.com/potionpolish/products.json answered 200 with 35 products (33 active, 2 sold-out); the shared connector gate (categories as product type and tags) keeps 0 of them, so a store filter may be needed before enabling. The store currency comes from the API''s store.json at ingest time. Terms: not read yet. REGISTERED DISABLED AND PENDING: the owner reads Big Cartel''s API License Agreement (linked from developers.bigcartel.com/api/v0) and the store''s terms and asks for the OK, records it here as ''Acceptable use confirmed by <name, role> at Potion Polish on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "productsJsonUrl": "https://api.bigcartel.com/potionpolish/products.json", "products": 35, "connectorGatePass": 0, "storeJson": null, "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'ColoresDeCarolBigCartel',
+    'api',
+    'https://coloresdecarol.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    false,
+    '{"brand": "Colores de Carol", "subdomain": "coloresdecarol", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Colores de Carol brand store on Big Cartel, read through the Big Cartel v0 API (BigCartel connector, brand sources plan Task 17). The store''s own domain sits behind Cloudflare; the v0 API answers under the subdomain coloresdecarol. Verified 2026-11-08: https://api.bigcartel.com/coloresdecarol/products.json answered 200 with 265 products (223 active, 42 sold-out); the shared connector gate (categories as product type and tags) keeps 223 of them, so a store filter may be needed before enabling. The store currency comes from the API''s store.json at ingest time. Terms: not read yet. REGISTERED DISABLED AND PENDING: the owner reads Big Cartel''s API License Agreement (linked from developers.bigcartel.com/api/v0) and the store''s terms and asks for the OK, records it here as ''Acceptable use confirmed by <name, role> at Colores de Carol on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "productsJsonUrl": "https://api.bigcartel.com/coloresdecarol/products.json", "products": 265, "connectorGatePass": 223, "storeJson": null, "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'GlistenAndGlowBigCartel',
+    'api',
+    'https://glistenandglow.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    false,
+    '{"brand": "Glisten & Glow", "subdomain": "glistenandglow", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Glisten & Glow brand store on Big Cartel, read through the Big Cartel v0 API (BigCartel connector, brand sources plan Task 17). Verified 2026-11-08: https://api.bigcartel.com/glistenandglow/products.json answered 200 with 278 products (278 active); the shared connector gate (categories as product type and tags) keeps 99 of them, so a store filter may be needed before enabling. The store currency comes from the API''s store.json at ingest time. Terms: not read yet. REGISTERED DISABLED AND PENDING: the owner reads Big Cartel''s API License Agreement (linked from developers.bigcartel.com/api/v0) and the store''s terms and asks for the OK, records it here as ''Acceptable use confirmed by <name, role> at Glisten & Glow on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "productsJsonUrl": "https://api.bigcartel.com/glistenandglow/products.json", "products": 278, "connectorGatePass": 99, "storeJson": null, "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'PoetryCowgirlBigCartel',
+    'api',
+    'https://poetrycowgirlnailpolish.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    false,
+    '{"brand": "Poetry Cowgirl Nail Polish", "subdomain": "poetrycowgirlnailpolish", "priority": "low", "mvp": "no", "pendingApproval": true, "notes": "Poetry Cowgirl Nail Polish brand store on Big Cartel, read through the Big Cartel v0 API (BigCartel connector, brand sources plan Task 17). Verified 2026-11-08: https://api.bigcartel.com/poetrycowgirlnailpolish/products.json answered 200 with 207 products (132 active, 75 sold-out); the shared connector gate (categories as product type and tags) keeps 9 of them, so a store filter may be needed before enabling. The store currency comes from the API''s store.json at ingest time. Terms: not read yet. REGISTERED DISABLED AND PENDING: the owner reads Big Cartel''s API License Agreement (linked from developers.bigcartel.com/api/v0) and the store''s terms and asks for the OK, records it here as ''Acceptable use confirmed by <name, role> at Poetry Cowgirl Nail Polish on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "productsJsonUrl": "https://api.bigcartel.com/poetrycowgirlnailpolish/products.json", "products": 207, "connectorGatePass": 9, "storeJson": null, "termsScrapingClause": null}}'::jsonb
   ),
   (
     'CosIng',

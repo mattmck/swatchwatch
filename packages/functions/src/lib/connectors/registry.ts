@@ -48,6 +48,14 @@ export const CONNECTOR_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   "PicturePolishWooCommerce",
   "IlnpWooCommerce",
   "KbshimmerWooCommerce",
+  // Big Cartel stores through the v0 API (brand sources plan, Task 17): products.json answered 200
+  // for all five on 2026-11-08; the owner reads Big Cartel's API License Agreement and each
+  // store's terms before enabling one.
+  "PaintedPolishBigCartel",
+  "PotionPolishBigCartel",
+  "ColoresDeCarolBigCartel",
+  "GlistenAndGlowBigCartel",
+  "PoetryCowgirlBigCartel",
 ]);
 
 export function protocolOf(source: SupportedConnectorSource): ConnectorProtocol {

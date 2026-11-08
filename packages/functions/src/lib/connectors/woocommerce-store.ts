@@ -25,6 +25,7 @@ import type { SourceSettings } from "../source-settings.js";
 import { isRetailerSetSegment, parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
 import { isBundle } from "./shopify-generic.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
+import { MYSTERY_TITLE_REGEX } from "./store-filters/shared.js";
 import type { StoreFilterProduct } from "./store-filters/types.js";
 import {
   ConnectorProductRecord,
@@ -183,7 +184,8 @@ interface GatedProduct {
 type GateOutcome = { accept: true; gated: GatedProduct } | { accept: false; vendorless?: true };
 
 /**
- * Whether a Store API product is ingested, gated like a Shopify product: an id and a name; a
+ * Whether a Store API product is ingested, gated like a Shopify product: an id and a name; no
+ * mystery or grab-bag title (`MYSTERY_TITLE_REGEX`, before the category gate); a
  * brand (`settings.brand`, else `brands[0]`, else the "Brand" attribute; none = skipped, counted
  * as vendorless); the store filter of the source (`shopifyStoreProductVerdict`, keyed by source
  * name) over `wooStoreFilterProduct`, else the shared gate (`classifyIngestedProduct` over the
@@ -195,6 +197,8 @@ export function gateWooStoreProduct(product: WooStoreProduct, source: string, se
   const externalId = plain(product.id);
   const title = plain(product.name);
   if (!externalId || !title) return { accept: false };
+  // A mystery or grab bag is never one shade, even under a "Nail Polish" category.
+  if (MYSTERY_TITLE_REGEX.test(title)) return { accept: false };
   const brand = settings.brand ?? names(product.brands)[0] ?? brandAttribute(product);
   if (!brand) return { accept: false, vendorless: true };
 
