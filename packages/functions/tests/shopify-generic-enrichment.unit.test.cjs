@@ -116,7 +116,10 @@ describe("ShopifyGenericConnector — page limit (SHOPIFY_CONNECTOR_MAX_PAGES / 
   const { readSourceSettings } = require("../dist/lib/source-settings");
   let originalFetch;
   let pagesRequested;
+  let originalDelay;
   beforeEach(() => {
+    originalDelay = process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS;
+    process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS = "0";
     originalFetch = globalThis.fetch;
     pagesRequested = [];
     // A store with 35 full pages of 250 products and a short 36th page.
@@ -144,6 +147,8 @@ describe("ShopifyGenericConnector — page limit (SHOPIFY_CONNECTOR_MAX_PAGES / 
   });
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    if (originalDelay === undefined) delete process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS;
+    else process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS = originalDelay;
   });
 
   const pullAll = (settings) =>
@@ -166,5 +171,20 @@ describe("ShopifyGenericConnector — page limit (SHOPIFY_CONNECTOR_MAX_PAGES / 
     assert.equal(pagesRequested.length, 36);
     assert.equal(result.metadata.fetchedProductCount, 35 * 250 + 10);
     assert.equal(result.catalog.complete, true);
+  });
+
+  it("waits SHOPIFY_CONNECTOR_PAGE_DELAY_MS between consecutive pages, not after the last", async () => {
+    process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS = "40";
+    const stamps = [];
+    const inner = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      stamps.push(Date.now());
+      return inner(url);
+    };
+    await pullAll(readSourceSettings({ kind: "retailer", maxPages: 3 }));
+    assert.equal(stamps.length, 3);
+    for (let i = 1; i < stamps.length; i += 1) {
+      assert.ok(stamps[i] - stamps[i - 1] >= 38, `gap ${stamps[i] - stamps[i - 1]}ms`);
+    }
   });
 });

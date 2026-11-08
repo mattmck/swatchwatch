@@ -257,6 +257,7 @@ The preflight should return 204 with the app's fixed `Access-Control-Allow-Metho
 | `shopify_connector_request_timeout_ms` | `45000` | Function App setting `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` — Shopify connector request timeout, 5000-180000 |
 | `shopify_connector_max_retries` | `2` | Function App setting `SHOPIFY_CONNECTOR_MAX_RETRIES` — Shopify connector retries per request, 0-6 |
 | `shopify_connector_retry_base_delay_ms` | `1000` | Function App setting `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` — Shopify connector linear backoff base, 100-30000 |
+| `shopify_connector_page_delay_ms` | `1000` | Function App setting `SHOPIFY_CONNECTOR_PAGE_DELAY_MS` — Shopify connector pause between page requests to one store, 0-10000 |
 | `shopify_connector_max_pages` | `30` | Function App setting `SHOPIFY_CONNECTOR_MAX_PAGES` — Shopify connector pages of 250 products per run, 1-200 (a source overrides it with `metadata.maxPages`) |
 | `source_image_container` | `source-images` | Function App setting `SOURCE_IMAGE_CONTAINER` — Blob container for catalog images and their thumbnail variants (the only container public v2 ids read) |
 | `source_image_max_edge_px` | `2048` | Function App setting `SOURCE_IMAGE_MAX_EDGE_PX` — Long edge above which catalog images are downscaled before storage, 256-8192 |

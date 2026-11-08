@@ -655,6 +655,11 @@ export class ShopifyGenericConnector implements ProductConnector {
     const maxPages = this.settings?.maxPages ?? DEFAULT_MAX_SHOPIFY_PAGES;
 
     for (let page = 1; page <= maxPages; page += 1) {
+      if (page > 1) {
+        // Politeness: at least SHOPIFY_CONNECTOR_PAGE_DELAY_MS between requests to the store (read per run).
+        const delayMs = parseIntEnv(process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS, 1000, 0, 10000);
+        if (delayMs > 0) await sleep(delayMs);
+      }
       const params = new URLSearchParams({
         limit: String(SHOPIFY_PAGE_LIMIT),
         page: String(page),

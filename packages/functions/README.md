@@ -1456,6 +1456,7 @@ Shared by vision hex detection (sync and batch), label OCR parsing and the hex e
 | `SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS` | `45000` | Per-request timeout for Shopify `products.json` downloads. |
 | `SHOPIFY_CONNECTOR_MAX_RETRIES` | `2` | Retries for transient Shopify request errors (total attempts = retries + 1). |
 | `SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS` | `1000` | Linear backoff base delay for Shopify retries. |
+| `SHOPIFY_CONNECTOR_PAGE_DELAY_MS` | `1000` | Pause between consecutive `products.json` page requests to one store (clamped 0–10000; `0` disables). |
 | `SHOPIFY_CONNECTOR_MAX_PAGES` | `30` | Pages of 250 products one generic Shopify run reads (clamped 1–200). A source with more pages sets `data_source.metadata.maxPages` (Beyond Polish: `100`); a run that stops at the limit reports its catalog as incomplete, so no listing is marked missing. |
 
 ### Catalog images (`src/lib/blob-storage.ts`, `src/lib/gallery-dedupe.ts`)
