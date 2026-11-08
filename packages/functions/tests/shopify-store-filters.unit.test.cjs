@@ -17,6 +17,7 @@ const { isHypnoticPolishPolish } = require("../dist/lib/connectors/store-filters
 const { isLondontownPolish } = require("../dist/lib/connectors/store-filters/londontown");
 const { isManucuristPolish } = require("../dist/lib/connectors/store-filters/manucurist");
 const { isOliveAndJunePolish } = require("../dist/lib/connectors/store-filters/olive-and-june");
+const { isPiggyPaintPolish } = require("../dist/lib/connectors/store-filters/piggy-paint");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -401,6 +402,7 @@ describe("store-filters — shopifyStoreProductVerdict", () => {
       "ManucuristShopify",
       "OliveAndJuneShopify",
       "PahlishShopify",
+      "PiggyPaintShopify",
       "PolishPickupShopify",
       "StellaChromaShopify",
       "SweetAndSourLacquerShopify",
@@ -1080,5 +1082,58 @@ describe("store-filters/olive-and-june — isOliveAndJunePolish", () => {
 
   it("is registered for OliveAndJuneShopify", () => {
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.OliveAndJuneShopify, isOliveAndJunePolish);
+  });
+});
+
+// piggypaint.com/products.json, fetched 2026-11-08 (250 products on page 1), trimmed to 82.
+// Piggy Paint is a kids' polish store that also sells toys, hair accessories and bath products;
+// its SOPHi line's shade sets are typed Nail Polishes like the single shades.
+const PIGGY_PAINT = require("./fixtures/piggy-paint-products.json").products;
+
+describe("store-filters/piggy-paint — isPiggyPaintPolish", () => {
+  it("with the filter keeps 10 of the 82 fixture products (the generic gate keeps 24, 16 of them sets)", () => {
+    assert.equal(PIGGY_PAINT.length, 82);
+    // 8 single Nail Polishes and the 2 polish pens (empty product_type).
+    assert.equal(gateAccepts(PIGGY_PAINT, "PiggyPaintShopify").length, 10);
+    assert.equal(gateAccepts(PIGGY_PAINT, "NotARealShopify").length, 24);
+  });
+
+  it("keeps single polishes and the polish pens", () => {
+    for (const title of [
+      "Bossy Blueberry - Scented Blue",
+      "Bright Side Babe - Bright Fuchsia Pink",
+      "Made Me Blush - Blush Pink",
+      "Mint & Mingle - Pale Mint Green",
+      "On Cloud 9 - Soft Light Blue",
+      "Soft Launch - Soft Lavender with Pink",
+      "Yippee Yellow Piggy Paint Pen - Kids Non-toxic Nail Polish",
+    ]) {
+      const product = storeProduct(PIGGY_PAINT, title);
+      assert.equal(isPiggyPaintPolish(product), true, title);
+      assert.equal(gateKeeps("PiggyPaintShopify", product), true, title);
+    }
+  });
+
+  it("drops shade sets, gift sets, wholesale, press-ons, nail art kits, toys and hair accessories", () => {
+    for (const title of [
+      "Core Collection - SOPHi - Non-toxic Nail Polish", // shade set (description lists the shades)
+      "So Peachy Pink - SOPHi - Non-toxic Nail Polish", // shade trio
+      "Kiss of Color - SOPHi - Non-Toxic Nail Polish", // shade set, empty product_type
+      "Sofia the First 4-Polish Box Set - Kids Non-toxic Nail Polish", // gift set
+      "Santa's Pampered Piggies - Wholesale", // wholesale
+      "Merry Mistletoe Press-on Nails", // press-ons (typed Nail Care)
+      "Ready Set Rainbow! Bundle", // nail art kit bundle
+      "Sweetheart 2-pack Piggy Pen Bundle", // pen bundle
+      "Ivy Doll with Brown Hair - Tikiri Toys", // toy
+      "Apple Gemstone Bow Clip - Hair Bows - Back To School", // hair accessory
+    ]) {
+      const product = storeProduct(PIGGY_PAINT, title);
+      assert.equal(isPiggyPaintPolish(product), false, title);
+      assert.equal(gateKeeps("PiggyPaintShopify", product), false, title);
+    }
+  });
+
+  it("is registered for PiggyPaintShopify", () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.PiggyPaintShopify, isPiggyPaintPolish);
   });
 });
