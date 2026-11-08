@@ -21,13 +21,15 @@ function isCountMap(value: Record<string, unknown>): value is Record<string, num
  * Folds one batch report into the totals (a new object; neither input changes):
  * numbers are summed, count maps (`{ MakeupAPI: 3 }`) are summed per key, other objects are
  * merged key by key (later batches win), and lists are concatenated up to
- * `MAX_BACKFILL_LIST_ITEMS` with their full length kept in `<key>Count`. Keys in `skip` (the
- * cursor, `dryRun`) and booleans/strings/nulls are left out.
+ * `MAX_BACKFILL_LIST_ITEMS` (lists named in `options.uncapped` keep every item) with their full
+ * length kept in `<key>Count`. Keys in `skip` (the cursor, `dryRun`) and booleans/strings/nulls
+ * are left out.
  */
 export function mergeBackfillTotals(
   totals: BackfillReport,
   batch: BackfillReport,
-  skip: readonly string[] = []
+  skip: readonly string[] = [],
+  options: { uncapped?: readonly string[] } = {}
 ): BackfillReport {
   const next: BackfillReport = { ...totals };
   for (const [key, value] of Object.entries(batch)) {
@@ -37,7 +39,10 @@ export function mergeBackfillTotals(
       next[key] = (typeof current === "number" ? current : 0) + value;
     } else if (Array.isArray(value)) {
       const kept = Array.isArray(current) ? current : [];
-      next[key] = [...kept, ...value].slice(0, MAX_BACKFILL_LIST_ITEMS);
+      const merged = [...kept, ...value];
+      // A list named in `uncapped` is the operator's only record of its items (a removal job's
+      // blob failures: the rows are gone, the server log has counts only), so every item is kept.
+      next[key] = options.uncapped?.includes(key) ? merged : merged.slice(0, MAX_BACKFILL_LIST_ITEMS);
       const countKey = `${key}Count`;
       next[countKey] = (typeof next[countKey] === "number" ? (next[countKey] as number) : 0) + value.length;
     } else if (isPlainObject(value)) {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { MAX_BACKFILL_LIST_ITEMS, describe, it } from "node:test";
 import { MAX_BACKFILL_LIST_ITEMS, mergeBackfillTotals, parseSourceNames, readBackfillCursor } from "./admin-backfills";
 
 describe("mergeBackfillTotals", () => {
@@ -27,6 +27,14 @@ describe("mergeBackfillTotals", () => {
     totals = mergeBackfillTotals(totals, { failures: [{ imageId: -1 }] });
     assert.equal((totals.failures as unknown[]).length, MAX_BACKFILL_LIST_ITEMS);
     assert.equal(totals.failuresCount, MAX_BACKFILL_LIST_ITEMS + 1);
+  });
+
+  it("keeps every item of an uncapped list", () => {
+    const many = Array.from({ length: MAX_BACKFILL_LIST_ITEMS + 5 }, (_, i) => ({ imageId: i }));
+    const totals = mergeBackfillTotals({}, { failures: many, kept: many }, [], { uncapped: ["failures"] });
+    assert.equal((totals.failures as unknown[]).length, MAX_BACKFILL_LIST_ITEMS + 5);
+    assert.equal(totals.failuresCount, MAX_BACKFILL_LIST_ITEMS + 5);
+    assert.equal((totals.kept as unknown[]).length, MAX_BACKFILL_LIST_ITEMS);
   });
 
   it("does not change its inputs", () => {

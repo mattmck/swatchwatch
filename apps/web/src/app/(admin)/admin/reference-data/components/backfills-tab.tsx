@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { runAdminBackfillBatch } from "@/lib/api";
+import { ApiError, runAdminBackfillBatch } from "@/lib/api";
 import {
   type BackfillReport,
+  MAX_BACKFILL_LIST_ITEMS,
   mergeBackfillTotals,
   parseSourceNames,
   readBackfillCursor,
@@ -39,6 +40,8 @@ interface BackfillDefinition {
   maps?: { key: string; label: string; format?: (value: unknown) => string }[];
   /** List-valued report keys (findings to review). */
   lists?: { key: string; label: string; format: (item: Record<string, unknown>) => string }[];
+  /** Lists kept whole across the run (every item in the downloaded report; the display stays capped). */
+  uncappedLists?: string[];
   applyConfirm: string;
 }
 
@@ -164,6 +167,8 @@ const BACKFILLS: BackfillDefinition[] = [
       { key: "kept", label: "Kept", format: (k) => `image ${k.imageId}: ${k.reason}` },
       { key: "failures", label: "Failures", format: (f) => `image ${f.imageId}: ${f.error}` },
     ],
+    // A blob failure names an orphaned blob whose row is already gone: the report is the only record.
+    uncappedLists: ["failures"],
     applyConfirm:
       "Delete this source's catalog images, rows and blobs? This cannot be undone. The source must be disabled first; labeled images are kept.",
   },
@@ -313,6 +318,13 @@ const BACKFILLS: BackfillDefinition[] = [
 
 type RunStatus = "idle" | "running" | "done" | "stopped" | "failed";
 
+/** The partial batch report an `ApiError` body carries as `result` (object), or null. */
+function partialBatchResult(err: unknown): BackfillReport | null {
+  if (!(err instanceof ApiError) || typeof err.body !== "object" || err.body === null) return null;
+  const result = (err.body as { result?: unknown }).result;
+  return typeof result === "object" && result !== null && !Array.isArray(result) ? (result as BackfillReport) : null;
+}
+
 function parseNonNegativeInt(text: string): number | null {
   const trimmed = text.trim();
   if (!/^\d+$/.test(trimmed)) return null;
@@ -400,7 +412,9 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
           ...options,
           ...(sources ? { sources } : {}),
         });
-        runTotals = mergeBackfillTotals(runTotals, report, [definition.nextKey, "dryRun"]);
+        runTotals = mergeBackfillTotals(runTotals, report, [definition.nextKey, "dryRun"], {
+          uncapped: definition.uncappedLists,
+        });
         runBatches += 1;
         const next = readBackfillCursor(report, definition.nextKey);
         setTotals(runTotals);
@@ -417,7 +431,20 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
         }
       }
     } catch (err) {
-      setCursor(after);
+      // A batch that stopped part-way (the removal job's source re-enabled mid-batch answers 409
+      // with `result`) still did work: fold it in and resume from its cursor, not the batch start.
+      const partial = partialBatchResult(err);
+      if (partial) {
+        runTotals = mergeBackfillTotals(runTotals, partial, [definition.nextKey, "dryRun"], {
+          uncapped: definition.uncappedLists,
+        });
+        setTotals(runTotals);
+        setBatches(runBatches + 1);
+        const resumeAt = readBackfillCursor(partial, definition.nextKey);
+        setCursor(resumeAt ?? after);
+      } else {
+        setCursor(after);
+      }
       setError(err instanceof Error ? err.message : "Batch failed");
       setStatus("failed");
     }
@@ -589,6 +616,7 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
           {(definition.lists ?? []).map((list) => {
             const items = Array.isArray(totals[list.key]) ? (totals[list.key] as Record<string, unknown>[]) : [];
             const count = Number(totals[`${list.key}Count`] ?? items.length);
+            const shown = items.slice(0, MAX_BACKFILL_LIST_ITEMS);
             if (count === 0) return null;
             return (
               <div key={list.key} className="space-y-1">
@@ -596,12 +624,15 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
                   {list.label} <span className="text-muted-foreground">({count.toLocaleString()})</span>
                 </h4>
                 <ul className="max-h-40 space-y-0.5 overflow-y-auto break-all text-xs">
-                  {items.map((item, index) => (
+                  {shown.map((item, index) => (
                     <li key={index}>{list.format(item)}</li>
                   ))}
                 </ul>
-                {count > items.length && (
-                  <p className="text-xs text-muted-foreground">First {items.length} shown; the full list is in the server log.</p>
+                {count > shown.length && (
+                  <p className="text-xs text-muted-foreground">
+                    First {shown.length} shown;{" "}
+                    {items.length > shown.length ? "the full list is in the downloaded report." : "the rest were counted, not kept (the server log has them)."}
+                  </p>
                 )}
               </div>
             );
