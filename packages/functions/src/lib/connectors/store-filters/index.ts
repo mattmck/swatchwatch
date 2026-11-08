@@ -7,6 +7,7 @@ import { isLondontownPolish } from "./londontown.js";
 import { isManucuristPolish } from "./manucurist.js";
 import { isOliveAndJunePolish } from "./olive-and-june.js";
 import { isPahlishPolish } from "./pahlish.js";
+import { isPenelopeLuzPolish } from "./penelope-luz.js";
 import { isPiggyPaintPolish } from "./piggy-paint.js";
 import { isPolishPickupPolish } from "./polish-pickup.js";
 import { isStellaChromaPolish } from "./stella-chroma.js";
@@ -37,6 +38,7 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   ManucuristShopify: isManucuristPolish,
   OliveAndJuneShopify: isOliveAndJunePolish,
   PiggyPaintShopify: isPiggyPaintPolish,
+  PenelopeLuzShopify: isPenelopeLuzPolish,
   WetNWildShopify: isWetNWildPolish,
 };
 

@@ -19,6 +19,7 @@ const { isManucuristPolish } = require("../dist/lib/connectors/store-filters/man
 const { isOliveAndJunePolish } = require("../dist/lib/connectors/store-filters/olive-and-june");
 const { isPiggyPaintPolish } = require("../dist/lib/connectors/store-filters/piggy-paint");
 const { isWetNWildPolish } = require("../dist/lib/connectors/store-filters/wet-n-wild");
+const { isPenelopeLuzPolish } = require("../dist/lib/connectors/store-filters/penelope-luz");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -403,6 +404,7 @@ describe("store-filters — shopifyStoreProductVerdict", () => {
       "ManucuristShopify",
       "OliveAndJuneShopify",
       "PahlishShopify",
+      "PenelopeLuzShopify",
       "PiggyPaintShopify",
       "PolishPickupShopify",
       "StellaChromaShopify",
@@ -1189,5 +1191,61 @@ describe("store-filters/wet-n-wild — isWetNWildPolish", () => {
 
   it("is registered for WetNWildShopify", () => {
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.WetNWildShopify, isWetNWildPolish);
+  });
+});
+
+// penelopeluz.com/products.json, fetched 2026-11-08 (216 products, one page), trimmed to 78 with
+// body_html cut to 1,200 characters (the filter reads the DESCRIPTION section after the store's
+// boilerplate). Every product_type is empty and the page is all single shades except the cuticle oil.
+const PENELOPE_LUZ = require("./fixtures/penelope-luz-products.json").products;
+
+describe("store-filters/penelope-luz — isPenelopeLuzPolish", () => {
+  it("keeps 77 of the 78 fixture products (the generic gate keeps none)", () => {
+    assert.equal(PENELOPE_LUZ.length, 78);
+    const kept = gateAccepts(PENELOPE_LUZ, "PenelopeLuzShopify");
+    assert.equal(kept.length, 77);
+    assert.ok(!kept.some((product) => product.title === "Oilplux"));
+    assert.equal(gateAccepts(PENELOPE_LUZ, "NotARealShopify").length, 0);
+  });
+
+  it("keeps shades by their description, including ones whose names look like listings", () => {
+    for (const title of [
+      "Zarina", // magnetic
+      "Tinker Bell",
+      "Pixie Dust",
+      "Here Comes the Vultures", // sparkle shimmer and glitter
+      "Mystery", // a shade, not a mystery listing
+      "Inebriating Coat", // a shade, not a coat
+      "Deep Silent Complete", // no finish words: "The nail polish … is part of the Immortal Collection"
+    ]) {
+      const product = storeProduct(PENELOPE_LUZ, title);
+      assert.equal(isPenelopeLuzPolish(product), true, title);
+      assert.equal(gateKeeps("PenelopeLuzShopify", product), true, title);
+    }
+  });
+
+  it("drops the cuticle oil, whose description names no polish, finish or effect", () => {
+    assert.equal(isPenelopeLuzPolish(storeProduct(PENELOPE_LUZ, "Oilplux")), false);
+  });
+
+  it("drops sets, bundles, duos, trios, mystery boxes, gift cards and merch by title", () => {
+    const shadeBody = storeProduct(PENELOPE_LUZ, "Zarina").body_html;
+    for (const title of [
+      "Fly to Your Heart Collection Set", // set
+      "Immortal Bundle", // bundle
+      "Holo Duo", // duo
+      "Mermaid Trio", // trio
+      "Mystery Box", // grab bag
+      "Mystery Polish", // grab bag
+      "Gift Card", // gift card
+      "Penelope Luz Sticker", // merch
+      "Magnet", // tool
+    ]) {
+      assert.equal(isPenelopeLuzPolish({ title, product_type: "", tags: [], body_html: shadeBody }), false, title);
+    }
+  });
+
+  it("is registered for PenelopeLuzShopify", () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.PenelopeLuzShopify, isPenelopeLuzPolish);
   });
 });
