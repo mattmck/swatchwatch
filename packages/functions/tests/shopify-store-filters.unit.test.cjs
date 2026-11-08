@@ -15,6 +15,7 @@ const { isHarlowAndCoPolish } = require("../dist/lib/connectors/store-filters/ha
 const { isBeyondPolishPolish } = require("../dist/lib/connectors/store-filters/beyond-polish");
 const { isHypnoticPolishPolish } = require("../dist/lib/connectors/store-filters/hypnotic-polish");
 const { isLondontownPolish } = require("../dist/lib/connectors/store-filters/londontown");
+const { isManucuristPolish } = require("../dist/lib/connectors/store-filters/manucurist");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -396,6 +397,7 @@ describe("store-filters — shopifyStoreProductVerdict", () => {
       "HypnoticPolishShopify",
       "LemmingLacquerShopify",
       "LondontownShopify",
+      "ManucuristShopify",
       "PahlishShopify",
       "PolishPickupShopify",
       "StellaChromaShopify",
@@ -931,5 +933,92 @@ describe("store-filters/londontown — isLondontownPolish", () => {
 
   it("is registered for LondontownShopify", () => {
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.LondontownShopify, isLondontownPolish);
+  });
+});
+
+// manucurist.com/products.json, fetched 2026-11-08 (250 products on page 1), trimmed to 104.
+// product_type and titles are French; the same shade names come back as Green Flash gels.
+const MANUCURIST = require("./fixtures/manucurist-products.json").products;
+const LACQUER = "Vernis à ongles Green™";
+const GREEN_FLASH = "Semi-permanent LED Green Flash™";
+
+describe("store-filters/manucurist — isManucuristPolish", () => {
+  it("with the generic gate keeps 28 of the 104 fixture products (36 with includeGel)", () => {
+    assert.equal(MANUCURIST.length, 104);
+    // 23 Green lacquers, 3 kids' polishes, the Green base coat and glitter top coat.
+    const kept = gateAccepts(MANUCURIST, "ManucuristShopify");
+    assert.equal(kept.length, 28);
+    assert.ok(kept.every((product) => product.product_type !== GREEN_FLASH));
+    // + 5 Green Flash gel shades and the 3 Green Flash coats.
+    assert.equal(gateAccepts(MANUCURIST, "ManucuristShopify", { includeGel: true }).length, 36);
+  });
+
+  it("keeps the Green lacquers and the kids' polishes", () => {
+    for (const title of ["Emerald", "Amour", "Milky Matcha", "Grenat", "Glacé Jelly", "Freckles", "Prune"]) {
+      const product = storeProduct(MANUCURIST, title, LACQUER);
+      assert.equal(isManucuristPolish(product), true, title);
+      assert.equal(gateKeeps("ManucuristShopify", product), true, title);
+    }
+    assert.equal(isManucuristPolish(storeProduct(MANUCURIST, "Hector le Stégosaure")), true);
+  });
+
+  it("keeps the base and top coats whose remover tag the June blocklist rejects, with their category", () => {
+    for (const [title, category] of [
+      ["Base Coat Vitaminée Green™", "base_coat"],
+      ["Top Coat Pailleté", "top_coat"],
+    ]) {
+      const product = storeProduct(MANUCURIST, title, LACQUER);
+      assert.equal(isManucuristPolish(product), true, title);
+      const gate = gateShopifyProduct(product, "ManucuristShopify", readSourceSettings({}, "ManucuristShopify"));
+      assert.deepEqual([gate.accept, gate.category], [true, category], title);
+    }
+  });
+
+  it("drops gels, kits, gift sets, after-sales and upsell listings, removers, accessories and nail art", () => {
+    for (const [title, type] of [
+      ["Emerald", GREEN_FLASH], // gel
+      ["Top Coat Gel Xtrem Flash™", GREEN_FLASH], // gel coat
+      ["Starter Kit Coffret Cadeau Green™", LACQUER], // kit / gift box
+      ["Green™ Gift Set Holiday", LACQUER], // gift set
+      ["(SAV) Dissolvant Doux Green™", LACQUER], // after-sales replacement
+      ["Mini Active™ Duo", "Active"], // duo
+      ["Routine Ultimate - Ongles Jaunes", "Soins"], // care routine set
+      ["+ Sérum hydratant", "Soins"], // upsell add-on
+      ["Brosse à Ongles", "Accessoires"], // tool
+      ["Stickers Nail Art Halloween", "Nail art"], // nail art
+      ["Sac Boutique GM", ""], // shop bag
+    ]) {
+      const product = storeProduct(MANUCURIST, title, type);
+      assert.equal(isManucuristPolish(product), false, `${title} [${type}]`);
+      assert.equal(gateKeeps("ManucuristShopify", product), false, `${title} [${type}]`);
+    }
+  });
+
+  it("defers care products and untagged lacquer-typed listings to the generic gate, which drops them", () => {
+    for (const [title, type] of [
+      ["Dissolvant Doux", LACQUER], // remover
+      ["Dégraissant Vitaminé", LACQUER], // prep
+      ["Gouttes Séchantes", LACQUER], // drying drops
+      ["Soin durcisseur", "Soins"],
+      ["Active™ Shine Icy", "Active"],
+    ]) {
+      const product = storeProduct(MANUCURIST, title, type);
+      assert.equal(isManucuristPolish(product), null, `${title} [${type}]`);
+      assert.equal(gateKeeps("ManucuristShopify", product), false, `${title} [${type}]`);
+    }
+  });
+
+  it("keeps Green Flash gels and gel coats only with includeGel", () => {
+    const gel = storeProduct(MANUCURIST, "Sandstone", GREEN_FLASH);
+    const settings = readSourceSettings({ includeGel: true });
+    assert.equal(isManucuristPolish(gel, settings), true);
+    assert.equal(isManucuristPolish(storeProduct(MANUCURIST, "Top Coat Gel Xtrem Flash™", GREEN_FLASH), settings), true);
+    assert.equal(isManucuristPolish(storeProduct(MANUCURIST, "Lampe 18W", GREEN_FLASH), settings), null);
+    assert.equal(gateKeeps("ManucuristShopify", storeProduct(MANUCURIST, "Lampe 18W", GREEN_FLASH), { includeGel: true }), false);
+    assert.equal(gateKeeps("ManucuristShopify", gel), false);
+  });
+
+  it("is registered for ManucuristShopify", () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.ManucuristShopify, isManucuristPolish);
   });
 });
