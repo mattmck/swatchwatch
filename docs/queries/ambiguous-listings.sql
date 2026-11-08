@@ -8,8 +8,10 @@
 -- Materialization resolves a product's shade through its shade_source_product listing first
 -- (findExistingShadeForRecord in packages/functions/src/lib/ingestion-repo.ts, step 0). A product
 -- of an enabled source whose listing links several distinct unmerged shades (a merge left two, or
--- an older run linked it twice) is skipped by a retailer/feed source (ambiguousShadesSkipped) and
--- falls back to the brand + name + legacy finish + collection identity for a brand source. Each
+-- an older run linked it twice) is skipped by a retailer/feed source (ambiguousShadesSkipped); a
+-- brand source takes its brand + name + legacy finish + collection identity match only when that
+-- shade is one of the linked ones, and otherwise skips it the same way. Rows without an
+-- external_id are left out (they can never be matched by a run). Each
 -- row below is one such (data_source_id, external_id) pair; fix it by merging the duplicate
 -- shades or deleting the stale shade_source_product row.
 
@@ -26,6 +28,7 @@ JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
 JOIN data_source ds ON ds.data_source_id = ep.data_source_id
 JOIN shade sh ON sh.shade_id = ssp.shade_id
 WHERE ds.enabled
+  AND ep.external_id IS NOT NULL
   AND sh.merged_into_shade_id IS NULL
 GROUP BY ds.data_source_id, ds.name, ds.metadata, ep.external_id
 HAVING count(DISTINCT sh.shade_id) > 1

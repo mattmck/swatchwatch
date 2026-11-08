@@ -687,6 +687,43 @@ describe("materializeHoloTacoRecords — no regression for brand sources", () =>
     assert.equal(sourceProductInserts()[0].params[0], 43);
   });
 
+  it("a brand source with several listings skips the record when its exact identity is not one of them", async () => {
+    shades = [
+      { shadeId: 43, name: "Velvet Dreams", finish: "jelly", collection: null, finishes: ["jelly"] },
+      { shadeId: 44, name: "Velvet Dreams", finish: "crelly", collection: null, finishes: ["crelly"] },
+      // The exact identity match, but not linked to this product.
+      { shadeId: 49, name: "Velvet Dreams", finish: "creme", collection: null, finishes: ["creme"] },
+    ];
+    listings = [43, 44];
+    const log = logger();
+
+    const metrics = await materialize(record({ finishes: ["creme"] }), { ...BRAND, progressLogger: log });
+
+    assert.equal(metrics.skipped, 1);
+    assert.equal(metrics.ambiguousShadesSkipped, 1);
+    assert.equal(shadeInserts().length, 0, "no new shade");
+    assert.equal(sourceProductInserts().length, 0, "never a third link");
+    assert.equal(catalogUpdates().length, 0);
+    const warning = log.lines.warn.find((line) => /Skipped record r1/.test(line.message));
+    assert.ok(warning, "expected the ambiguity warning");
+    assert.deepEqual(warning.data.candidateShadeIds, [43, 44]);
+  });
+
+  it("a brand source with several listings and no exact identity match skips the record (never step 2)", async () => {
+    shades = [
+      { shadeId: 43, name: "Velvet Dreams", finish: "jelly", collection: null, finishes: ["jelly"] },
+      { shadeId: 44, name: "Velvet Dreams", finish: "crelly", collection: null, finishes: ["crelly"] },
+      { shadeId: 50, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "retailer" },
+    ];
+    listings = [43, 44];
+
+    const metrics = await materialize(record({ finishes: ["creme"], collection: "Fall 2025" }), BRAND);
+
+    assert.equal(metrics.ambiguousShadesSkipped, 1);
+    assert.equal(shadeInserts().length, 0);
+    assert.equal(sourceProductInserts().length, 0);
+  });
+
   it("a retailer source with several listings still skips", async () => {
     shades = [{ shadeId: 43, name: "Velvet Dreams", finish: "creme", collection: null, finishes: ["creme"] }];
     listings = [43, 44];

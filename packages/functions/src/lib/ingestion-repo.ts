@@ -785,7 +785,7 @@ export interface UnchangedImageCandidate {
  * `dataSourceParam`) materializes onto, the way `findExistingShadeForRecord` resolves it: the one
  * unmerged shade its `shade_source_product` listing links (exact also for adopted shades), else,
  * for a brand source only (`identityFallback`), the brand + name + legacy finish + collection
- * identity. A retailer or feed record without exactly one listing resolves nothing here (the
+ * identity (restricted to the product's linked shades when it has several listings). A retailer or feed record without exactly one listing resolves nothing here (the
  * materializer skips an ambiguous one, and its shade lookup never uses that identity).
  */
 function joinMaterializedShadeSql(dataSourceParam: string, identityFallback = true): string {
@@ -809,6 +809,24 @@ function joinMaterializedShadeSql(dataSourceParam: string, identityFallback = tr
                AND lower(ish.shade_name_canonical) = lower(input.shade_name)
                AND coalesce(ish.finish, '') = coalesce(input.finish, '')
                AND coalesce(ish.collection, '') = coalesce(input.collection, '')
+               -- A product with listings resolves only to one of its linked shades.
+               AND (
+                 NOT EXISTS (
+                   SELECT 1
+                   FROM shade_source_product fssp
+                   JOIN external_product fep ON fep.external_product_id = fssp.external_product_id
+                   WHERE fep.data_source_id = ${dataSourceParam}
+                     AND fep.external_id = input.external_id
+                 )
+                 OR EXISTS (
+                   SELECT 1
+                   FROM shade_source_product fssp
+                   JOIN external_product fep ON fep.external_product_id = fssp.external_product_id
+                   WHERE fep.data_source_id = ${dataSourceParam}
+                     AND fep.external_id = input.external_id
+                     AND fssp.shade_id = ish.shade_id
+                 )
+               )
              ORDER BY ish.shade_id
              LIMIT 1
            )` : ""}
@@ -2538,6 +2556,17 @@ export async function applyAiBatchShadeDetections(
           AND lower(sh.shade_name_canonical) = lower(ext.shade_name)
           AND coalesce(sh.finish, '') = coalesce(ext.finish_name, '')
           AND coalesce(sh.collection, '') = coalesce(ext.collection_name, '')
+         ${
+           listing.rows.length > 1
+             ? `WHERE sh.shade_id IN (
+           SELECT ssp.shade_id
+           FROM shade_source_product ssp
+           JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
+           WHERE ep.data_source_id = $1
+             AND ep.external_id = $2
+         )`
+             : ""
+         }
          ORDER BY sh.shade_id DESC
          LIMIT 1
        )`;
@@ -2977,7 +3006,8 @@ type ExistingShadeLookup =
  *    exactly one links it to an unmerged shade of any status (written by an earlier run, so it is
  *    exact for adopted shades too, and an admin-`excluded` shade is reused rather than
  *    duplicated). Several such links: an adopting source skips the record as ambiguous; a brand
- *    source falls back to steps 1–2 (today's identity match, no regression for existing stores).
+ *    source takes the step-1 identity match only when it is one of the linked shades, and
+ *    otherwise skips the record too (never a third link, never step 2).
  * 1. A brand source then tries the exact identity (brand + name + legacy `finish` +
  *    `collection`). An adopting source skips it: its records carry no legacy finish or
  *    collection, so the exact match would attach any listing to a same-name shade.
@@ -3037,6 +3067,13 @@ async function findExistingShadeForRecord(
       finish,
       collection,
     });
+    if (listedShadeIds.length > 1) {
+      // Several listings for one product: the exact identity decides only among the linked shades,
+      // so the product never gains a third link; otherwise skip it like any ambiguous record.
+      return exact && listedShadeIds.includes(Number(exact.shadeId))
+        ? { outcome: "found", shadeId: Number(exact.shadeId) }
+        : { outcome: "ambiguous", candidateShadeIds: listedShadeIds };
+    }
     if (exact) {
       return { outcome: "found", shadeId: Number(exact.shadeId) };
     }

@@ -377,12 +377,22 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
     assert.match(dbCalls[0].sql, /SELECT DISTINCT ssp\.shade_id/);
   });
 
-  it("a brand source with several listings falls back to the identity", async () => {
+  it("a brand source with several listings falls back to the identity, among the linked shades only", async () => {
     listingRows = [{ shadeId: "41" }, { shadeId: "42" }];
     await applyAiBatchShadeDetections(7, [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }], false);
 
     const [update] = updateCalls();
     assert.match(update.sql, /coalesce\(sh\.finish, ''\) = coalesce\(ext\.finish_name, ''\)/);
+    assert.match(update.sql, /WHERE sh\.shade_id IN \(\s*SELECT ssp\.shade_id\s*FROM shade_source_product ssp/);
+    assert.equal(update.params.length, 9);
+  });
+
+  it("a brand source with no listing uses the plain identity (no linked-shade filter)", async () => {
+    listingRows = [];
+    await applyAiBatchShadeDetections(7, [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }], false);
+
+    const [update] = updateCalls();
+    assert.doesNotMatch(update.sql, /WHERE sh\.shade_id IN/);
   });
 
   it("a retailer result with no listing applies nothing (no identity fallback)", async () => {
