@@ -56,7 +56,8 @@ const RETRY_BASE_DELAY_MS = parseIntEnv(
 );
 const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
 const SHOPIFY_PAGE_LIMIT = 250;
-const MAX_SHOPIFY_PAGES = 30;
+/** Pages of `SHOPIFY_PAGE_LIMIT` products read per run: `SHOPIFY_CONNECTOR_MAX_PAGES`, overridden per source by `metadata.maxPages`. */
+const DEFAULT_MAX_SHOPIFY_PAGES = parseIntEnv(process.env.SHOPIFY_CONNECTOR_MAX_PAGES, 30, 1, 200);
 const DEFAULT_RECENT_DAYS = 120;
 
 // Regex to extract hex color from option values like "#FF6B6B". The literal "#"
@@ -651,7 +652,9 @@ export class ShopifyGenericConnector implements ProductConnector {
     const allProducts: ShopifyProduct[] = [];
     let complete = false;
 
-    for (let page = 1; page <= MAX_SHOPIFY_PAGES; page += 1) {
+    const maxPages = this.settings?.maxPages ?? DEFAULT_MAX_SHOPIFY_PAGES;
+
+    for (let page = 1; page <= maxPages; page += 1) {
       const params = new URLSearchParams({
         limit: String(SHOPIFY_PAGE_LIMIT),
         page: String(page),

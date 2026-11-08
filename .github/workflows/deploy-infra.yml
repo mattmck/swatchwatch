@@ -163,6 +163,7 @@ jobs:
       TF_VAR_shopify_connector_request_timeout_ms: ${{ vars.SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS || '45000' }}
       TF_VAR_shopify_connector_max_retries: ${{ vars.SHOPIFY_CONNECTOR_MAX_RETRIES || '2' }}
       TF_VAR_shopify_connector_retry_base_delay_ms: ${{ vars.SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS || '1000' }}
+      TF_VAR_shopify_connector_max_pages: ${{ vars.SHOPIFY_CONNECTOR_MAX_PAGES || '30' }}
       TF_VAR_source_image_container: ${{ vars.SOURCE_IMAGE_CONTAINER || 'source-images' }}
       TF_VAR_source_image_max_edge_px: ${{ vars.SOURCE_IMAGE_MAX_EDGE_PX || '2048' }}
       TF_VAR_source_image_max_download_bytes: ${{ vars.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES || '26214400' }}
