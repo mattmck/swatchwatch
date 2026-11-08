@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
+import { aiReplayFetch } from "./ai-replay";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
+import {
+  chatCompletionModelParams,
+  chatCompletionsApiVersion,
+  warnDroppedTemperatureOnce,
+} from "./azure-openai-request";
 import { finishNamesForPrompt, loadFinishCatalog, type FinishCatalog } from "./finishes";
 
 const OPENAI_API_VERSION = "2024-06-01";
@@ -55,7 +61,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await aiReplayFetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
@@ -179,11 +185,14 @@ export async function parseLabelText(
     onFallback: (message, code) =>
       console.warn(`${LOG_PREFIX} Falling back to built-in finish catalog for the prompt`, { message, code }),
   });
-  const requestUrl = `${resolved.endpoint}/openai/deployments/${resolved.deployment}/chat/completions?api-version=${OPENAI_API_VERSION}`;
+  const requestUrl = `${resolved.endpoint}/openai/deployments/${resolved.deployment}/chat/completions?api-version=${chatCompletionsApiVersion(resolved.deployment, OPENAI_API_VERSION)}`;
 
+  const modelParams = chatCompletionModelParams(resolved.deployment, { maxTokens: 500, temperature: 0.1 });
+  if (modelParams.droppedTemperature !== null) {
+    warnDroppedTemperatureOnce(resolved.deployment, modelParams.droppedTemperature);
+  }
   const requestBody = JSON.stringify({
-    temperature: 0.1,
-    max_tokens: 500,
+    ...modelParams.fields,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildLabelSystemPrompt(finishCatalog) },

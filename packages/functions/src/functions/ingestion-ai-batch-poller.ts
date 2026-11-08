@@ -385,9 +385,9 @@ async function applyCompletedBatch(
     tokenMetricProperties
   );
 
-  // A reseller or feed job applies through its listings only and fills detected finishes only
-  // (the materializer's fill-only adoption); an unknown sourceKind throws and fails the job.
-  const adoptExistingShades = readSourceSettings(job.sourceMetadata, job.source).kind !== "brand";
+  // A retailer or feed job applies through its listings only and fills detected finishes only
+  // (the materializer's fill-only adoption); an unknown metadata.kind throws and fails the job.
+  const sourceKind = readSourceSettings(job.sourceMetadata, job.source).kind;
   const applyMetrics = await applyAiBatchShadeDetections(
     job.dataSourceId,
     parsedDetections.map((row) => ({
@@ -397,7 +397,7 @@ async function applyCompletedBatch(
       provenance: row.detection ? provenanceFromDetection(row.detection) : null,
     })),
     entry.overwriteDetectedHex,
-    { adoptExistingShades }
+    { sourceKind }
   );
 
   const parseErrors = parsedDetections.filter((row) => row.error).length;

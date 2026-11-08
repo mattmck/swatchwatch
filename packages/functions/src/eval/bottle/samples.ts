@@ -10,13 +10,27 @@ function likePattern(text: string): string {
   return `%${text.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 }
 
+/** A sample row plus what failure attribution needs about the labelled (merge-resolved) shade. */
+export interface EvalSampleRow extends SampleRow {
+  labelBrandId?: string | null;
+  labelStatus?: string | null;
+  labelCategory?: string | null;
+  labelMergedIntoShadeId?: string | null;
+}
+
 /**
  * Samples newest first (`$1` = ILIKE pattern on brand or shade name, or NULL; `$2` = limit or NULL),
- * with the same brand/shade names as the admin list (catalog names for catalog samples).
+ * with the same brand/shade names as the admin list (catalog names for catalog samples), plus the
+ * labelled shade's brand, status, category and merge target for failure attribution.
  */
 export const SELECT_EVAL_SAMPLES_SQL = `
-  SELECT sample.*
+  SELECT sample.*,
+         label.brand_id::text AS "labelBrandId",
+         label.status AS "labelStatus",
+         label.product_category AS "labelCategory",
+         label.merged_into_shade_id::text AS "labelMergedIntoShadeId"
   FROM (${SAMPLE_COLUMNS_SQL}) sample
+  LEFT JOIN shade label ON label.shade_id = sample."shadeId"::bigint
   WHERE ($1::text IS NULL OR sample.brand ILIKE $1 OR sample."shadeName" ILIKE $1)
   ORDER BY sample."sampleId"::bigint DESC
   LIMIT $2::int`;
@@ -29,6 +43,19 @@ function finishFamilyOf(row: SampleRow): string {
   return row.finishFamily || builtIn || "unknown";
 }
 
+/**
+ * Whether the labelled shade can be in its brand's resolver pool (`BOTTLE_CANDIDATES_SQL`: unmerged
+ * `color` shades that are `active`, or the caller's own `user_submitted`). `null` when unknown: no
+ * shade row was read, or a `user_submitted` shade (eligible only for its creator).
+ */
+export function labelPoolEligibility(row: EvalSampleRow): boolean | null {
+  if (row.shadeId === null || row.shadeId === undefined || !row.labelStatus) return null;
+  if (row.labelMergedIntoShadeId) return false;
+  if (row.labelCategory && row.labelCategory !== "color") return false;
+  if (row.labelStatus === "active") return true;
+  return row.labelStatus === "user_submitted" ? null : false;
+}
+
 function toId(value: string): number {
   const id = Number(value);
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`Unexpected id from the database: ${value}`);
@@ -36,7 +63,7 @@ function toId(value: string): number {
 }
 
 /** Pure: rows → `EvalSample[]` in row order, each with its frames in the order of `frames`. */
-export function toEvalSamples(rows: SampleRow[], frames: FrameRow[]): EvalSample[] {
+export function toEvalSamples(rows: EvalSampleRow[], frames: FrameRow[]): EvalSample[] {
   const bySample = new Map<string, EvalSample["frames"]>();
   for (const frame of frames) {
     const surface = parseBottleSurface(frame.surface);
@@ -52,6 +79,8 @@ export function toEvalSamples(rows: SampleRow[], frames: FrameRow[]): EvalSample
     shadeId: row.shadeId === null || row.shadeId === undefined ? null : toId(row.shadeId),
     brand: row.brand,
     shadeName: row.shadeName,
+    brandId: row.labelBrandId ? toId(row.labelBrandId) : null,
+    labelPoolEligible: labelPoolEligibility(row),
     finishFamily: finishFamilyOf(row),
     frames: bySample.get(row.sampleId) ?? [],
   }));
@@ -64,7 +93,7 @@ export function toEvalSamples(rows: SampleRow[], frames: FrameRow[]): EvalSample
  */
 export async function loadEvalSamples(opts: { limit: number | null; only: string | null }): Promise<EvalSample[]> {
   const only = opts.only?.trim() ? likePattern(opts.only.trim()) : null;
-  const rows = await query<SampleRow>(SELECT_EVAL_SAMPLES_SQL, [only, opts.limit]);
+  const rows = await query<EvalSampleRow>(SELECT_EVAL_SAMPLES_SQL, [only, opts.limit]);
   if (rows.rows.length === 0) return [];
   const frames = await query<FrameRow>(SELECT_FRAMES_SQL, [rows.rows.map((row) => row.sampleId)]);
   return toEvalSamples(rows.rows, frames.rows);

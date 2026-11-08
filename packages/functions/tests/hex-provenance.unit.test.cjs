@@ -52,7 +52,7 @@ const {
   HEX_DETECTION_METHOD_VISION_DIRECT,
   parseHexDetectionContent,
 } = require("../dist/lib/ai-color-detection");
-const { applyAiBatchShadeDetections } = require("../dist/lib/ingestion-repo");
+const { applyAiBatchShadeDetections, findRecordsWithUnchangedDetectedHex, findShadesWithDetectedHex } = require("../dist/lib/ingestion-repo");
 
 // ── hex_agreement computation ───────────────────────────────────────────────
 
@@ -286,9 +286,36 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
     const { sql, params } = updateCalls()[0];
     assert.deepEqual(params, [7, "ext-1", "#112233", ["creme"], false, 0.8, "vision-direct", "hex-batch-deploy", "vision-direct/old"]);
     // Non-overwrite: provenance only lands when detected_hex was NULL before.
-    assert.match(sql, /\(\$5::boolean AND \$3::text IS NOT NULL\) OR \(sh\.detected_hex IS NULL AND \$3::text IS NOT NULL\)/);
+    assert.match(sql, /\(\(src\.is_brand_store AND \(\$5::boolean OR sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL\) OR \(sh\.detected_hex IS NULL AND \$3::text IS NOT NULL\)/);
     assert.match(sql, /detected_hex_confidence = CASE WHEN .* THEN \$6::numeric/);
     assert.doesNotMatch(sql, /hex_agreement\s*=/);
+  });
+
+  it("overwrites a retailer-authority shade for a brand-store job and flips it, same UPDATE", async () => {
+    await applyAiBatchShadeDetections(7, [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }], false);
+    // dbCalls[0] is the listing lookup; the UPDATE follows.
+    const { sql, params } = updateCalls()[0];
+    // Source kind is read in SQL from the job's data source ($1); retailer jobs keep today's rule.
+    assert.match(sql, /src AS \(\s*SELECT COALESCE\(NULLIF\(lower\(btrim\(metadata ->> 'kind'\)\), ''\), 'brand'\) NOT IN \('retailer', 'feed'\) AS is_brand_store\s*FROM data_source\s*WHERE data_source_id = \$1\s*\)/);
+    assert.match(sql, /detected_hex = CASE\s+WHEN \(src\.is_brand_store AND \(\$5::boolean OR sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL THEN \$3::text/);
+    assert.match(sql, /catalog_authority = CASE\s+WHEN src\.is_brand_store AND sh\.catalog_authority = 'retailer' AND \$3::text IS NOT NULL\s+THEN 'brand_store'/);
+    assert.match(sql, /FROM target, src/);
+    assert.equal(params[0], 7);
+    assert.equal(params[4], false);
+  });
+
+  it("never lets a retailer job replace an existing hex, even with overwrite on", async () => {
+    await applyAiBatchShadeDetections(7, [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: ["creme"] }], true);
+    const { sql, params } = updateCalls()[0];
+    assert.equal(params[4], true);
+    // Hex and provenance: the job-wide switch only counts for a brand-store job; otherwise COALESCE keeps the hex.
+    const hexCase = sql.match(/detected_hex = CASE([\s\S]*?)END/)[1];
+    assert.match(hexCase, /WHEN \(src\.is_brand_store AND \(\$5::boolean OR sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL THEN \$3::text/);
+    assert.match(hexCase, /ELSE COALESCE\(sh\.detected_hex, \$3::text\)/);
+    assert.doesNotMatch(hexCase, /\(\$5::boolean OR \(src\.is_brand_store/);
+    assert.match(sql, /detected_hex_confidence = CASE WHEN \(\(\(src\.is_brand_store AND \(\$5::boolean OR sh\.catalog_authority = 'retailer'\)\) AND \$3::text IS NOT NULL\)/);
+    // Detected finishes keep the shared predicate.
+    assert.match(sql, /detected_finishes = CASE\s+WHEN \(\$5::boolean OR \(src\.is_brand_store AND sh\.catalog_authority = 'retailer'\)\) AND \$4::text\[\] IS NOT NULL THEN \$4::text\[\]/);
   });
 
   it("counts appliedHex only for matched rows that carry a detected hex", async () => {
@@ -358,14 +385,14 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
     assert.match(update.sql, /coalesce\(sh\.finish, ''\) = coalesce\(ext\.finish_name, ''\)/);
   });
 
-  it("a reseller result with no listing applies nothing (no identity fallback)", async () => {
+  it("a retailer result with no listing applies nothing (no identity fallback)", async () => {
     // Two same-name candidates exist; the identity fallback would pick one of them.
     listingRows = [];
     const metrics = await applyAiBatchShadeDetections(
       7,
       [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }],
       false,
-      { adoptExistingShades: true }
+      { sourceKind: "retailer" }
     );
 
     assert.equal(updateCalls().length, 0);
@@ -373,30 +400,55 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
     assert.equal(metrics.noShadeMatch, 1);
   });
 
-  it("a reseller result with several listings applies nothing", async () => {
+  it("a retailer result with several listings applies nothing", async () => {
     listingRows = [{ shadeId: "41" }, { shadeId: "42" }];
     const metrics = await applyAiBatchShadeDetections(
       7,
       [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }],
       false,
-      { adoptExistingShades: true }
+      { sourceKind: "retailer" }
     );
 
     assert.equal(updateCalls().length, 0);
     assert.equal(metrics.noShadeMatch, 1);
   });
 
-  it("a reseller result never unions detected finishes into a shade that has some", async () => {
+  it("a retailer result never unions detected finishes into a shade that has some", async () => {
     listingRows = [{ shadeId: "41" }];
     const metrics = await applyAiBatchShadeDetections(
       7,
       [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: ["glitter"] }],
       false,
-      { adoptExistingShades: true }
+      { sourceKind: "retailer" }
     );
 
     assert.equal(metrics.applied, 1);
     const [update] = updateCalls();
     assert.match(update.sql, /WHEN cardinality\(sh\.detected_finishes\) > 0 THEN sh\.detected_finishes/);
+  });
+});
+
+describe("detected-hex skip lookups and catalog authority", () => {
+  const candidate = { externalId: "e1", brandName: "B", shadeName: "S", finish: null, collection: null, checksumSha256: "abc" };
+  beforeEach(() => {
+    dbCalls = [];
+    dbRows = [{ externalId: "e1" }];
+    // findRecordsWithUnchangedDetectedHex resolves the shade listing first (joinMaterializedShadeSql),
+    // so the fake answers it like the listing lookup.
+    listingRows = [{ externalId: "e1" }];
+  });
+
+  it("never skips a shade a retailer still owns (a brand store must re-detect it)", async () => {
+    const out = await findRecordsWithUnchangedDetectedHex(7, [candidate]);
+    assert.deepEqual([...out], ["e1"]);
+    assert.match(dbCalls[0].sql, /sh\.catalog_authority <> 'retailer'/);
+    assert.equal(dbCalls[0].params[0], 7);
+  });
+
+  it("the retailer lookup only needs the resolved shade's detected hex, from any source", async () => {
+    await findShadesWithDetectedHex([{ externalId: "e1", shadeId: 41 }]);
+    assert.match(dbCalls[0].sql, /sh\.detected_hex IS NOT NULL/);
+    assert.deepEqual(dbCalls[0].params, [[41]]);
+    assert.doesNotMatch(dbCalls[0].sql, /catalog_authority|owner_id/);
   });
 });

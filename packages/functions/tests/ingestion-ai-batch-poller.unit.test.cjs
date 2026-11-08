@@ -386,14 +386,14 @@ describe("ingestion-ai-batch-poller completed batch", () => {
 });
 
 describe("ingestion-ai-batch-poller — source kind", () => {
-  it("applies a reseller job's detections with the reseller rules", async () => {
+  it("applies a retailer job's detections with the retailer rules", async () => {
     seedJob(makeAwaitingMetrics());
-    awaitingJob.sourceMetadata = { sourceKind: "Reseller" };
+    awaitingJob.sourceMetadata = { kind: "Retailer" };
 
     await runPoller();
 
     const apply = calls.find((c) => c.type === "apply");
-    assert.deepEqual(apply.options, { adoptExistingShades: true });
+    assert.deepEqual(apply.options, { sourceKind: "retailer" });
   });
 
   it("applies a brand job's detections with the brand rules", async () => {
@@ -402,7 +402,7 @@ describe("ingestion-ai-batch-poller — source kind", () => {
     await runPoller();
 
     const apply = calls.find((c) => c.type === "apply");
-    assert.deepEqual(apply.options, { adoptExistingShades: false });
+    assert.deepEqual(apply.options, { sourceKind: "brand" });
   });
 });
 

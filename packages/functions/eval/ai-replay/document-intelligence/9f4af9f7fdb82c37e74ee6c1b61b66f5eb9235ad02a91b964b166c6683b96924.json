@@ -1,0 +1,329 @@
+{
+  "version": 1,
+  "key": "9f4af9f7fdb82c37e74ee6c1b61b66f5eb9235ad02a91b964b166c6683b96924",
+  "service": "document-intelligence",
+  "recordedAt": "2026-11-07T05:35:06.739Z",
+  "deployment": null,
+  "model": null,
+  "request": {
+    "method": "GET",
+    "path": "/ai-replay/poll/258e90a436c72a2b5b7e31e2239d55ede013f92fc1754a0a256ffde90a6b4784",
+    "query": [],
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8"
+    },
+    "bodyJson": {
+      "status": "succeeded",
+      "createdDateTime": "2026-11-07T05:35:05Z",
+      "lastUpdatedDateTime": "2026-11-07T05:35:06Z",
+      "analyzeResult": {
+        "apiVersion": "2024-11-30",
+        "modelId": "prebuilt-read",
+        "stringIndexType": "textElements",
+        "content": "OPI\nBig Apple Red\nNL N25 15 mL",
+        "pages": [
+          {
+            "pageNumber": 1,
+            "angle": 0,
+            "width": 480,
+            "height": 320,
+            "unit": "pixel",
+            "words": [
+              {
+                "content": "OPI",
+                "polygon": [
+                  160,
+                  44,
+                  328,
+                  44,
+                  328,
+                  124,
+                  160,
+                  123
+                ],
+                "confidence": 0.992,
+                "span": {
+                  "offset": 0,
+                  "length": 3
+                }
+              },
+              {
+                "content": "Big",
+                "polygon": [
+                  88,
+                  171,
+                  154,
+                  172,
+                  154,
+                  221,
+                  88,
+                  221
+                ],
+                "confidence": 0.998,
+                "span": {
+                  "offset": 4,
+                  "length": 3
+                }
+              },
+              {
+                "content": "Apple",
+                "polygon": [
+                  169,
+                  172,
+                  289,
+                  172,
+                  289,
+                  221,
+                  169,
+                  221
+                ],
+                "confidence": 0.997,
+                "span": {
+                  "offset": 8,
+                  "length": 5
+                }
+              },
+              {
+                "content": "Red",
+                "polygon": [
+                  307,
+                  172,
+                  395,
+                  171,
+                  395,
+                  220,
+                  307,
+                  221
+                ],
+                "confidence": 0.996,
+                "span": {
+                  "offset": 14,
+                  "length": 3
+                }
+              },
+              {
+                "content": "NL",
+                "polygon": [
+                  162,
+                  249,
+                  190,
+                  250,
+                  189,
+                  273,
+                  162,
+                  273
+                ],
+                "confidence": 0.994,
+                "span": {
+                  "offset": 18,
+                  "length": 2
+                }
+              },
+              {
+                "content": "N25",
+                "polygon": [
+                  196,
+                  250,
+                  243,
+                  250,
+                  243,
+                  273,
+                  196,
+                  273
+                ],
+                "confidence": 0.99,
+                "span": {
+                  "offset": 21,
+                  "length": 3
+                }
+              },
+              {
+                "content": "15",
+                "polygon": [
+                  252,
+                  250,
+                  276,
+                  250,
+                  276,
+                  273,
+                  251,
+                  273
+                ],
+                "confidence": 0.997,
+                "span": {
+                  "offset": 25,
+                  "length": 2
+                }
+              },
+              {
+                "content": "mL",
+                "polygon": [
+                  285,
+                  250,
+                  319,
+                  249,
+                  319,
+                  273,
+                  284,
+                  273
+                ],
+                "confidence": 0.995,
+                "span": {
+                  "offset": 28,
+                  "length": 2
+                }
+              }
+            ],
+            "lines": [
+              {
+                "content": "OPI",
+                "polygon": [
+                  160,
+                  44,
+                  327,
+                  50,
+                  327,
+                  119,
+                  160,
+                  124
+                ],
+                "spans": [
+                  {
+                    "offset": 0,
+                    "length": 3
+                  }
+                ]
+              },
+              {
+                "content": "Big Apple Red",
+                "polygon": [
+                  87,
+                  171,
+                  394,
+                  171,
+                  394,
+                  220,
+                  87,
+                  220
+                ],
+                "spans": [
+                  {
+                    "offset": 4,
+                    "length": 13
+                  }
+                ]
+              },
+              {
+                "content": "NL N25 15 mL",
+                "polygon": [
+                  162,
+                  249,
+                  318,
+                  249,
+                  318,
+                  272,
+                  162,
+                  272
+                ],
+                "spans": [
+                  {
+                    "offset": 18,
+                    "length": 12
+                  }
+                ]
+              }
+            ],
+            "spans": [
+              {
+                "offset": 0,
+                "length": 30
+              }
+            ]
+          }
+        ],
+        "paragraphs": [
+          {
+            "spans": [
+              {
+                "offset": 0,
+                "length": 3
+              }
+            ],
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  160,
+                  44,
+                  327,
+                  44,
+                  327,
+                  124,
+                  160,
+                  124
+                ]
+              }
+            ],
+            "content": "OPI"
+          },
+          {
+            "spans": [
+              {
+                "offset": 4,
+                "length": 13
+              }
+            ],
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  87,
+                  171,
+                  394,
+                  171,
+                  394,
+                  220,
+                  87,
+                  220
+                ]
+              }
+            ],
+            "content": "Big Apple Red"
+          },
+          {
+            "spans": [
+              {
+                "offset": 18,
+                "length": 12
+              }
+            ],
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  162,
+                  249,
+                  318,
+                  249,
+                  318,
+                  272,
+                  162,
+                  272
+                ]
+              }
+            ],
+            "content": "NL N25 15 mL"
+          }
+        ],
+        "styles": [],
+        "contentFormat": "text"
+      }
+    },
+    "bodyText": null
+  }
+}

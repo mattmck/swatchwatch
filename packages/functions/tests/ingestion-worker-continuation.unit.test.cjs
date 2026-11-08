@@ -938,17 +938,17 @@ describe("processIngestionJobQueueMessage — source kinds", () => {
     return seen[0];
   };
 
-  it("forces fill-only writes, no images and adoption for a reseller job", async () => {
-    const options = await materializeOptions({ sourceKind: "reseller" }, { overwriteDetectedHex: true });
+  it("forces fill-only writes, no images and adoption for a retailer job", async () => {
+    const options = await materializeOptions({ kind: "retailer" }, { overwriteDetectedHex: true });
     assert.equal(options.overwriteDetectedHex, false);
     assert.equal(options.storeImages, false);
-    assert.equal(options.adoptExistingShades, true);
+    assert.equal(options.sourceKind, "retailer");
     assert.equal(options.sourceName, "MooncatShopify");
   });
 
-  it("keeps a permitted reseller's images but still writes fill-only", async () => {
+  it("keeps a permitted retailer's images but still writes fill-only", async () => {
     const options = await materializeOptions(
-      { sourceKind: "reseller", imagesPermitted: true },
+      { kind: "retailer", imagesPermitted: true },
       { overwriteDetectedHex: true }
     );
     assert.equal(options.overwriteDetectedHex, false);
@@ -956,7 +956,7 @@ describe("processIngestionJobQueueMessage — source kinds", () => {
   });
 
   it("fails the job on an unknown source kind instead of treating it as a brand", async () => {
-    sourceMetadata = { sourceKind: "wholesale" };
+    sourceMetadata = { kind: "wholesale" };
     pages[1] = { records: makeRecords(1, 3), metadata: { hasMore: false } };
     let materialized = 0;
     materializeMock = async (records) => {
@@ -971,13 +971,13 @@ describe("processIngestionJobQueueMessage — source kinds", () => {
     assert.equal(materialized, 0);
     const failed = events.find((e) => e.type === "failed");
     assert.ok(failed, "expected the job to be marked failed");
-    assert.match(String(failed.error), /Unknown sourceKind "wholesale"/);
+    assert.match(String(failed.error), /Unknown source kind "wholesale"/);
   });
 
   it("keeps the request's overwrite flag for a brand source", async () => {
     const options = await materializeOptions({}, { overwriteDetectedHex: true });
     assert.equal(options.overwriteDetectedHex, true);
     assert.equal(options.storeImages, true);
-    assert.equal(options.adoptExistingShades, false);
+    assert.equal(options.sourceKind, "brand");
   });
 });

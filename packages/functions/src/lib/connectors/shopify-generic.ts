@@ -22,6 +22,12 @@ import type { ProductCategory } from "swatchwatch-shared";
 import type { SourceSettings } from "../source-settings.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import {
+  parseEditionCap,
+  shopifyStoreShadeName,
+  stripRetailerExclusiveSuffix,
+  SHOPIFY_TITLE_PARSER_SOURCES,
+} from "./shopify-title.js";
+import {
   normalizeCurrencyCode,
   pickShopifyVariantPrice,
   resolveShopifyStoreCurrency,
@@ -532,9 +538,14 @@ export class ShopifyGenericConnector implements ProductConnector {
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
-    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, () =>
-      this.fetchAllProducts()
-    );
+    // Set only when this pull downloaded the catalog; a cached catalog (a continuation's
+    // snapshot) carries no completeness flag, so it never reports one.
+    let fetchedComplete = null as boolean | null;
+    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, async () => {
+      const fetched = await this.fetchAllProducts();
+      fetchedComplete = fetched.complete;
+      return fetched.products;
+    });
     const storeCurrency = await this.resolveStoreCurrency(allProducts);
     // Gate, filter and sort on raw product fields (sync, no AI); only the page window is enriched.
     const gated: Array<{ product: ShopifyProduct; category: ProductCategory; timestamp: number }> = [];
@@ -582,6 +593,7 @@ export class ShopifyGenericConnector implements ProductConnector {
         enrichShopifyRecord(product, {
           baseUrl: this.baseUrl,
           brandName: this.brandName,
+          source: this.source,
           storeCurrency: storeCurrency.currency,
           category,
         })
@@ -591,6 +603,14 @@ export class ShopifyGenericConnector implements ProductConnector {
     return {
       source: this.source as any,
       records,
+      ...(fetchedComplete === null
+        ? {}
+        : {
+            catalog: {
+              externalIds: allProducts.map((product) => String(product.id)),
+              complete: fetchedComplete && allProducts.length > 0,
+            },
+          }),
       metadata: {
         requestUrl: `${this.baseUrl}/products.json`,
         responsePage: options.page,
@@ -610,8 +630,10 @@ export class ShopifyGenericConnector implements ProductConnector {
     };
   }
 
-  private async fetchAllProducts(): Promise<ShopifyProduct[]> {
+  /** `complete` is true only when the loop ended on a page shorter than the page limit. */
+  private async fetchAllProducts(): Promise<{ products: ShopifyProduct[]; complete: boolean }> {
     const allProducts: ShopifyProduct[] = [];
+    let complete = false;
 
     for (let page = 1; page <= MAX_SHOPIFY_PAGES; page += 1) {
       const params = new URLSearchParams({
@@ -631,11 +653,12 @@ export class ShopifyGenericConnector implements ProductConnector {
       allProducts.push(...pageProducts);
 
       if (pageProducts.length === 0 || pageProducts.length < SHOPIFY_PAGE_LIMIT) {
+        complete = true;
         break;
       }
     }
 
-    return allProducts;
+    return { products: allProducts, complete };
   }
 
   private async fetchJson(url: string): Promise<unknown> {
@@ -762,6 +785,7 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   StellaChromaShopify: "https://stellachroma.com",
   LemmingLacquerShopify: "https://lemminglacquer.com",
   SweetAndSourLacquerShopify: "https://sweetandsourlacquer.com",
+  PolishPickupShopify: "https://polishpickup.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -780,7 +804,16 @@ export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // SweetAndSourLacquerShopify: written permission received by the owner by email on
   // 2026-10-22 (docs/indie-sources-2026-10.md). Add a new store here until its OK is
   // recorded in data_source.metadata.notes.
+  // Retailer source, pending owner OK; see docs/superpowers/plans/2026-11-06-polish-pickup-retailer-listings.md.
+  "PolishPickupShopify",
 ]);
+
+/** Retailer sources (listings attach to brand shades as extra buy links; never override brand-store data). */
+export const SHOPIFY_RETAILER_SOURCES: ReadonlySet<string> = new Set(["PolishPickupShopify"]);
+
+export function isShopifyRetailerSource(source: string): boolean {
+  return SHOPIFY_RETAILER_SOURCES.has(source);
+}
 
 /** Whether a newly auto-provisioned data_source row for `source` starts enabled. */
 export function isShopifySourceEnabledByDefault(source: string): boolean {
@@ -822,6 +855,8 @@ export function defaultShopifyBaseUrl(source: string): string {
     `https://${source.replace(/Shopify$/, "").toLowerCase().replace(/ /g, "")}.com`
   );
 }
+
+const MONTH_ABBREVIATION_REGEX = /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/;
 
 /**
  * The sync ingest decision for one Shopify product: the store filter (store-filters/, #328), the
@@ -866,6 +901,8 @@ export function gateShopifyProduct(
 export interface ShopifyEnrichContext {
   baseUrl: string;
   brandName: string;
+  /** The connector source name (store title parsers and retailer release tags are per source). */
+  source: string;
   storeCurrency: string | null;
   /** The category `gateShopifyProduct` returned for this product. */
   category: ProductCategory;
@@ -876,9 +913,12 @@ export async function enrichShopifyRecord(
   product: ShopifyProduct,
   context: ShopifyEnrichContext
 ): Promise<ConnectorProductRecord> {
-  const { baseUrl, brandName, storeCurrency, category: productCategory } = context;
+  const { baseUrl, brandName, source, storeCurrency, category: productCategory } = context;
   const externalId = asNonEmptyString(product.id) as string;
-  const name = asNonEmptyString(product.title) as string;
+  const rawTitle = asNonEmptyString(product.title) as string;
+  // Retailer titles ("Vendor | Shade") are parsed per store, then any " PPU" exclusive suffix is
+  // dropped for every source. The raw title stays in normalized.rawTitle.
+  const name = stripRetailerExclusiveSuffix(shopifyStoreShadeName(source, product) ?? rawTitle);
   const tags = normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
@@ -930,6 +970,10 @@ export async function enrichShopifyRecord(
     .find((barcode): barcode is string => Boolean(barcode)) || null;
   // Description + descriptors for finish detection (#352); never shown to users.
   const { descriptionText, descriptors } = shopifyProductText(product);
+  // Retailer drops carry their month as a tag ("Nov"); only retailer sources keep it.
+  const releaseTags = SHOPIFY_TITLE_PARSER_SOURCES.includes(source)
+    ? tags.filter((tag) => MONTH_ABBREVIATION_REGEX.test(tag))
+    : null;
   // Brand list price: lowest available variant (else lowest variant), in the store currency.
   const { price, currency } = shopifyProductPrice(product.variants, storeCurrency);
 
@@ -942,6 +986,9 @@ export async function enrichShopifyRecord(
       productId: externalId,
       brand: vendor,
       name,
+      rawTitle,
+      editionCap: parseEditionCap(descriptionText),
+      ...(releaseTags ? { releaseTags } : {}),
       handle,
       productType,
       // Connector-gate category (#349); materialization re-classifies with the shade's finishes.

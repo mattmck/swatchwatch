@@ -35,6 +35,7 @@ export type SupportedConnectorSource =
   | "OrlyShopify"
   | "PahlishShopify"
   | "PaintItPrettyPolishShopify"
+  | "PolishPickupShopify"
   | "PotionPolishShopify"
   | "PrismParadeShopify"
   | "RakutenAdvertising"
@@ -81,6 +82,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   OrlyShopify: "Shopify",
   PahlishShopify: "Shopify",
   PaintItPrettyPolishShopify: "Shopify",
+  PolishPickupShopify: "Shopify",
   PotionPolishShopify: "Shopify",
   PrismParadeShopify: "Shopify",
   RakutenAdvertising: "Custom",
@@ -128,6 +130,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "OrlyShopify",
   "PahlishShopify",
   "PaintItPrettyPolishShopify",
+  "PolishPickupShopify",
   "PotionPolishShopify",
   "PrismParadeShopify",
   "RakutenAdvertising",

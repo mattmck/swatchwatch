@@ -341,7 +341,7 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 |---|---|
 | `FEATURE_FLAG_NAMES` | `["shareableWishlist", "shareableLooks", "bottleCapture"]` — the flags `GET /api/config/flags` reports (internal flags never appear) |
 | `PublicFeatureFlagName` | Union of `FEATURE_FLAG_NAMES` |
-| `FeatureFlagsResponse` | `{ flags: Record<PublicFeatureFlagName, boolean> }` |
+| `FeatureFlagsResponse` | `{ flags: Record<PublicFeatureFlagName, boolean>; aiReplayMode?: "record" \| "replay" }` (`aiReplayMode` only from a local host running the AI record/replay harness) |
 
 ### `types/wishlist-share.ts`
 

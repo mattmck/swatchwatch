@@ -1,10 +1,19 @@
 /**
- * Source kinds (brand sources plan, Task 3): `data_source.metadata` → `SourceSettings`.
+ * Source kinds (brand sources plan, Task 3; Polish Pickup retailer plan, Task 5): `data_source.metadata`
+ * → `SourceSettings`, `sourceKindFromMetadata`, the SQL kind helpers and the listing write rules.
  */
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { readSourceSettings } = require("../dist/lib/source-settings");
+const {
+  readSourceSettings,
+  sourceKindFromMetadata,
+  sourceKindSql,
+  isBrandSourceSql,
+  catalogAuthorityForKind,
+  planListingWrites,
+  planIngestedFinishes,
+} = require("../dist/lib/source-settings");
 
 const DEFAULTS = {
   kind: "brand",
@@ -29,18 +38,18 @@ describe("readSourceSettings", () => {
     assert.deepEqual(readSourceSettings("not an object"), DEFAULTS);
   });
 
-  it("does not store images for resellers and feeds unless permitted", () => {
-    assert.equal(readSourceSettings({ sourceKind: "reseller" }).imagesPermitted, false);
-    assert.equal(readSourceSettings({ sourceKind: "feed" }).imagesPermitted, false);
-    assert.equal(readSourceSettings({ sourceKind: "reseller", imagesPermitted: true }).imagesPermitted, true);
-    assert.equal(readSourceSettings({ sourceKind: "brand", imagesPermitted: false }).imagesPermitted, false);
+  it("does not store images for retailers and feeds unless permitted", () => {
+    assert.equal(readSourceSettings({ kind: "retailer" }).imagesPermitted, false);
+    assert.equal(readSourceSettings({ kind: "feed" }).imagesPermitted, false);
+    assert.equal(readSourceSettings({ kind: "retailer", imagesPermitted: true }).imagesPermitted, true);
+    assert.equal(readSourceSettings({ kind: "brand", imagesPermitted: false }).imagesPermitted, false);
   });
 
   it("reads the kind", () => {
-    assert.equal(readSourceSettings({ sourceKind: "reseller" }).kind, "reseller");
-    assert.equal(readSourceSettings({ sourceKind: "feed" }).kind, "feed");
-    assert.equal(readSourceSettings({ sourceKind: "brand" }).kind, "brand");
-    assert.equal(readSourceSettings({ sourceKind: "" }).kind, "brand");
+    assert.equal(readSourceSettings({ kind: "retailer" }).kind, "retailer");
+    assert.equal(readSourceSettings({ kind: "feed" }).kind, "feed");
+    assert.equal(readSourceSettings({ kind: "brand" }).kind, "brand");
+    assert.equal(readSourceSettings({ kind: "" }).kind, "brand");
   });
 
   it("lower-cases vendor alias keys and drops non-string values", () => {
@@ -79,14 +88,138 @@ describe("readSourceSettings", () => {
     assert.equal(settings.subdomain, "example");
   });
   it("normalizes the source kind and refuses an unknown one", () => {
-    assert.equal(readSourceSettings({ sourceKind: " Reseller " }).kind, "reseller");
-    assert.equal(readSourceSettings({ sourceKind: "FEED" }).kind, "feed");
+    assert.equal(readSourceSettings({ kind: " Retailer " }).kind, "retailer");
+    assert.equal(readSourceSettings({ kind: "FEED" }).kind, "feed");
     assert.equal(readSourceSettings({}).kind, "brand", "a missing kind is a brand source");
-    assert.throws(() => readSourceSettings({ sourceKind: "wholesale" }), /Unknown sourceKind "wholesale"/);
+    assert.throws(() => readSourceSettings({ kind: "wholesale" }), /Unknown source kind "wholesale"/);
     assert.throws(
-      () => readSourceSettings({ sourceKind: "wholesale" }, "BeyondPolishShopify"),
-      /Unknown sourceKind "wholesale" on data_source BeyondPolishShopify/
+      () => readSourceSettings({ kind: "wholesale" }, "BeyondPolishShopify"),
+      /Unknown source kind "wholesale" in data_source\.metadata\.kind of BeyondPolishShopify/
     );
-    assert.throws(() => readSourceSettings({ sourceKind: 3 }), /Unknown sourceKind/);
+    assert.throws(() => readSourceSettings({ kind: 3 }), /Unknown source kind/);
+  });
+
+  it("ignores the old sourceKind key (only metadata.kind names the kind)", () => {
+    assert.equal(readSourceSettings({ sourceKind: "retailer" }).kind, "brand");
+  });
+});
+
+describe("sourceKindFromMetadata", () => {
+  it("reads metadata.kind like readSourceKind", () => {
+    assert.equal(sourceKindFromMetadata({ kind: "retailer" }), "retailer");
+    assert.equal(sourceKindFromMetadata({ kind: " RETAILER " }), "retailer");
+    assert.equal(sourceKindFromMetadata({ kind: "feed" }), "feed");
+  });
+  for (const [label, value] of [
+    ["empty object", {}],
+    ["null", null],
+    ["undefined", undefined],
+    ["bare string", "retailer"],
+    ["explicit brand", { kind: "brand" }],
+    ["unknown kind (never throws on a read path)", { kind: "wholesale" }],
+    ["non-string kind", { kind: 3 }],
+  ]) {
+    it(`is brand for ${label}`, () => {
+      assert.equal(sourceKindFromMetadata(value), "brand");
+    });
+  }
+});
+
+describe("source kind SQL", () => {
+  it("normalizes metadata.kind like sourceKindFromMetadata", () => {
+    assert.equal(sourceKindSql("ds.metadata"), "COALESCE(NULLIF(lower(btrim(ds.metadata ->> 'kind')), ''), 'brand')");
+    assert.equal(
+      isBrandSourceSql("metadata"),
+      "COALESCE(NULLIF(lower(btrim(metadata ->> 'kind')), ''), 'brand') NOT IN ('retailer', 'feed')"
+    );
+  });
+  it("maps kinds to catalog authorities", () => {
+    assert.equal(catalogAuthorityForKind("brand"), "brand_store");
+    assert.equal(catalogAuthorityForKind("retailer"), "retailer");
+    assert.equal(catalogAuthorityForKind("feed"), "retailer");
+  });
+});
+
+describe("planListingWrites", () => {
+  const sourceKinds = ["brand", "retailer", "feed"];
+  const authorities = ["brand_store", "retailer"];
+  const bools = [true, false];
+  const ALL = { writeCategory: true, linkGallery: true, runDetection: true, fillOnly: false };
+
+  for (const sourceKind of sourceKinds)
+    for (const shadeAuthority of authorities)
+      for (const shadeHasForeignProductImage of bools)
+        for (const shadeHasDetectedHex of bools) {
+          const base = { sourceKind, shadeAuthority, shadeHasForeignProductImage, shadeHasDetectedHex };
+          const label = JSON.stringify(base);
+
+          it(`shade created by the listing: all writes, authority from the source kind ${label}`, () => {
+            assert.deepEqual(planListingWrites({ ...base, shadeCreated: true }), {
+              ...ALL,
+              takeOver: false,
+              setAuthority: sourceKind === "brand" ? "brand_store" : "retailer",
+            });
+          });
+
+          if (sourceKind === "brand" && shadeAuthority === "retailer") {
+            it(`brand store on a retailer shade takes over ${label}`, () => {
+              assert.deepEqual(planListingWrites({ ...base, shadeCreated: false }), {
+                ...ALL,
+                takeOver: true,
+                setAuthority: "brand_store",
+              });
+            });
+          } else if (sourceKind === "brand") {
+            it(`brand store on a brand_store shade keeps today's behavior ${label}`, () => {
+              assert.deepEqual(planListingWrites({ ...base, shadeCreated: false }), {
+                ...ALL,
+                takeOver: false,
+                setAuthority: null,
+              });
+            });
+          } else if (shadeAuthority === "retailer") {
+            it(`${sourceKind} on a retailer shade writes like an owner, but never replaces a hex or another source's image ${label}`, () => {
+              assert.deepEqual(planListingWrites({ ...base, shadeCreated: false }), {
+                writeCategory: true,
+                linkGallery: !shadeHasForeignProductImage,
+                runDetection: !shadeHasDetectedHex,
+                fillOnly: false,
+                takeOver: false,
+                setAuthority: null,
+              });
+            });
+          } else {
+            it(`${sourceKind} on a brand_store shade only fills gaps ${label}`, () => {
+              assert.deepEqual(planListingWrites({ ...base, shadeCreated: false }), {
+                writeCategory: false,
+                linkGallery: !shadeHasForeignProductImage,
+                runDetection: !shadeHasDetectedHex,
+                fillOnly: true,
+                takeOver: false,
+                setAuthority: null,
+              });
+            });
+          }
+        }
+});
+
+describe("planIngestedFinishes", () => {
+  const base = { current: ["Cream"], adminSet: false, takeOver: false, restrictedRetailer: false, fromEmpty: ["Shimmer"], merged: ["Cream", "Shimmer"] };
+  it("merges for an unrestricted listing", () => {
+    assert.deepEqual(planIngestedFinishes(base), ["Cream", "Shimmer"]);
+  });
+  it("keeps an admin list", () => {
+    assert.deepEqual(planIngestedFinishes({ ...base, adminSet: true, takeOver: true }), ["Cream"]);
+  });
+  it("replaces on takeover, keeping current when nothing resolves", () => {
+    assert.deepEqual(planIngestedFinishes({ ...base, takeOver: true }), ["Shimmer"]);
+    assert.deepEqual(planIngestedFinishes({ ...base, takeOver: true, fromEmpty: null }), ["Cream"]);
+  });
+  it("restricted retailer keeps a non-empty list", () => {
+    assert.deepEqual(planIngestedFinishes({ ...base, restrictedRetailer: true }), ["Cream"]);
+  });
+  it("restricted retailer fills an empty list", () => {
+    assert.deepEqual(planIngestedFinishes({ ...base, current: [], restrictedRetailer: true }), ["Shimmer"]);
+    assert.deepEqual(planIngestedFinishes({ ...base, current: [], restrictedRetailer: true, fromEmpty: null }), []);
   });
 });

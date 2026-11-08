@@ -235,6 +235,23 @@ variable "azure_openai_vision_detail" {
   }
 }
 
+variable "azure_openai_reasoning_deployments" {
+  description = "Comma list of Azure OpenAI deployment names that serve reasoning models (gpt-5 / o-series) when the name does not reveal it (AZURE_OPENAI_REASONING_DEPLOYMENTS)"
+  type        = string
+  default     = ""
+}
+
+variable "azure_openai_reasoning_effort" {
+  description = "reasoning_effort sent to reasoning deployments: minimal | low | medium | high (AZURE_OPENAI_REASONING_EFFORT)"
+  type        = string
+  default     = "minimal"
+
+  validation {
+    condition     = contains(["minimal", "low", "medium", "high"], var.azure_openai_reasoning_effort)
+    error_message = "azure_openai_reasoning_effort must be one of: minimal, low, medium, high."
+  }
+}
+
 variable "hex_detection_batch_enabled" {
   description = "Enable Azure OpenAI Batch API for Shopify image-based hex detection"
   type        = bool

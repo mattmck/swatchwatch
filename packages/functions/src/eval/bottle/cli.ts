@@ -9,8 +9,9 @@
  * Per sample: `POST capture/start` (metadata `{ source: "bottle-eval", sampleId }`), `POST
  * capture/{id}/frame` per frame (the private blob sent as a data URL, `frameType` from the frame,
  * `quality: { surface }`), the read-only `POST capture/{id}/check`, then `GET capture/{id}/status`
- * for the resolver's model-call count. When the server answers `start` with a `nextFrame` (bottle
- * flow on) the frames are sent as it asks (see `runSample`); otherwise all in shooting order.
+ * for the resolver's model-call count and stored audit (failure attribution). When the server
+ * answers `start` with a `nextFrame` (bottle flow on) the frames are sent as it asks (see
+ * `runSample`); otherwise all in shooting order.
  * `finalize` is never called, so nothing is added to the admin's collection. Prints the summary and
  * writes the JSON report to the (gitignored) results directory. Exit 1 on config, reachability or
  * admin-token errors (before any sample is loaded or any JSON written) or when any sample errored.
@@ -20,11 +21,33 @@ import type { CaptureFrameRequestSpec } from "swatchwatch-shared";
 import { readBlobFromStorageUrl, userMediaContainer } from "../../lib/blob-storage";
 import { closePool } from "../../lib/db";
 import { FUNCTIONS_ROOT, loadLocalSettings } from "../hex/env";
-import { assertAdminToken, assertApiReachable, createCaptureApi, EvalConfigError, type CaptureApi } from "./api-client";
+import {
+  assertAdminToken,
+  assertApiReachable,
+  createCaptureApi,
+  EvalConfigError,
+  fetchHostAiReplayMode,
+  type CaptureApi,
+} from "./api-client";
 import { formatSummary, writeReportJson } from "./report";
 import { loadEvalSamples } from "./samples";
+import { attributeFailure, resolverTraceFromStatus } from "./attribution";
 import { candidateShadeId, classifyOutcome, modelCallsFromStatus, summarize } from "./scoring";
 import type { EvalSample, SampleResult } from "./types";
+
+/** One summary line for the host's AI record/replay mode. */
+export function describeAiReplayMode(mode: string): string {
+  switch (mode) {
+    case "replay":
+      return "replay (answers from recorded fixtures, no Azure calls)";
+    case "record":
+      return "record (real Azure calls, responses stored as fixtures)";
+    case "off":
+      return "off (real Azure calls)";
+    default:
+      return "unknown (could not read GET config/flags)";
+  }
+}
 
 export const DEFAULT_API_BASE_URL = "http://localhost:7071/api";
 export const DEFAULT_RESULTS_DIR = path.join(FUNCTIONS_ROOT, "eval", "bottle", "results");
@@ -123,7 +146,8 @@ function pickFrameIndex(frames: EvalSample["frames"], sent: ReadonlySet<number>,
  * requested surface (the next unsent frame when it has none of that surface), then follow each
  * frame response's `nextFrame` until it is null or the frames run out. Without a `nextFrame` on
  * start, all frames are sent in position order. `status` is read once after `check` for the
- * resolver's model calls; a failed read leaves `modelCalls` null and is not an error.
+ * resolver's model calls and its stored audit, which `attributeFailure` turns into the failure
+ * stage; a failed read leaves `modelCalls` null and the stage `unknown`, and is not an error.
  */
 export async function runSample(
   api: CaptureApi,
@@ -150,6 +174,7 @@ export async function runSample(
       promptsFollowed: 0,
       adaptive: false,
       createCard: false,
+      failureStage: null,
     };
   }
 
@@ -188,12 +213,15 @@ export async function runSample(
     }
 
     const check = await api.check(captureId);
-    const modelCalls = await api.status(captureId).then(modelCallsFromStatus, () => null);
+    const status = await api.status(captureId).catch(() => null);
+    const modelCalls = status ? modelCallsFromStatus(status) : null;
     const candidates = check.candidates ?? [];
     const candidateIds = candidates.map(candidateShadeId).filter((id): id is number => id !== null);
+    const outcome = classifyOutcome(sample, check);
+    const attribution = attributeFailure(sample, outcome, check, resolverTraceFromStatus(status));
     return {
       ...base,
-      outcome: classifyOutcome(sample, check),
+      outcome,
       status: check.outcome,
       topEntityId: candidateShadeId(check.match ?? candidates[0]),
       candidateIds,
@@ -203,6 +231,8 @@ export async function runSample(
       promptsFollowed,
       adaptive,
       createCard: check.suggestedShade !== undefined && check.suggestedShade !== null,
+      failureStage: attribution?.stage ?? null,
+      ...(attribution ? { failureDetail: attribution.detail } : {}),
     };
   } catch (error) {
     return {
@@ -217,6 +247,7 @@ export async function runSample(
       promptsFollowed,
       adaptive,
       createCard: false,
+      failureStage: null,
       error: errorMessage(error),
     };
   }
@@ -266,7 +297,8 @@ export async function main(argv: string[]): Promise<number> {
       console.log(args.only ? `No bottle eval samples match "${args.only}".` : "No bottle eval samples yet.");
       return 0;
     }
-    console.error(`API: ${api.baseUrl} — ${samples.length} sample(s)`);
+    const aiReplayMode = await fetchHostAiReplayMode(api);
+    console.error(`API: ${api.baseUrl} — ${samples.length} sample(s), host AI replay mode: ${aiReplayMode}`);
 
     const results: SampleResult[] = [];
     for (const [index, sample] of samples.entries()) {
@@ -282,7 +314,8 @@ export async function main(argv: string[]): Promise<number> {
     const summary = summarize(results);
     console.log("");
     console.log(formatSummary(summary, results, args.verbose));
-    const written = writeReportJson(args.resultsDir, summary, results);
+    console.log(`AI calls (host AI_REPLAY_MODE): ${describeAiReplayMode(aiReplayMode)}`);
+    const written = writeReportJson(args.resultsDir, summary, results, { aiReplayMode });
     console.log(`\nReport JSON: ${written}`);
     return summary.byOutcome.error > 0 ? 1 : 0;
   } finally {

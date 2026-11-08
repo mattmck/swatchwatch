@@ -8,6 +8,8 @@ const {
   SHOPIFY_SOURCE_BASE_URLS,
   SHOPIFY_SOURCES_PENDING_APPROVAL,
   isShopifySourceEnabledByDefault,
+  SHOPIFY_RETAILER_SOURCES,
+  isShopifyRetailerSource,
   resolveShopifyVendor,
 } = require("../dist/lib/connectors/shopify-generic");
 const { SUPPORTED_SOURCES } = require("../dist/lib/connectors/generated-types");
@@ -279,5 +281,22 @@ describe("generic Shopify connector with a placeholder vendor", () => {
     assert.equal(result.records.length, 1);
     assert.equal(result.records[0].normalized.brand, "Night Owl Lacquer");
     assert.equal(result.records[0].normalized.productUrl, "https://nightowllacquer.com/products/seance-wine");
+  });
+});
+
+describe("Polish Pickup retailer source", () => {
+  it("is pending approval, disabled by default and has its base URL", () => {
+    assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has("PolishPickupShopify"), true);
+    assert.equal(SHOPIFY_SOURCE_BASE_URLS.PolishPickupShopify, "https://polishpickup.com");
+    assert.equal(isShopifySourceEnabledByDefault("PolishPickupShopify"), false);
+    assert.ok(SUPPORTED_SOURCES.includes("PolishPickupShopify"));
+  });
+});
+
+describe("Polish Pickup retailer kind", () => {
+  it("is the only retailer source", () => {
+    assert.deepEqual([...SHOPIFY_RETAILER_SOURCES], ["PolishPickupShopify"]);
+    assert.equal(isShopifyRetailerSource("PolishPickupShopify"), true);
+    assert.equal(isShopifyRetailerSource("NightOwlLacquerShopify"), false);
   });
 });

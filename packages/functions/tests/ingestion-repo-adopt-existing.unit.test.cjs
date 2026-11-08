@@ -1,6 +1,7 @@
 /**
- * Source kinds (brand sources plan, Task 3): a reseller or feed record adopts the brand's
- * existing shade and only fills empty data; a brand record adopts a shade a reseller created.
+ * Source kinds (brand sources plan, Task 3): a retailer or feed record adopts the brand's
+ * existing shade and only fills empty data; a brand record adopts (and takes over) a shade a
+ * retailer created (`catalog_authority = 'retailer'`).
  * Fake `pg` client keyed on SQL text, as in ingestion-repo-swatch-linking.unit.test.cjs.
  */
 const { describe, it, beforeEach } = require("node:test");
@@ -22,7 +23,8 @@ let calls;
 // Brands that exist (lower-cased name → id); a missing brand is inserted.
 let brands;
 // Shades of brand 1: { shadeId, name, finish, collection, finishes, status, mergedInto,
-// listingKinds (source kinds of the shade's listings), adminCategory, vendorHex, detectedFinishes }.
+// authority (`catalog_authority`, default brand_store), adminCategory, vendorHex, detectedHex,
+// detectedFinishes }.
 let shades;
 // Existing source_product swatches by shade id: { swatchId, imageId, ownerId } (ownerId = the
 // data source whose image_asset it is).
@@ -89,22 +91,28 @@ const transactionClient = {
     if (sql.includes("FROM shade") && sql.includes("merged_into_shade_id IS NULL") && sql.includes("status IN ('active', 'excluded')")) {
       // Same-name candidates; honour the brand-source filters when the SQL carries them.
       const brandOnly = sql.includes("finish IS NULL AND collection IS NULL");
-      const listingFilter = sql.includes("sourceKind");
-      const nonBrand = (kind) => kind === "reseller" || kind === "feed";
+      const retailerOnly = sql.includes("catalog_authority = 'retailer'");
       const rows = shades
         .filter((s) => s.name.toLowerCase() === String(params[1]).toLowerCase())
         .filter((s) => ["active", "excluded"].includes(s.status ?? "active") && !s.mergedInto)
         .filter((s) => !brandOnly || (s.finish === null && s.collection === null))
-        .filter((s) => {
-          if (!listingFilter) return true;
-          const kinds = s.listingKinds ?? [];
-          return kinds.some(nonBrand) && !kinds.some((kind) => !nonBrand(kind));
-        })
+        .filter((s) => !retailerOnly || s.authority === "retailer")
         .map((s) => ({ shadeId: s.shadeId, finishes: s.finishes }));
       return { rows };
     }
     if (sql.startsWith("INSERT INTO shade ")) {
       return { rows: [{ shadeId: nextShadeId++ }] };
+    }
+    if (sql.startsWith("UPDATE shade SET color_name")) {
+      // $16: the catalog_authority this write sets (a brand takeover flips it to brand_store).
+      const shade = shades.find((s) => s.shadeId === params[0]);
+      if (shade && params[15]) shade.authority = params[15];
+      return { rows: [] };
+    }
+    if (sql.includes("WHERE sh.shade_id = ANY($1::bigint[]) AND sh.detected_hex IS NOT NULL")) {
+      // Retailer/feed AI skip: resolved shades that already have a detected hex.
+      const ids = params[0].map(Number);
+      return { rows: shades.filter((s) => ids.includes(s.shadeId) && s.detectedHex).map((s) => ({ shadeId: s.shadeId })) };
     }
     if (sql.includes("FROM shade WHERE shade_id = $1 FOR UPDATE")) {
       const shade = shades.find((s) => s.shadeId === params[0]);
@@ -116,7 +124,9 @@ const transactionClient = {
             vendorHex: shade?.vendorHex ?? null,
             vendorHexSource: shade?.vendorHex ? "vendor" : null,
             vendorHexPrevious: null,
+            detectedHex: shade?.detectedHex ?? null,
             detectedFinishes: shade?.detectedFinishes ?? null,
+            catalogAuthority: shade?.authority ?? "brand_store",
           },
         ],
       };
@@ -226,8 +236,8 @@ function logger() {
   };
 }
 
-const RESELLER = { adoptExistingShades: true, overwriteDetectedHex: false, storeImages: false, sourceName: "BeyondPolishShopify" };
-const BRAND = { adoptExistingShades: false, sourceName: "OrlyShopify" };
+const RETAILER = { sourceKind: "retailer", overwriteDetectedHex: false, storeImages: false, sourceName: "BeyondPolishShopify" };
+const BRAND = { sourceKind: "brand", sourceName: "OrlyShopify" };
 
 function materialize(rec, options) {
   return materializeHoloTacoRecords(7, [rec], { detectHexFromImage: false, ...options }, "[Test]");
@@ -254,14 +264,14 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Reseller / feed sources
+// Retailer / feed sources
 // ---------------------------------------------------------------------------
 
-describe("materializeHoloTacoRecords — reseller source adopts the brand's shade", () => {
+describe("materializeHoloTacoRecords — retailer source adopts the brand's shade", () => {
   it("adopts the one same-name shade and writes fill-only", async () => {
     shades = [{ shadeId: 11, name: "Velvet Dreams", finish: "creme", collection: "Fall 2025", finishes: ["creme"] }];
 
-    const metrics = await materialize(record({ finishes: ["creme"] }), RESELLER);
+    const metrics = await materialize(record({ finishes: ["creme"] }), RETAILER);
 
     assert.equal(shadeInserts().length, 0);
     assert.equal(metrics.shadesCreated, 0);
@@ -278,7 +288,7 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
       { shadeId: 22, name: "Velvet Dreams", finish: "holo", collection: null, finishes: ["holographic"] },
     ];
 
-    await materialize(record({ finishes: ["holographic"] }), RESELLER);
+    await materialize(record({ finishes: ["holographic"] }), RETAILER);
 
     assert.equal(shadeInserts().length, 0);
     assert.equal(sourceProductInserts()[0].params[0], 22);
@@ -291,7 +301,7 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
     ];
     const log = logger();
 
-    const metrics = await materialize(record({ finishes: [] }), { ...RESELLER, progressLogger: log });
+    const metrics = await materialize(record({ finishes: [] }), { ...RETAILER, progressLogger: log });
 
     assert.equal(shadeInserts().length, 0);
     assert.equal(sourceProductInserts().length, 0);
@@ -306,17 +316,17 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
   });
 
   it("skips the exact-match shortcut: a holographic listing never lands on a same-identity creme shade", async () => {
-    // Reseller records carry no legacy finish or collection, like a reseller-created shade.
+    // Retailer records carry no legacy finish or collection, like a retailer-created shade.
     shades = [{ shadeId: 51, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"] }];
     const log = logger();
 
-    await materialize(record({ finishes: [] }), { ...RESELLER, progressLogger: log });
+    await materialize(record({ finishes: [] }), { ...RETAILER, progressLogger: log });
     assert.equal(shadeInserts().length, 0, "a record without finishes adopts the one candidate");
 
     calls = [];
-    const reseller = record({ finishes: ["holographic"] });
-    reseller.normalized.finishes = [];
-    await materialize(reseller, { ...RESELLER, progressLogger: log });
+    const retailer = record({ finishes: ["holographic"] });
+    retailer.normalized.finishes = [];
+    await materialize(retailer, { ...RETAILER, progressLogger: log });
 
     assert.equal(shadeInserts().length, 1);
     assert.ok(!calls.some((c) => c.sql.includes("coalesce(finish, '') = coalesce($3, '')")), "no exact-match lookup");
@@ -326,10 +336,10 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
 
   it("adopts a same-name shade that has no finishes yet", async () => {
     shades = [{ shadeId: 52, name: "Velvet Dreams", finish: null, collection: null, finishes: [] }];
-    const reseller = record({ finishes: ["holographic"] });
-    reseller.normalized.finishes = [];
+    const retailer = record({ finishes: ["holographic"] });
+    retailer.normalized.finishes = [];
 
-    await materialize(reseller, RESELLER);
+    await materialize(retailer, RETAILER);
 
     assert.equal(shadeInserts().length, 0);
     assert.equal(sourceProductInserts()[0].params[0], 52);
@@ -337,10 +347,10 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
 
   it("does not penalize a finish without a family", async () => {
     shades = [{ shadeId: 53, name: "Velvet Dreams", finish: null, collection: null, finishes: ["magnetic-flakie"] }];
-    const reseller = record({ finishes: ["magnetic-flakie"] });
-    reseller.normalized.finishes = [];
+    const retailer = record({ finishes: ["magnetic-flakie"] });
+    retailer.normalized.finishes = [];
 
-    await materialize(reseller, RESELLER);
+    await materialize(retailer, RETAILER);
 
     assert.equal(shadeInserts().length, 0);
     assert.equal(sourceProductInserts()[0].params[0], 53);
@@ -352,7 +362,7 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
       { shadeId: 32, name: "Velvet Dreams", finish: "jelly", collection: "Old", finishes: ["creme"], mergedInto: 5 },
     ];
 
-    await materialize(record({ finishes: ["creme"] }), RESELLER);
+    await materialize(record({ finishes: ["creme"] }), RETAILER);
 
     assert.equal(shadeInserts().length, 1);
   });
@@ -360,7 +370,7 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
   it("adopts an admin-excluded shade instead of duplicating it", async () => {
     shades = [{ shadeId: 33, name: "Velvet Dreams", finish: "creme", collection: "Old", finishes: ["creme"], status: "excluded" }];
 
-    await materialize(record({ finishes: ["creme"] }), RESELLER);
+    await materialize(record({ finishes: ["creme"] }), RETAILER);
 
     assert.equal(shadeInserts().length, 0);
     assert.equal(sourceProductInserts()[0].params[0], 33);
@@ -371,8 +381,8 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
     // The product image is the brand store's (data source 3); this run is data source 7.
     productSwatches = { 11: { swatchId: 900, imageId: 901, ownerId: 3 } };
 
-    await materialize(record({ finishes: ["creme"], imageUrls: ["https://reseller.example/a.png"] }), {
-      ...RESELLER,
+    await materialize(record({ finishes: ["creme"], imageUrls: ["https://retailer.example/a.png"] }), {
+      ...RETAILER,
       storeImages: true,
     });
 
@@ -381,12 +391,12 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
     assert.ok(!calls.some((c) => c.sql.startsWith("INSERT INTO image_asset")), "no image asset linked");
   });
 
-  it("lets a reseller refresh a product image it stored itself", async () => {
+  it("lets a retailer refresh a product image it stored itself", async () => {
     shades = [{ shadeId: 11, name: "Velvet Dreams", finish: "creme", collection: "Fall 2025", finishes: ["creme"] }];
     productSwatches = { 11: { swatchId: 900, imageId: 901, ownerId: 7 } };
 
-    await materialize(record({ finishes: ["creme"], imageUrls: ["https://reseller.example/new.png"] }), {
-      ...RESELLER,
+    await materialize(record({ finishes: ["creme"], imageUrls: ["https://retailer.example/new.png"] }), {
+      ...RETAILER,
       storeImages: true,
     });
 
@@ -395,11 +405,11 @@ describe("materializeHoloTacoRecords — reseller source adopts the brand's shad
     assert.deepEqual(swatchUpdate.params, [900, 700]);
   });
 
-  it("links a permitted reseller's image when the shade has none yet", async () => {
+  it("links a permitted retailer's image when the shade has none yet", async () => {
     shades = [{ shadeId: 11, name: "Velvet Dreams", finish: "creme", collection: "Fall 2025", finishes: ["creme"] }];
 
-    await materialize(record({ finishes: ["creme"], imageUrls: ["https://reseller.example/a.png"] }), {
-      ...RESELLER,
+    await materialize(record({ finishes: ["creme"], imageUrls: ["https://retailer.example/a.png"] }), {
+      ...RETAILER,
       storeImages: true,
     });
 
@@ -413,8 +423,8 @@ describe("materializeHoloTacoRecords — storeImages: false", () => {
   it("neither uploads nor detects, and links no image", async () => {
     const metrics = await materializeHoloTacoRecords(
       7,
-      [record({ finishes: ["creme"], imageUrls: ["https://reseller.example/a.png", "https://reseller.example/b.png"] })],
-      { ...RESELLER, detectHexFromImage: true },
+      [record({ finishes: ["creme"], imageUrls: ["https://retailer.example/a.png", "https://retailer.example/b.png"] })],
+      { ...RETAILER, detectHexFromImage: true },
       "[Test]"
     );
 
@@ -432,8 +442,8 @@ describe("materializeHoloTacoRecords — storeImages: false", () => {
 // ---------------------------------------------------------------------------
 
 describe("materializeHoloTacoRecords — brand source", () => {
-  it("adopts a shade a reseller created (no legacy finish, no collection) and keeps the overwrite flag", async () => {
-    shades = [{ shadeId: 41, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], listingKinds: ["reseller"] }];
+  it("adopts a shade a retailer created (no legacy finish, no collection) and keeps the overwrite flag", async () => {
+    shades = [{ shadeId: 41, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "retailer" }];
 
     await materialize(record({ finishes: ["creme"], collection: "Fall 2025" }), { ...BRAND, overwriteDetectedHex: true });
 
@@ -513,7 +523,7 @@ describe("materializeHoloTacoRecords — existing listing", () => {
     listings = [41, 42];
     const log = logger();
 
-    const metrics = await materialize(record({ finishes: ["creme"] }), { ...RESELLER, progressLogger: log });
+    const metrics = await materialize(record({ finishes: ["creme"] }), { ...RETAILER, progressLogger: log });
 
     assert.equal(shadeInserts().length, 0);
     assert.equal(sourceProductInserts().length, 0);
@@ -562,11 +572,11 @@ describe("materializeHoloTacoRecords — existing listing", () => {
 const categoryUpdates = () => calls.filter((c) => c.sql.startsWith("UPDATE shade SET product_category"));
 
 describe("materializeHoloTacoRecords — adopting sources are strictly fill-only", () => {
-  it("keeps the brand shade's finishes when the reseller tags another finish", async () => {
+  it("keeps the brand shade's finishes when the retailer tags another finish", async () => {
     shades = [{ shadeId: 11, name: "Velvet Dreams", finish: "creme", collection: null, finishes: ["creme"] }];
     listings = [11];
 
-    await materialize(record({ finishes: ["shimmer"] }), RESELLER);
+    await materialize(record({ finishes: ["shimmer"] }), RETAILER);
 
     const [update] = catalogUpdates();
     assert.equal(update.params[0], 11);
@@ -576,7 +586,7 @@ describe("materializeHoloTacoRecords — adopting sources are strictly fill-only
   it("fills the finishes of a brand shade that has none", async () => {
     shades = [{ shadeId: 12, name: "Velvet Dreams", finish: null, collection: null, finishes: [] }];
 
-    await materialize(record({ finishes: ["shimmer"] }), RESELLER);
+    await materialize(record({ finishes: ["shimmer"] }), RETAILER);
 
     const [update] = catalogUpdates();
     assert.equal(update.params[0], 12);
@@ -589,8 +599,8 @@ describe("materializeHoloTacoRecords — adopting sources are strictly fill-only
 
     await materializeHoloTacoRecords(
       7,
-      [record({ finishes: [], imageUrls: ["https://reseller.example/a.png"] })],
-      { ...RESELLER, storeImages: true, detectHexFromImage: true },
+      [record({ finishes: [], imageUrls: ["https://retailer.example/a.png"] })],
+      { ...RETAILER, storeImages: true, detectHexFromImage: true },
       "[Test]"
     );
 
@@ -605,8 +615,8 @@ describe("materializeHoloTacoRecords — adopting sources are strictly fill-only
 
     await materializeHoloTacoRecords(
       7,
-      [record({ finishes: [], imageUrls: ["https://reseller.example/a.png"] })],
-      { ...RESELLER, storeImages: true, detectHexFromImage: true },
+      [record({ finishes: [], imageUrls: ["https://retailer.example/a.png"] })],
+      { ...RETAILER, storeImages: true, detectHexFromImage: true },
       "[Test]"
     );
 
@@ -617,7 +627,7 @@ describe("materializeHoloTacoRecords — adopting sources are strictly fill-only
   it("never re-classifies an adopted shade's product category", async () => {
     shades = [{ shadeId: 15, name: "Velvet Dreams Top Coat", finish: "creme", collection: null, finishes: ["creme"] }];
 
-    await materialize(record({ name: "Velvet Dreams Top Coat", finishes: ["creme"] }), RESELLER);
+    await materialize(record({ name: "Velvet Dreams Top Coat", finishes: ["creme"] }), RETAILER);
 
     assert.equal(catalogUpdates()[0].params[0], 15);
     assert.equal(categoryUpdates().length, 0);
@@ -626,21 +636,37 @@ describe("materializeHoloTacoRecords — adopting sources are strictly fill-only
   it("keeps the shade's existing vendor hex", async () => {
     shades = [{ shadeId: 16, name: "Velvet Dreams", finish: "creme", collection: null, finishes: ["creme"], vendorHex: "#111111" }];
 
-    await materialize(record({ finishes: ["creme"], vendorHex: "#222222" }), RESELLER);
+    await materialize(record({ finishes: ["creme"], vendorHex: "#222222" }), RETAILER);
 
     const [update] = catalogUpdates();
     assert.equal(update.params[2], "#111111", "planned vendor_hex keeps the existing value");
   });
 
-  it("a brand source still merges finishes and re-classifies the category", async () => {
-    shades = [{ shadeId: 17, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], listingKinds: ["reseller"] }];
+  it("a brand source takes a retailer-created shade over: its own finishes, category and authority", async () => {
+    shades = [{ shadeId: 17, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "retailer" }];
     listings = [17];
 
     await materialize(record({ finishes: ["shimmer"] }), BRAND);
 
     const [update] = catalogUpdates();
     assert.equal(update.params[0], 17);
+    // Takeover (planListingWrites): the brand's own resolution replaces the retailer's finishes.
+    assert.deepEqual([...update.params[7]], ["shimmer"]);
+    assert.equal(categoryUpdates().length, 1);
+    assert.equal(update.params[15], "brand_store", "catalog_authority flips (no detection pending)");
+    assert.equal(shades[0].authority, "brand_store");
+  });
+
+  it("a brand source still merges finishes on a shade it owns", async () => {
+    shades = [{ shadeId: 18, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"] }];
+    listings = [18];
+
+    await materialize(record({ finishes: ["shimmer"] }), BRAND);
+
+    const [update] = catalogUpdates();
+    assert.equal(update.params[0], 18);
     assert.deepEqual([...update.params[7]].sort(), ["creme", "shimmer"]);
+    assert.equal(update.params[15], null, "authority unchanged");
     assert.equal(categoryUpdates().length, 1);
   });
 });
@@ -661,18 +687,18 @@ describe("materializeHoloTacoRecords — no regression for brand sources", () =>
     assert.equal(sourceProductInserts()[0].params[0], 43);
   });
 
-  it("a reseller source with several listings still skips", async () => {
+  it("a retailer source with several listings still skips", async () => {
     shades = [{ shadeId: 43, name: "Velvet Dreams", finish: "creme", collection: null, finishes: ["creme"] }];
     listings = [43, 44];
 
-    const metrics = await materialize(record({ finishes: ["creme"] }), RESELLER);
+    const metrics = await materialize(record({ finishes: ["creme"] }), RETAILER);
 
     assert.equal(metrics.ambiguousShadesSkipped, 1);
     assert.equal(sourceProductInserts().length, 0);
   });
 
   it("a brand source does not adopt a same-name shade only another brand source lists", async () => {
-    shades = [{ shadeId: 45, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], listingKinds: ["brand"] }];
+    shades = [{ shadeId: 45, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "brand_store" }];
 
     await materialize(record({ finishes: ["creme"], collection: "Fall 2025" }), BRAND);
 
@@ -687,8 +713,8 @@ describe("materializeHoloTacoRecords — no regression for brand sources", () =>
     assert.equal(shadeInserts().length, 1);
   });
 
-  it("a brand source adopts a same-name shade only a reseller lists", async () => {
-    shades = [{ shadeId: 47, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], listingKinds: ["reseller"] }];
+  it("a brand source adopts a same-name shade only a retailer lists", async () => {
+    shades = [{ shadeId: 47, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "retailer" }];
 
     await materialize(record({ finishes: ["creme"], collection: "Fall 2025" }), BRAND);
 
@@ -714,8 +740,8 @@ describe("materializeHoloTacoRecords — resolution before detection", () => {
 
     const metrics = await materializeHoloTacoRecords(
       7,
-      [record({ finishes: ["creme"], imageUrls: ["https://reseller.example/a.png"] })],
-      { ...RESELLER, storeImages: true, detectHexFromImage: true },
+      [record({ finishes: ["creme"], imageUrls: ["https://retailer.example/a.png"] })],
+      { ...RETAILER, storeImages: true, detectHexFromImage: true },
       "[Test]"
     );
 
@@ -729,15 +755,15 @@ describe("materializeHoloTacoRecords — resolution before detection", () => {
       { shadeId: 21, name: "Velvet Dreams", finish: "creme", collection: null, finishes: ["creme"] },
       { shadeId: 22, name: "Velvet Dreams", finish: "holo", collection: null, finishes: ["holographic"] },
     ];
-    const other = record({ name: "Other Shade", imageUrls: ["https://reseller.example/b.png"] });
+    const other = record({ name: "Other Shade", imageUrls: ["https://retailer.example/b.png"] });
     other.externalId = "r2";
-    const records = [record({ finishes: [], imageUrls: ["https://reseller.example/a.png"] }), other];
+    const records = [record({ finishes: [], imageUrls: ["https://retailer.example/a.png"] }), other];
 
     // Sync detection.
-    let metrics = await materializeHoloTacoRecords(7, records, { ...RESELLER, storeImages: true, detectHexFromImage: true }, "[Test]");
+    let metrics = await materializeHoloTacoRecords(7, records, { ...RETAILER, storeImages: true, detectHexFromImage: true }, "[Test]");
     assert.equal(metrics.ambiguousShadesSkipped, 1);
     assert.equal(aiCalls, 1, "only the unambiguous record is detected");
-    assert.ok(!blobCalls.some((c) => c.sourceImageUrl === "https://reseller.example/a.png"), "no upload");
+    assert.ok(!blobCalls.some((c) => c.sourceImageUrl === "https://retailer.example/a.png"), "no upload");
 
     // Batch detection.
     calls = [];
@@ -746,7 +772,7 @@ describe("materializeHoloTacoRecords — resolution before detection", () => {
     metrics = await materializeHoloTacoRecords(
       7,
       records,
-      { ...RESELLER, storeImages: true, detectHexFromImage: true, useBatchForHexDetection: true, batchMinImages: 1 },
+      { ...RETAILER, storeImages: true, detectHexFromImage: true, useBatchForHexDetection: true, batchMinImages: 1 },
       "[Test]"
     );
     assert.equal(aiCalls, 0);
@@ -754,14 +780,14 @@ describe("materializeHoloTacoRecords — resolution before detection", () => {
     assert.deepEqual(batchSubmissions[0].map((r) => r.customId), ["r2"]);
   });
 
-  it("a reseller skips upload and detection for a shade with another source's product image", async () => {
+  it("a retailer skips upload and detection for a shade with another source's product image", async () => {
     shades = [{ shadeId: 62, name: "Velvet Dreams", finish: "creme", collection: null, finishes: ["creme"] }];
     productSwatches = { 62: { swatchId: 900, imageId: 901, ownerId: 3 } };
 
     await materializeHoloTacoRecords(
       7,
-      [record({ finishes: ["creme"], imageUrls: ["https://reseller.example/a.png"] })],
-      { ...RESELLER, storeImages: true, detectHexFromImage: true },
+      [record({ finishes: ["creme"], imageUrls: ["https://retailer.example/a.png"] })],
+      { ...RETAILER, storeImages: true, detectHexFromImage: true },
       "[Test]"
     );
 
@@ -798,7 +824,7 @@ describe("materializeHoloTacoRecords — resolution before detection", () => {
       return originalQuery.call(transactionClient, text, params);
     };
     try {
-      await materialize(record({ finishes: ["creme"] }), RESELLER);
+      await materialize(record({ finishes: ["creme"] }), RETAILER);
     } finally {
       transactionClient.query = originalQuery;
     }
@@ -808,30 +834,91 @@ describe("materializeHoloTacoRecords — resolution before detection", () => {
 });
 
 describe("materializeHoloTacoRecords — brand pre-resolution is re-checked in the transaction", () => {
-  it("two same-name brand records in one chunk: A adopts the reseller shade, B gets a new shade", async () => {
-    shades = [{ shadeId: 70, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], listingKinds: ["reseller"] }];
-    // A brand listing written by record A makes X a brand-listed shade for record B's lookup.
-    const originalQuery = transactionClient.query;
-    transactionClient.query = async (text, params) => {
-      const sql = sqlOf(text);
-      if (sql.startsWith("INSERT INTO shade_source_product")) {
-        const shade = shades.find((s) => s.shadeId === params[0]);
-        if (shade) shade.listingKinds = [...(shade.listingKinds ?? []), "brand"];
-      }
-      return originalQuery.call(transactionClient, text, params);
-    };
+  it("two same-name brand records in one chunk: A adopts the retailer shade, B gets a new shade", async () => {
+    shades = [{ shadeId: 70, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "retailer" }];
+    // Record A takes shade 70 over (catalog_authority flips to brand_store), so record B's
+    // in-transaction lookup no longer finds it as a retailer-created candidate.
     const a = record({ finishes: ["creme"], collection: "Fall 2025" });
     const b = record({ finishes: ["creme"], collection: "Winter 2025" });
     b.externalId = "r2";
-    try {
-      await materializeHoloTacoRecords(7, [a, b], { ...BRAND, detectHexFromImage: false }, "[Test]");
-    } finally {
-      transactionClient.query = originalQuery;
-    }
+    await materializeHoloTacoRecords(7, [a, b], { ...BRAND, detectHexFromImage: false }, "[Test]");
 
     const linked = sourceProductInserts().map((c) => c.params[0]);
-    assert.equal(linked[0], 70, "A adopts the reseller-created shade");
+    assert.equal(linked[0], 70, "A adopts the retailer-created shade");
     assert.equal(shadeInserts().length, 1, "B creates its own shade");
     assert.equal(linked[1], 100);
+  });
+});
+
+describe("materializeHoloTacoRecords — catalog authority (one write-rule implementation)", () => {
+  it("a shade a retailer or feed creates gets catalog_authority 'retailer'; a brand's gets 'brand_store'", async () => {
+    for (const [options, authority] of [
+      [RETAILER, "retailer"],
+      [{ ...RETAILER, sourceKind: "feed" }, "retailer"],
+      [BRAND, "brand_store"],
+    ]) {
+      calls = [];
+      shades = [];
+      await materialize(record({ name: "Brand New", finishes: ["creme"] }), options);
+      const [insert] = shadeInserts();
+      assert.ok(insert, `expected a shade insert for ${options.sourceKind}`);
+      assert.equal(insert.params[5], authority, options.sourceKind);
+    }
+  });
+
+  it("a feed adopts like a retailer: fill-only on a brand-store shade", async () => {
+    shades = [{ shadeId: 31, name: "Velvet Dreams", finish: "Creme", collection: "Core", finishes: ["creme"] }];
+
+    // Shares "creme", so it fits; a merge would add "holographic".
+    await materialize(record({ finishes: ["creme", "holographic"] }), { ...RETAILER, sourceKind: "feed" });
+
+    assert.equal(shadeInserts().length, 0);
+    const [update] = catalogUpdates();
+    assert.equal(update.params[0], 31);
+    assert.deepEqual([...update.params[7]], ["creme"], "finishes kept");
+    assert.equal(categoryUpdates().length, 0, "category never re-classified");
+  });
+
+  it("a retailer on a shade a retailer created writes like an owner (finish merge, category)", async () => {
+    shades = [{ shadeId: 32, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "retailer" }];
+    listings = [32];
+
+    await materialize(record({ finishes: ["shimmer"] }), RETAILER);
+
+    const [update] = catalogUpdates();
+    assert.equal(update.params[0], 32);
+    assert.deepEqual([...update.params[7]].sort(), ["creme", "shimmer"]);
+    assert.equal(categoryUpdates().length, 1);
+    assert.equal(update.params[15], null, "a retailer never changes the authority");
+    assert.equal(update.params[5], false, "never overwrites colors");
+  });
+
+  it("a retailer never replaces another source's product image, even on a retailer-created shade", async () => {
+    shades = [{ shadeId: 33, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "retailer" }];
+    listings = [33];
+    productSwatches = { 33: { swatchId: 5, imageId: 500, ownerId: 3 } };
+
+    await materialize(record({ finishes: ["creme"], imageUrls: ["https://retailer.example/a.png"] }), {
+      ...RETAILER,
+      storeImages: true,
+    });
+
+    assert.ok(!blobCalls.some((c) => c.fn === "uploadSourceImageToBlob"), "no upload");
+    assert.equal(calls.filter((c) => c.sql.startsWith("UPDATE swatch") || c.sql.startsWith("INSERT INTO swatch")).length, 0);
+  });
+
+  it("a retailer skips the AI call for a resolved shade that already has a detected hex", async () => {
+    shades = [{ shadeId: 34, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], detectedHex: "#445566" }];
+    listings = [34];
+
+    const metrics = await materializeHoloTacoRecords(
+      7,
+      [record({ finishes: ["creme"], imageUrls: ["https://retailer.example/a.png"] })],
+      { ...RETAILER, storeImages: true, detectHexFromImage: true },
+      "[Test]"
+    );
+
+    assert.equal(aiCalls, 0);
+    assert.equal(metrics.hexDetectionSkippedUnchanged, 1);
   });
 });
