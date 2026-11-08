@@ -16,6 +16,7 @@ const { isBeyondPolishPolish } = require("../dist/lib/connectors/store-filters/b
 const { isHypnoticPolishPolish } = require("../dist/lib/connectors/store-filters/hypnotic-polish");
 const { isLondontownPolish } = require("../dist/lib/connectors/store-filters/londontown");
 const { isManucuristPolish } = require("../dist/lib/connectors/store-filters/manucurist");
+const { isOliveAndJunePolish } = require("../dist/lib/connectors/store-filters/olive-and-june");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -398,6 +399,7 @@ describe("store-filters — shopifyStoreProductVerdict", () => {
       "LemmingLacquerShopify",
       "LondontownShopify",
       "ManucuristShopify",
+      "OliveAndJuneShopify",
       "PahlishShopify",
       "PolishPickupShopify",
       "StellaChromaShopify",
@@ -1020,5 +1022,63 @@ describe("store-filters/manucurist — isManucuristPolish", () => {
 
   it("is registered for ManucuristShopify", () => {
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.ManucuristShopify, isManucuristPolish);
+  });
+});
+
+// oliveandjune.com/products.json, fetched 2026-11-08 (250 products on page 1), trimmed to 110.
+const OLIVE_AND_JUNE = require("./fixtures/olive-and-june-products.json").products;
+
+describe("store-filters/olive-and-june — isOliveAndJunePolish", () => {
+  it("with the generic gate keeps 13 of the 110 fixture products (24 with includeGel)", () => {
+    assert.equal(OLIVE_AND_JUNE.length, 110);
+    // 7 single Nail Polish listings (tagged indiv-polish) and 6 Quick Dry polishes.
+    assert.equal(gateAccepts(OLIVE_AND_JUNE, "OliveAndJuneShopify").length, 13);
+    // + 11 single gels (tagged indiv-gel), two of them effect top coats.
+    assert.equal(gateAccepts(OLIVE_AND_JUNE, "OliveAndJuneShopify", { includeGel: true }).length, 24);
+  });
+
+  it("keeps single polishes, including the glow topper whose KIT tag the June blocklist rejects", () => {
+    for (const title of ["Late Morning Latte", "Shimmer Down", "Blackberry Jam", "Weekend Away", "Night Light", "Varietal", "Truffles"]) {
+      const product = storeProduct(OLIVE_AND_JUNE, title, title === "Varietal" || title === "Truffles" ? "Quick Dry Polish" : "Nail Polish");
+      assert.equal(isOliveAndJunePolish(product), true, title);
+      assert.equal(gateKeeps("OliveAndJuneShopify", product), true, title);
+    }
+  });
+
+  it("drops sets, minis, press-ons, gels, dip, systems, stickers, mystery boxes and merch", () => {
+    for (const [title, type] of [
+      ["Bittersweet Cherry", "Nail Polish"], // a look set (no indiv-polish tag)
+      ["Holiday Party Set", "Nail Polish"], // set
+      ["Mini Pink Sands", "Mini Polish"], // mini size
+      ["Emerald Velvet - Press-on | Medium | Oval", "Press-On"], // press-on
+      ["All the Bows - Pressies | Extra Short Short | Round", "Pressies"], // press-on
+      ["Late Morning Latte - Gel", "Gel Polish"], // gel
+      ["HD - Dip", "Dip Powder"], // dip powder
+      ["The Mani System - Bonus Fall", "System"], // kit
+      ["Candy Cane Sticker Set", "Nail Art Stickers"], // nail art
+      ["Polish Mystery Box", "Misc"], // mystery box
+      ["O&J To-Go Reusable Cup", "Merchandise"], // merch
+    ]) {
+      const product = storeProduct(OLIVE_AND_JUNE, title, type);
+      assert.equal(isOliveAndJunePolish(product), false, `${title} [${type}]`);
+      assert.equal(gateKeeps("OliveAndJuneShopify", product), false, `${title} [${type}]`);
+    }
+  });
+
+  it("keeps single gels only with includeGel, never gel sets", () => {
+    const settings = readSourceSettings({ includeGel: true });
+    assert.equal(isOliveAndJunePolish(storeProduct(OLIVE_AND_JUNE, "Inkling - Gel"), settings), true);
+    assert.equal(isOliveAndJunePolish(storeProduct(OLIVE_AND_JUNE, "Golden Effect Gel Top Coat"), settings), true);
+    assert.equal(isOliveAndJunePolish(storeProduct(OLIVE_AND_JUNE, "Bonus Fall Gel Set"), settings), false);
+    assert.equal(isOliveAndJunePolish(storeProduct(OLIVE_AND_JUNE, "Inkling - Gel")), false);
+  });
+
+  it("defers Care to the generic gate", () => {
+    const care = { title: "Cuticle Serum", product_type: "Care", tags: ["care", "nail care"] };
+    assert.equal(isOliveAndJunePolish(care), null);
+  });
+
+  it("is registered for OliveAndJuneShopify", () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.OliveAndJuneShopify, isOliveAndJunePolish);
   });
 });
