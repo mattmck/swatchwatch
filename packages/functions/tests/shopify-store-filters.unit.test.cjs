@@ -23,6 +23,7 @@ const { isPenelopeLuzPolish } = require("../dist/lib/connectors/store-filters/pe
 const { isNoodlesPolish } = require("../dist/lib/connectors/store-filters/noodles");
 const { isCndPolish } = require("../dist/lib/connectors/store-filters/cnd");
 const { isBarryMPolish } = require("../dist/lib/connectors/store-filters/barry-m");
+const { isPolishPickupPolish } = require("../dist/lib/connectors/store-filters/polish-pickup");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -1804,5 +1805,58 @@ describe("store-filters/alchemy-lacquers — isAlchemyLacquersPolish (I2)", () =
       recordFor(records, "Quicksilver Top Coat (Quick Dry, Glossy, 5 Free)").normalized.name,
       "Quicksilver Top Coat (Quick Dry, Glossy, 5 Free)"
     );
+  });
+});
+
+// polishpickup.com/products.json, fetched 2026-11-08 (the November "Antiques & Oddities" round,
+// 92 products on page 1), trimmed (fixture _note). Product types are shop sections, not finishes.
+const POLISH_PICKUP = require("./fixtures/polish-pickup-products.json").products;
+
+describe("store-filters/polish-pickup — isPolishPickupPolish on the November 2026 shop", () => {
+  it("keeps the 70 PPU polishes and the usable IPU coats, drops the rest", () => {
+    assert.equal(POLISH_PICKUP.length, 92);
+    const kept = gateAccepts(POLISH_PICKUP, "PolishPickupShopify");
+    const byType = {};
+    for (const product of kept) byType[product.product_type.trim()] = (byType[product.product_type.trim()] || 0) + 1;
+    assert.equal(byType.PPU, 70);
+    assert.equal(byType.Merchandise, undefined);
+    assert.equal(byType["Hand & Nail"], undefined);
+    assert.equal(byType["Gift Cards"], undefined);
+const ipu = kept.filter((product) => product.product_type.trim() === "IPU");
+    assert.equal(kept.length, 75);
+    assert.deepEqual(
+      ipu.map((product) => [product.title, classifyIngestedProduct(product).category]),
+      [
+        ["Cuticle caviar by Sassy Sauce Polish | Vanilla Candy Rock Candy", "treatment"],
+        ["Base Coat by Vibrant Scents | One of a Kind - Scented Double Bond Base Coat", "base_coat"],
+        ["Top Coat by Vibrant Scents | One of a Kind - Scented Fast & Hard Quick Dry Top Coat", "top_coat"],
+        ["Top Coat by Glisten & Glow", "top_coat"],
+        ["Top Coat by Cuticula | Wild Strawberry Limitless Quick Dry Scented Top Coat", "top_coat"],
+      ]
+    );
+    // Without the store filter the generic gate sees none of the PPU polishes (type PPU, no polish tag).
+    assert.ok(gateAccepts(POLISH_PICKUP, "NotARealShopify").length < 10);
+  });
+
+  it("drops stamping plates, removers, scrubs, creams, tools, merchandise and the gift card", () => {
+    for (const title of [
+      "Stamping Plate by Hit the Bottle Polishes | Full Steam Ahead",
+      "Acetone Antidote by Baroness X | Wicked Vanilla Woods",
+      "Hand & Body Scrub by KBShimmer | Winter Lodge",
+      "Unicorn Magic Skincare | Deluxe Coconut Milk Hand Creme scented in Nocturne No.5",
+      "Nail File, Glass",
+      "Neodymium Bar Magnet",
+      "Gift Card - Electronic",
+    ]) {
+      assert.equal(gateKeeps("PolishPickupShopify", storeProduct(POLISH_PICKUP, title)), false, title);
+    }
+  });
+
+  it("decides by product type: PPU true, shop sections false, IPU deferred", () => {
+    assert.equal(isPolishPickupPolish(storeProduct(POLISH_PICKUP, "Nail File, Glass")), false);
+    assert.equal(isPolishPickupPolish(storeProduct(POLISH_PICKUP, "Gift Card - Electronic")), false);
+    assert.equal(isPolishPickupPolish(storeProduct(POLISH_PICKUP, "Top Coat by Glisten & Glow")), null);
+    assert.equal(isPolishPickupPolish(POLISH_PICKUP.find((product) => product.product_type.trim() === "PPU")), true);
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.PolishPickupShopify, isPolishPickupPolish);
   });
 });
