@@ -470,8 +470,8 @@ describe("clause-bound brand stores pending approval (brand sources plan, Task 1
     }
   });
 
-  it("DND's notes say includeGel must be true", () => {
-    assert.match(metadataOf(SEED_SQL, "DndShopify").notes, /includeGel/);
+  it("DND's notes say it is gel only and needs a store filter that honours includeGel", () => {
+    assert.match(metadataOf(SEED_SQL, "DndShopify").notes, /needs a store filter that honours includeGel before it can be enabled/);
   });
 
   it("the migration inserts the seed's metadata plus its stamp, insert-only, and its Down reverts only stamped rows", () => {
