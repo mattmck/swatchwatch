@@ -15,6 +15,31 @@ export interface ConnectorCatalogCache {
   /** Previously saved raw products, or null when nothing is cached (or the cache is unreadable). */
   load(): Promise<unknown[] | null>;
   save(products: unknown[]): Promise<void>;
+  /**
+   * Crawl checkpoint of a connector that needs several invocations to read a catalog (the
+   * sitemap crawler), with the ETag it was read at; null when none is saved yet. Separate from
+   * `load`/`save`, which keep holding product arrays for the Shopify connectors. Throws when the
+   * checkpoint exists but cannot be read (a crawl must never silently restart from zero).
+   */
+  loadCheckpoint?(): Promise<{ value: unknown; etag: string | null } | null>;
+  /**
+   * Fenced write: lands only while the stored checkpoint still has `etag` (`null` = none may
+   * exist yet), else throws `ConnectorCheckpointSupersededError`.
+   */
+  saveCheckpoint?(value: unknown, etag: string | null): Promise<void>;
+  /**
+   * True only when checkpoints survive this invocation (blob storage configured and a
+   * preflight write succeeded). Settled once `loadCheckpoint()` has resolved.
+   */
+  readonly durable?: boolean;
+}
+
+/** A newer invocation saved the crawl checkpoint first; this pull's progress must not replace it. */
+export class ConnectorCheckpointSupersededError extends Error {
+  constructor(message = "catalog checkpoint superseded") {
+    super(message);
+    this.name = "ConnectorCheckpointSupersededError";
+  }
 }
 
 export interface ConnectorPullOptions {
@@ -24,6 +49,12 @@ export interface ConnectorPullOptions {
   maxRecords: number;
   recentDays?: number;
   catalogCache?: ConnectorCatalogCache;
+  /**
+   * Absolute epoch ms by which the pull must have returned (the worker passes its invocation
+   * start + `INGESTION_WORKER_TIME_BUDGET_MS`). A crawling connector stops its request loop
+   * early and saves its checkpoint; connectors that download in one request ignore it.
+   */
+  deadlineMs?: number;
 }
 
 /** Load the raw catalog from `cache` when present, otherwise fetch it and save it to `cache`. */
