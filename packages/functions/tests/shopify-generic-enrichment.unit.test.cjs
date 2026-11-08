@@ -89,4 +89,25 @@ describe("ShopifyGenericConnector — gate first, enrich only the page window", 
     // Product 0 is an accessory (gated out); the two polishes match through the brand.
     assert.equal(result.records.length, 2);
   });
+
+  it("matches the search term against derived collection and finish values, as the record carries them", async () => {
+    const connector = new ShopifyGenericConnector("TestBrandShopify", "https://example.test", { currency: "USD" });
+    const products = makeCatalog(3).map((product, i) => ({
+      ...product,
+      tags: i === 1 ? "nail-polish, collection:  Fall   Drop , finish: Linear Holo" : "nail-polish",
+    }));
+    const search = (searchTerm) =>
+      connector.pullProducts({
+        searchTerm,
+        page: 1,
+        pageSize: 250,
+        maxRecords: 250,
+        catalogCache: { load: async () => products, save: async () => {} },
+      });
+
+    for (const term of ["fall   drop", "linear holo"]) {
+      const result = await search(term);
+      assert.deepEqual(result.records.map((r) => r.externalId), ["1001"], term);
+    }
+  });
 });

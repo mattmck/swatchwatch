@@ -567,13 +567,17 @@ export class ShopifyGenericConnector implements ProductConnector {
     let filtered = gated;
     if (textFilter) {
       filtered = filtered.filter(({ product }) => {
+        const tags = normalizeTags(product.tags);
         const values = [
           asNonEmptyString(product.title),
           asNonEmptyString(product.vendor),
           // The brand the record will carry (a placeholder vendor resolves to the store's brand).
           resolveShopifyVendor(product.vendor, this.brandName),
           asNonEmptyString(product.handle),
-          ...normalizeTags(product.tags),
+          ...tags,
+          // The record's derived collections and finishes, as the enriched record carries them.
+          ...extractTaggedValues(tags, "collection:"),
+          ...extractFinishFromTags(tags),
         ].filter((entry): entry is string => Boolean(entry));
         return values.some((entry) => entry.toLowerCase().includes(textFilter));
       });

@@ -92,7 +92,7 @@ import {
   parseExportFormat,
 } from "../lib/collection-export";
 import { PoolClient } from "pg";
-import { isBrandSourceSql } from "../lib/source-settings";
+import { sourceKindRankSql } from "../lib/source-settings";
 
 const FINISH_NORMALIZATION_MAP: Record<string, string> = {
   cream: "creme",
@@ -1633,7 +1633,7 @@ async function recalcHex(request: HttpRequest, context: InvocationContext, _user
          JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
          JOIN data_source ds ON ds.data_source_id = ep.data_source_id
          WHERE ssp.shade_id = s.shade_id
-         ORDER BY (${isBrandSourceSql("ds.metadata")}) DESC,
+         ORDER BY ${sourceKindRankSql("ds.metadata")},
                   ssp.last_seen_at DESC, ep.fetched_at DESC, ep.external_product_id DESC
          LIMIT 1
        ) pt ON true

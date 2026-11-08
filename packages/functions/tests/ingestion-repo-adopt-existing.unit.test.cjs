@@ -23,8 +23,8 @@ let calls;
 // Brands that exist (lower-cased name → id); a missing brand is inserted.
 let brands;
 // Shades of brand 1: { shadeId, name, finish, collection, finishes, status, mergedInto,
-// authority (`catalog_authority`, default brand_store), adminCategory, vendorHex, detectedHex,
-// detectedFinishes }.
+// authority (`catalog_authority`, default brand_store), brandListed (a brand-source listing points
+// at it; set when a run writes a listing), adminCategory, vendorHex, detectedHex, detectedFinishes }.
 let shades;
 // Existing source_product swatches by shade id: { swatchId, imageId, ownerId } (ownerId = the
 // data source whose image_asset it is).
@@ -97,11 +97,19 @@ const transactionClient = {
         .filter((s) => ["active", "excluded"].includes(s.status ?? "active") && !s.mergedInto)
         .filter((s) => !brandOnly || (s.finish === null && s.collection === null))
         .filter((s) => !retailerOnly || s.authority === "retailer")
+        // Brand step 2 also requires that no brand listing points at the shade.
+        .filter((s) => !sql.includes("kssp.shade_id = shade.shade_id") || !s.brandListed)
         .map((s) => ({ shadeId: s.shadeId, finishes: s.finishes }));
       return { rows };
     }
     if (sql.startsWith("INSERT INTO shade ")) {
       return { rows: [{ shadeId: nextShadeId++ }] };
+    }
+    if (sql.startsWith("INSERT INTO shade_source_product")) {
+      // Every listing a test writes comes from the run's source; only brand runs read this flag.
+      const shade = shades.find((s) => s.shadeId === params[0]);
+      if (shade) shade.brandListed = true;
+      return { rows: [] };
     }
     if (sql.startsWith("UPDATE shade SET color_name")) {
       // $16: the catalog_authority this write sets (a brand takeover flips it to brand_store).
@@ -884,6 +892,39 @@ describe("materializeHoloTacoRecords — brand pre-resolution is re-checked in t
     assert.equal(linked[0], 70, "A adopts the retailer-created shade");
     assert.equal(shadeInserts().length, 1, "B creates its own shade");
     assert.equal(linked[1], 100);
+  });
+});
+
+describe("materializeHoloTacoRecords — brand step 2 while a takeover waits for its hex", () => {
+  it("B gets its own shade although A's takeover has not flipped catalog_authority yet (batch detection pending)", async () => {
+    shades = [{ shadeId: 70, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "retailer" }];
+    const a = record({ finishes: ["creme"], collection: "Fall 2025", imageUrls: ["https://brand.example/a.png"] });
+    const b = record({ finishes: ["creme"], collection: "Winter 2025", imageUrls: ["https://brand.example/b.png"] });
+    b.externalId = "r2";
+
+    await materializeHoloTacoRecords(
+      7,
+      [a, b],
+      { ...BRAND, storeImages: true, detectHexFromImage: true, useBatchForHexDetection: true, batchMinImages: 1 },
+      "[Test]"
+    );
+
+    assert.equal(batchSubmissions.length, 1, "detection is pending in a batch");
+    assert.equal(shades[0].authority, "retailer", "the flip waits for the brand's detected hex");
+    const linked = sourceProductInserts().map((c) => c.params[0]);
+    assert.equal(linked[0], 70, "A adopts (takes over) the retailer-created shade");
+    assert.equal(shadeInserts().length, 1, "B creates its own shade");
+    assert.equal(linked[1], 100);
+  });
+
+  it("never adopts a retailer-authority shade a brand listing already points at", async () => {
+    shades = [{ shadeId: 71, name: "Velvet Dreams", finish: null, collection: null, finishes: ["creme"], authority: "retailer", brandListed: true }];
+
+    await materialize(record({ finishes: ["creme"], collection: "Fall 2025" }), BRAND);
+
+    assert.equal(shadeInserts().length, 1);
+    const candidateSql = calls.find((c) => c.sql.includes("status IN ('active', 'excluded')") && c.sql.includes("catalog_authority = 'retailer'"));
+    assert.match(candidateSql.sql, /NOT EXISTS \( SELECT 1 FROM shade_source_product kssp .* NOT IN \('retailer', 'feed'\) \)/);
   });
 });
 

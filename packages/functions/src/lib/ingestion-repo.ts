@@ -2113,7 +2113,7 @@ export async function listDataSourcesWithSettings(enabledOnly = true): Promise<D
     name: row.name,
     baseUrl: row.baseUrl,
     enabled: row.enabled,
-    metadata: row.metadata,
+    // metadata stays internal: the admin settings response carries only `settings`.
     settings: (row.metadata?.ingestion) as DataSourceSettings || defaultSettings,
   }));
 }
@@ -3013,8 +3013,10 @@ type ExistingShadeLookup =
  *    collection, so the exact match would attach any listing to a same-name shade.
  * 2. Then the brand's `active` or `excluded`, unmerged same-name shades: all of them for an
  *    adopting source; for a brand source only those with no legacy finish and no collection that a
- *    retailer or feed created (`catalog_authority = 'retailer'`; a brand's same-name re-release
- *    still gets its own shade, and the brand takes an adopted one over), kept
+ *    retailer or feed created (`catalog_authority = 'retailer'`) and no brand listing points at yet
+ *    (a takeover flips the authority only once the brand's detected hex is written, so the
+ *    listing is what stops a second same-name brand product adopting it; a brand's same-name
+ *    re-release still gets its own shade, and the brand takes an adopted one over), kept
  *    by `finishesFitRecord`. Exactly one left is adopted; none left means a new shade; several
  *    (never picked by listing count) skip the record. `candidateShadeIds` lists every same-name
  *    candidate so the caller can warn.
@@ -3090,7 +3092,16 @@ async function findExistingShadeForRecord(
        ${
          kind === "brand"
            ? `AND finish IS NULL AND collection IS NULL
-       AND catalog_authority = 'retailer'`
+       AND catalog_authority = 'retailer'
+       -- A brand listing already adopted it (its takeover may still wait for the detected hex).
+       AND NOT EXISTS (
+         SELECT 1
+         FROM shade_source_product kssp
+         JOIN external_product kep ON kep.external_product_id = kssp.external_product_id
+         JOIN data_source kds ON kds.data_source_id = kep.data_source_id
+         WHERE kssp.shade_id = shade.shade_id
+           AND ${isBrandSourceSql("kds.metadata")}
+       )`
            : ""
        }
      ORDER BY shade_id`,
@@ -3335,7 +3346,7 @@ async function materializePreparedHoloTacoRecord(
   // an ambiguous record stays skipped. A `create` is looked up again: an earlier record of this
   // run may have created it. A brand source always looks up again inside this transaction: an
   // earlier record's takeover can disqualify a step-2 candidate (it must still have
-  // `catalog_authority = 'retailer'`), so a pre-resolved adoption may be stale.
+  // `catalog_authority = 'retailer'` and no brand listing), so a pre-resolved adoption may be stale.
   const preResolved = adoptsExistingShades ? preparedImage.shadeResolution ?? null : null;
   let existingShade: ExistingShadeLookup | null = null;
   if (preResolved?.outcome === "ambiguous") {

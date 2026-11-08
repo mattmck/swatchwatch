@@ -36,7 +36,7 @@
  */
 import type { PoolClient } from "pg";
 import { query as defaultQuery } from "./db";
-import { sourceKindFromMetadata, type SourceKind } from "./source-settings";
+import { sourceKindFromMetadata, sourceKindRank, type SourceKind } from "./source-settings";
 import { normalizeCurrencyCode, normalizePriceAmount } from "./product-price";
 
 /** Longest URL we pass through; longer values are treated as junk rather than truncated. */
@@ -131,17 +131,6 @@ function toIdNumber(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return Number.NEGATIVE_INFINITY;
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
-}
-
-/** Selection rank of a source kind: brand store first, then feed, then retailer; unknown = brand. */
-const SOURCE_KIND_RANK: ReadonlyMap<string, number> = new Map([
-  ["brand", 0],
-  ["feed", 1],
-  ["retailer", 2],
-]);
-
-function sourceKindRank(kind: string | null | undefined): number {
-  return (kind ? SOURCE_KIND_RANK.get(kind.trim().toLowerCase()) : undefined) ?? 0;
 }
 
 /** Sort comparator implementing the selection rule (best candidate first). */

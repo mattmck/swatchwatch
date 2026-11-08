@@ -94,6 +94,23 @@ export function sourceKindSql(metadataSql: string): string {
   return `COALESCE(NULLIF(lower(btrim(${metadataSql} ->> 'kind')), ''), 'brand')`;
 }
 
+/**
+ * Preference rank of a source kind wherever several sources describe one shade (buy links,
+ * description text): brand store 0, feed 1, retailer 2. Lower is preferred.
+ */
+export const SOURCE_KIND_RANK: Readonly<Record<SourceKind, number>> = { brand: 0, feed: 1, retailer: 2 };
+
+/** `SOURCE_KIND_RANK` of a kind value; an unknown or missing kind ranks as a brand store. */
+export function sourceKindRank(kind: string | null | undefined): number {
+  const normalized = normalizeKindValue(kind);
+  return normalized === null || normalized === "missing" ? SOURCE_KIND_RANK.brand : SOURCE_KIND_RANK[normalized];
+}
+
+/** `SOURCE_KIND_RANK` as a SQL expression over a `data_source.metadata` expression (ascending = preferred first). */
+export function sourceKindRankSql(metadataSql: string): string {
+  return `CASE ${sourceKindSql(metadataSql)} WHEN 'retailer' THEN ${SOURCE_KIND_RANK.retailer} WHEN 'feed' THEN ${SOURCE_KIND_RANK.feed} ELSE ${SOURCE_KIND_RANK.brand} END`;
+}
+
 /** SQL condition: the metadata expression belongs to a brand source (not a retailer or feed). */
 export function isBrandSourceSql(metadataSql: string): string {
   return `${sourceKindSql(metadataSql)} NOT IN ('retailer', 'feed')`;

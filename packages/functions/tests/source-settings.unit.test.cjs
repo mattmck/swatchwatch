@@ -11,6 +11,9 @@ const {
   sourceKindSql,
   isBrandSourceSql,
   catalogAuthorityForKind,
+  sourceKindRank,
+  sourceKindRankSql,
+  SOURCE_KIND_RANK,
   planListingWrites,
   planIngestedFinishes,
 } = require("../dist/lib/source-settings");
@@ -133,6 +136,18 @@ describe("source kind SQL", () => {
       "COALESCE(NULLIF(lower(btrim(metadata ->> 'kind')), ''), 'brand') NOT IN ('retailer', 'feed')"
     );
   });
+  it("ranks brand, then feed, then retailer, in JS and SQL alike (buy links, description text)", () => {
+    assert.deepEqual(SOURCE_KIND_RANK, { brand: 0, feed: 1, retailer: 2 });
+    assert.equal(sourceKindRank(" Feed "), 1);
+    assert.equal(sourceKindRank("retailer"), 2);
+    assert.equal(sourceKindRank("wholesale"), 0, "unknown ranks as brand");
+    assert.equal(sourceKindRank(null), 0);
+    assert.equal(
+      sourceKindRankSql("ds.metadata"),
+      "CASE COALESCE(NULLIF(lower(btrim(ds.metadata ->> 'kind')), ''), 'brand') WHEN 'retailer' THEN 2 WHEN 'feed' THEN 1 ELSE 0 END"
+    );
+  });
+
   it("maps kinds to catalog authorities", () => {
     assert.equal(catalogAuthorityForKind("brand"), "brand_store");
     assert.equal(catalogAuthorityForKind("retailer"), "retailer");
