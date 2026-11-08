@@ -955,6 +955,25 @@ describe("processIngestionJobQueueMessage — source kinds", () => {
     assert.equal(options.storeImages, true);
   });
 
+  it("fails the job on an unknown source kind instead of treating it as a brand", async () => {
+    sourceMetadata = { sourceKind: "wholesale" };
+    pages[1] = { records: makeRecords(1, 3), metadata: { hasMore: false } };
+    let materialized = 0;
+    materializeMock = async (records) => {
+      materialized += 1;
+      return { processed: records.length };
+    };
+    try {
+      await processIngestionJobQueueMessage(makePayload({ request: { source: "MooncatShopify" } }), context);
+    } catch {
+      // The worker may rethrow after marking the job failed.
+    }
+    assert.equal(materialized, 0);
+    const failed = events.find((e) => e.type === "failed");
+    assert.ok(failed, "expected the job to be marked failed");
+    assert.match(String(failed.error), /Unknown sourceKind "wholesale"/);
+  });
+
   it("keeps the request's overwrite flag for a brand source", async () => {
     const options = await materializeOptions({}, { overwriteDetectedHex: true });
     assert.equal(options.overwriteDetectedHex, true);

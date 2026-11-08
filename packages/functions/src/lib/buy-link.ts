@@ -129,7 +129,7 @@ const SOURCE_KIND_RANK: ReadonlyMap<string, number> = new Map([
 ]);
 
 function sourceKindRank(kind: string | null | undefined): number {
-  return (kind ? SOURCE_KIND_RANK.get(kind) : undefined) ?? 0;
+  return (kind ? SOURCE_KIND_RANK.get(kind.trim().toLowerCase()) : undefined) ?? 0;
 }
 
 /** Sort comparator implementing the selection rule (best candidate first). */

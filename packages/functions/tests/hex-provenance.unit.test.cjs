@@ -341,4 +341,62 @@ describe("applyAiBatchShadeDetections — provenance write", () => {
     assert.match(update.sql, /coalesce\(sh\.finish, ''\) = coalesce\(ext\.finish_name, ''\)/);
     assert.equal(update.params.length, 9);
   });
+
+  it("only counts a listing that names exactly one unmerged shade", async () => {
+    listingRows = [{ shadeId: "41" }];
+    await applyAiBatchShadeDetections(7, [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }], false);
+
+    assert.match(dbCalls[0].sql, /merged_into_shade_id IS NULL/);
+    assert.match(dbCalls[0].sql, /SELECT DISTINCT ssp\.shade_id/);
+  });
+
+  it("a brand source with several listings falls back to the identity", async () => {
+    listingRows = [{ shadeId: "41" }, { shadeId: "42" }];
+    await applyAiBatchShadeDetections(7, [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }], false);
+
+    const [update] = updateCalls();
+    assert.match(update.sql, /coalesce\(sh\.finish, ''\) = coalesce\(ext\.finish_name, ''\)/);
+  });
+
+  it("a reseller result with no listing applies nothing (no identity fallback)", async () => {
+    // Two same-name candidates exist; the identity fallback would pick one of them.
+    listingRows = [];
+    const metrics = await applyAiBatchShadeDetections(
+      7,
+      [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }],
+      false,
+      { adoptExistingShades: true }
+    );
+
+    assert.equal(updateCalls().length, 0);
+    assert.equal(metrics.applied, 0);
+    assert.equal(metrics.noShadeMatch, 1);
+  });
+
+  it("a reseller result with several listings applies nothing", async () => {
+    listingRows = [{ shadeId: "41" }, { shadeId: "42" }];
+    const metrics = await applyAiBatchShadeDetections(
+      7,
+      [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: null }],
+      false,
+      { adoptExistingShades: true }
+    );
+
+    assert.equal(updateCalls().length, 0);
+    assert.equal(metrics.noShadeMatch, 1);
+  });
+
+  it("a reseller result never unions detected finishes into a shade that has some", async () => {
+    listingRows = [{ shadeId: "41" }];
+    const metrics = await applyAiBatchShadeDetections(
+      7,
+      [{ externalId: "ext-1", detectedHex: "#112233", detectedFinishes: ["glitter"] }],
+      false,
+      { adoptExistingShades: true }
+    );
+
+    assert.equal(metrics.applied, 1);
+    const [update] = updateCalls();
+    assert.match(update.sql, /WHEN cardinality\(sh\.detected_finishes\) > 0 THEN sh\.detected_finishes/);
+  });
 });

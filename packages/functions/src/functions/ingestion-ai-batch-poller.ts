@@ -32,6 +32,7 @@ import {
 } from "../lib/ingestion-continuation";
 import { appendJobLogEntries, createJobLogEntry } from "../lib/job-log";
 import { isFeatureEnabled } from "../lib/feature-flags";
+import { readSourceSettings } from "../lib/source-settings";
 
 const DEFAULT_BATCH_POLL_SCHEDULE = "0 * * * * *";
 const DEFAULT_MAX_JOBS_PER_POLL = 10;
@@ -384,6 +385,9 @@ async function applyCompletedBatch(
     tokenMetricProperties
   );
 
+  // A reseller or feed job applies through its listings only and fills detected finishes only
+  // (the materializer's fill-only adoption); an unknown sourceKind throws and fails the job.
+  const adoptExistingShades = readSourceSettings(job.sourceMetadata, job.source).kind !== "brand";
   const applyMetrics = await applyAiBatchShadeDetections(
     job.dataSourceId,
     parsedDetections.map((row) => ({
@@ -392,7 +396,8 @@ async function applyCompletedBatch(
       detectedFinishes: row.detection?.finishes || null,
       provenance: row.detection ? provenanceFromDetection(row.detection) : null,
     })),
-    entry.overwriteDetectedHex
+    entry.overwriteDetectedHex,
+    { adoptExistingShades }
   );
 
   const parseErrors = parsedDetections.filter((row) => row.error).length;

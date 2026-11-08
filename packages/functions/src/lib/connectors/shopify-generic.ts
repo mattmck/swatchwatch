@@ -559,6 +559,8 @@ export class ShopifyGenericConnector implements ProductConnector {
         const values = [
           asNonEmptyString(product.title),
           asNonEmptyString(product.vendor),
+          // The brand the record will carry (a placeholder vendor resolves to the store's brand).
+          resolveShopifyVendor(product.vendor, this.brandName),
           asNonEmptyString(product.handle),
           ...normalizeTags(product.tags),
         ].filter((entry): entry is string => Boolean(entry));

@@ -86,9 +86,9 @@ registerMock("../lib/ingestion-repo", {
     dbJob.status = "failed";
     dbJob.metrics = structuredClone(metrics);
   },
-  applyAiBatchShadeDetections: async (dataSourceId, detections, overwrite) => {
+  applyAiBatchShadeDetections: async (dataSourceId, detections, overwrite, options) => {
     appliedDetections.push(structuredClone(detections));
-    calls.push({ type: "apply", dataSourceId, count: detections.length, overwrite });
+    calls.push({ type: "apply", dataSourceId, count: detections.length, overwrite, options });
     onApply();
     return { ...applyResult };
   },
@@ -382,6 +382,27 @@ describe("ingestion-ai-batch-poller completed batch", () => {
       completionTokens: 30,
       totalTokens: 330,
     });
+  });
+});
+
+describe("ingestion-ai-batch-poller — source kind", () => {
+  it("applies a reseller job's detections with the reseller rules", async () => {
+    seedJob(makeAwaitingMetrics());
+    awaitingJob.sourceMetadata = { sourceKind: "Reseller" };
+
+    await runPoller();
+
+    const apply = calls.find((c) => c.type === "apply");
+    assert.deepEqual(apply.options, { adoptExistingShades: true });
+  });
+
+  it("applies a brand job's detections with the brand rules", async () => {
+    seedJob(makeAwaitingMetrics());
+
+    await runPoller();
+
+    const apply = calls.find((c) => c.type === "apply");
+    assert.deepEqual(apply.options, { adoptExistingShades: false });
   });
 });
 

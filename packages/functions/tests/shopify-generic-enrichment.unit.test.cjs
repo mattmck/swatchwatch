@@ -73,4 +73,20 @@ describe("ShopifyGenericConnector — gate first, enrich only the page window", 
     assert.equal(gate.accept, true);
     assert.equal(gate.category, "color");
   });
+
+  it("matches the search term against the resolved brand as well as the raw vendor", async () => {
+    const connector = new ShopifyGenericConnector("NightOwlLacquerShopify", "https://example.test", { currency: "USD" });
+    const products = makeCatalog(3).map((product) => ({ ...product, vendor: "vendor-unknown" }));
+
+    const result = await connector.pullProducts({
+      searchTerm: "night owl",
+      page: 1,
+      pageSize: 250,
+      maxRecords: 250,
+      catalogCache: { load: async () => products, save: async () => {} },
+    });
+
+    // Product 0 is an accessory (gated out); the two polishes match through the brand.
+    assert.equal(result.records.length, 2);
+  });
 });

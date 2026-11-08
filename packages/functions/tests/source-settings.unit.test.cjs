@@ -36,11 +36,11 @@ describe("readSourceSettings", () => {
     assert.equal(readSourceSettings({ sourceKind: "brand", imagesPermitted: false }).imagesPermitted, false);
   });
 
-  it("reads the kind, falling back to brand for unknown values", () => {
+  it("reads the kind", () => {
     assert.equal(readSourceSettings({ sourceKind: "reseller" }).kind, "reseller");
     assert.equal(readSourceSettings({ sourceKind: "feed" }).kind, "feed");
-    assert.equal(readSourceSettings({ sourceKind: "marketplace" }).kind, "brand");
-    assert.equal(readSourceSettings({ sourceKind: 3 }).kind, "brand");
+    assert.equal(readSourceSettings({ sourceKind: "brand" }).kind, "brand");
+    assert.equal(readSourceSettings({ sourceKind: "" }).kind, "brand");
   });
 
   it("lower-cases vendor alias keys and drops non-string values", () => {
@@ -77,5 +77,16 @@ describe("readSourceSettings", () => {
     assert.equal(settings.sitemapUrl, "https://shop.example/sitemap.xml");
     assert.deepEqual(settings.productUrlPrefixes, ["https://shop.example/products/"]);
     assert.equal(settings.subdomain, "example");
+  });
+  it("normalizes the source kind and refuses an unknown one", () => {
+    assert.equal(readSourceSettings({ sourceKind: " Reseller " }).kind, "reseller");
+    assert.equal(readSourceSettings({ sourceKind: "FEED" }).kind, "feed");
+    assert.equal(readSourceSettings({}).kind, "brand", "a missing kind is a brand source");
+    assert.throws(() => readSourceSettings({ sourceKind: "wholesale" }), /Unknown sourceKind "wholesale"/);
+    assert.throws(
+      () => readSourceSettings({ sourceKind: "wholesale" }, "BeyondPolishShopify"),
+      /Unknown sourceKind "wholesale" on data_source BeyondPolishShopify/
+    );
+    assert.throws(() => readSourceSettings({ sourceKind: 3 }), /Unknown sourceKind/);
   });
 });

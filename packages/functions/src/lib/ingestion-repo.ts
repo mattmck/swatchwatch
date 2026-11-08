@@ -261,6 +261,12 @@ interface HoloTacoPreparedImage {
    * pruned (`pruneStaleGallerySwatches`). False when any download failed.
    */
   imageSetComplete: boolean;
+  /**
+   * The record's shade, resolved before any image work (`preResolveRecordShades`); unset when it
+   * could not be resolved there (no name or brand, or the lookup failed), in which case the
+   * materializer looks it up itself.
+   */
+  shadeResolution?: ExistingShadeLookup;
 }
 
 interface HoloTacoImagePreparationMetrics {
@@ -643,11 +649,12 @@ export interface UnchangedImageCandidate {
 /**
  * Joins `sh` to the shade a connector product (`input.external_id` of data source
  * `dataSourceParam`) materializes onto, the way `findExistingShadeForRecord` resolves it: the one
- * active, unmerged shade its `shade_source_product` listing links (exact also for adopted shades;
- * several links resolve nothing here, the materializer skips such a record), else the brand +
- * name + legacy finish + collection identity.
+ * unmerged shade its `shade_source_product` listing links (exact also for adopted shades), else,
+ * for a brand source only (`identityFallback`), the brand + name + legacy finish + collection
+ * identity. A reseller or feed record without exactly one listing resolves nothing here (the
+ * materializer skips an ambiguous one, and its shade lookup never uses that identity).
  */
-function joinMaterializedShadeSql(dataSourceParam: string): string {
+function joinMaterializedShadeSql(dataSourceParam: string, identityFallback = true): string {
   return `JOIN LATERAL (
          SELECT COALESCE(
            (
@@ -657,11 +664,10 @@ function joinMaterializedShadeSql(dataSourceParam: string): string {
              JOIN shade lsh ON lsh.shade_id = ssp.shade_id
              WHERE ep.data_source_id = ${dataSourceParam}
                AND ep.external_id = input.external_id
-               AND lsh.status = 'active'
                AND lsh.merged_into_shade_id IS NULL
              HAVING count(DISTINCT ssp.shade_id) = 1
-           ),
-           (
+           )${identityFallback ? "," : ""}
+           ${identityFallback ? `(
              SELECT ish.shade_id
              FROM brand b
              JOIN shade ish ON ish.brand_id = b.brand_id
@@ -672,7 +678,7 @@ function joinMaterializedShadeSql(dataSourceParam: string): string {
                AND coalesce(ish.collection, '') = coalesce(input.collection, '')
              ORDER BY b.brand_id, ish.shade_id
              LIMIT 1
-           )
+           )` : ""}
          ) AS shade_id
        ) resolved ON resolved.shade_id IS NOT NULL
        JOIN shade sh ON sh.shade_id = resolved.shade_id`;
@@ -688,17 +694,38 @@ function joinMaterializedShadeSql(dataSourceParam: string): string {
  */
 export async function findAdminProductCategories(
   dataSourceId: number,
-  candidates: Array<{
+  allCandidates: Array<{
     externalId: string;
     brandName: string;
     shadeName: string;
     finish: string | null;
     collection: string | null;
-  }>
+    /** The shade the record was already resolved to (`preResolveRecordShades`), if any. */
+    shadeId?: number | null;
+  }>,
+  options: { identityFallback?: boolean } = {}
 ): Promise<Map<string, ProductCategory>> {
   const out = new Map<string, ProductCategory>();
-  if (candidates.length === 0) return out;
+  if (allCandidates.length === 0) return out;
+  const resolved = allCandidates.filter((c) => c.shadeId !== null && c.shadeId !== undefined);
+  const candidates = allCandidates.filter((c) => c.shadeId === null || c.shadeId === undefined);
   try {
+    if (resolved.length > 0) {
+      // A resolved shade is read directly, so a shade adopted on this very run is gated too.
+      const byShade = await query<{ shadeId: number | string; productCategory: ProductCategory }>(
+        `SELECT shade_id AS "shadeId", product_category AS "productCategory"
+         FROM shade
+         WHERE shade_id = ANY($1::bigint[])
+           AND product_category_source = 'admin'`,
+        [[...new Set(resolved.map((c) => Number(c.shadeId)))]]
+      );
+      const categories = new Map(byShade.rows.map((row) => [Number(row.shadeId), row.productCategory]));
+      for (const candidate of resolved) {
+        const category = categories.get(Number(candidate.shadeId));
+        if (category) out.set(candidate.externalId, resolveProductCategory(category));
+      }
+    }
+    if (candidates.length === 0) return out;
     const result = await query<{ externalId: string; productCategory: ProductCategory }>(
       `WITH input AS (
          SELECT *
@@ -709,7 +736,7 @@ export async function findAdminProductCategories(
               input.external_id AS "externalId",
               sh.product_category AS "productCategory"
        FROM input
-       ${joinMaterializedShadeSql("$6")}
+       ${joinMaterializedShadeSql("$6", options.identityFallback !== false)}
        WHERE sh.product_category_source = 'admin'
        ORDER BY input.external_id, sh.shade_id`,
       [
@@ -740,7 +767,8 @@ export async function findAdminProductCategories(
  */
 export async function findRecordsWithUnchangedDetectedHex(
   dataSourceId: number,
-  candidates: UnchangedImageCandidate[]
+  candidates: UnchangedImageCandidate[],
+  options: { identityFallback?: boolean } = {}
 ): Promise<Set<string>> {
   if (candidates.length === 0) {
     return new Set();
@@ -755,7 +783,7 @@ export async function findRecordsWithUnchangedDetectedHex(
        )
        SELECT DISTINCT input.external_id AS "externalId"
        FROM input
-       ${joinMaterializedShadeSql("$1")}
+       ${joinMaterializedShadeSql("$1", options.identityFallback !== false)}
        WHERE sh.detected_hex IS NOT NULL
          AND EXISTS (
            SELECT 1
@@ -891,20 +919,39 @@ async function prepareHoloTacoImageData(
   onRecordPrepared?: (
     record: ConnectorProductRecord,
     preparedImage: HoloTacoPreparedImage
-  ) => Promise<void>
+  ) => Promise<void>,
+  finishCatalog?: FinishCatalog
 ): Promise<HoloTacoImagePreparationResult> {
   // A source whose images are not permitted stores none, so AI hex detection has nothing to read.
   const storeImages = options?.storeImages !== false;
   const detectHexFromImage = storeImages && options?.detectHexFromImage !== false;
   const detectHexOnSuspiciousOnly = options?.detectHexOnSuspiciousOnly === true;
   const recordsSourceName = options?.sourceName;
+  const adoptsExistingShades = options?.adoptExistingShades === true;
   const batchMinImages = Math.max(1, options?.batchMinImages ?? DEFAULT_HEX_BATCH_MIN_IMAGES);
   const suspiciousContext = buildVendorHexContext(records);
+  // Resolution before detection: each record's shade is known before any image work.
+  const resolutions = await preResolveRecordShades(records, dataSourceId, {
+    adopt: adoptsExistingShades,
+    sourceName: recordsSourceName,
+    finishCatalog,
+    sourceLogPrefix,
+  });
+  // Records that get no upload and no detection: an ambiguous record (skipped at
+  // materialization) and, for a reseller or feed, a shade already showing another source's image
+  // (nothing this source stores would be linked).
+  const skipImageWork = new Set(
+    [...resolutions.entries()]
+      .filter(([, resolved]) => resolved.lookup.outcome === "ambiguous" || resolved.foreignProductImage)
+      .map(([externalId]) => externalId)
+  );
   // Admin-set categories win over the connector's rule category for every hex-detection gate below.
   const adminCategories = detectHexFromImage
     ? await findAdminProductCategories(
         dataSourceId,
         records.flatMap((record) => {
+          if (skipImageWork.has(record.externalId)) return [];
+          const resolved = resolutions.get(record.externalId)?.lookup;
           const normalized =
             record.normalized && typeof record.normalized === "object"
               ? (record.normalized as Record<string, unknown>)
@@ -919,14 +966,16 @@ async function prepareHoloTacoImageData(
                   shadeName: holo.name,
                   finish: holo.finish,
                   collection: holo.collection,
+                  shadeId: resolved?.outcome === "found" ? resolved.shadeId : null,
                 },
               ]
             : [];
-        })
+        }),
+        { identityFallback: !adoptsExistingShades }
       )
     : new Map<string, ProductCategory>();
   const estimatedBatchCandidates = estimateBatchCandidateCount(
-    records,
+    records.filter((record) => !skipImageWork.has(record.externalId)),
     detectHexFromImage,
     detectHexOnSuspiciousOnly,
     suspiciousContext,
@@ -1121,6 +1170,14 @@ async function prepareHoloTacoImageData(
         // The source has not permitted storing its images (SourceSettings.imagesPermitted).
         return notCandidate;
       }
+      if (skipImageWork.has(record.externalId)) {
+        const reason =
+          resolutions.get(record.externalId)?.lookup.outcome === "ambiguous"
+            ? "several shades fit it (skipped at materialization)"
+            : "its shade already shows another source's product image";
+        console.log(`${sourceLogPrefix} Not storing images for ${record.externalId}: ${reason}`);
+        return notCandidate;
+      }
       if (!resolveHoloTacoBrandName(holo, recordsSourceName)) {
         // No brand: the materializer skips the record, so its images are not stored either.
         return notCandidate;
@@ -1282,7 +1339,8 @@ async function prepareHoloTacoImageData(
                 checksumSha256,
               },
             ];
-          })
+          }),
+          { identityFallback: !adoptsExistingShades }
         )
       : new Set<string>();
   if (unchangedWithHex.size > 0) {
@@ -1558,7 +1616,11 @@ async function prepareHoloTacoImageData(
   try {
     for (let i = 0; i < uploadResults.length; i++) {
       const { record } = uploadResults[i];
-      const preparedImage = await preparedTasks[i];
+      const resolved = resolutions.get(record.externalId);
+      const preparedImage: HoloTacoPreparedImage = {
+        ...(await preparedTasks[i]),
+        ...(resolved ? { shadeResolution: resolved.lookup } : {}),
+      };
       byExternalId.set(record.externalId, preparedImage);
       if (onRecordPrepared) {
         await onRecordPrepared(record, preparedImage);
@@ -1684,7 +1746,8 @@ async function prepareHoloTacoImageData(
         const applyMetrics = await applyAiBatchShadeDetections(
           dataSourceId,
           fallbackDetections,
-          options?.overwriteDetectedHex === true
+          options?.overwriteDetectedHex === true,
+          { adoptExistingShades: adoptsExistingShades }
         );
         const fallbackElapsed = ((Date.now() - batchStartedAt) / 1000).toFixed(1);
         const appliedMessage = `${sourceLogPrefix} Applied ${applyMetrics.applied} synchronous fallback detection(s) in ${fallbackElapsed}s`;
@@ -2124,6 +2187,8 @@ export interface AwaitingAiBatchJobRecord {
   jobId: number;
   source: string;
   dataSourceId: number;
+  /** `data_source.metadata` (its `sourceKind` decides the apply rules, `readSourceSettings`). */
+  sourceMetadata?: Record<string, unknown> | null;
   metrics: Record<string, unknown>;
   startedAt: string;
 }
@@ -2135,6 +2200,7 @@ export async function listIngestionJobsAwaitingAiBatch(
     jobId: number;
     source: string;
     dataSourceId: number;
+    sourceMetadata: Record<string, unknown> | null;
     metrics: Record<string, unknown> | null;
     startedAt: string;
   }>(
@@ -2142,6 +2208,7 @@ export async function listIngestionJobsAwaitingAiBatch(
        j.ingestion_job_id AS "jobId",
        s.name AS source,
        s.data_source_id AS "dataSourceId",
+       s.metadata AS "sourceMetadata",
        j.metrics_json AS metrics,
        j.started_at::text AS "startedAt"
      FROM ingestion_job j
@@ -2160,6 +2227,7 @@ export async function listIngestionJobsAwaitingAiBatch(
     jobId: Number(row.jobId),
     source: row.source,
     dataSourceId: Number(row.dataSourceId),
+    sourceMetadata: row.sourceMetadata ?? null,
     metrics: row.metrics || {},
     startedAt: row.startedAt,
   }));
@@ -2186,8 +2254,16 @@ export interface ApplyAiBatchShadeDetectionsMetrics {
 export async function applyAiBatchShadeDetections(
   dataSourceId: number,
   detections: AiBatchShadeDetectionInput[],
-  overwriteDetectedHex: boolean
+  overwriteDetectedHex: boolean,
+  /**
+   * `adoptExistingShades` (a reseller or feed source, `SourceSettings.kind !== "brand"`): only the
+   * product's single listing names the shade (no identity fallback, so a record materialization
+   * skipped as ambiguous is never applied to one of its candidates), and detected finishes only
+   * fill a shade that has none (fill-only adoption).
+   */
+  options: { adoptExistingShades?: boolean } = {}
 ): Promise<ApplyAiBatchShadeDetectionsMetrics> {
+  const adopts = options.adoptExistingShades === true;
   let applied = 0;
   let appliedHex = 0;
   let skippedNoDetection = 0;
@@ -2208,19 +2284,25 @@ export async function applyAiBatchShadeDetections(
     }
 
     // The listing materialization wrote (recordShadeSourceProduct) names the shade exactly, also
-    // for a shade the record adopted; the brand + name + finish + collection identity is only the
-    // fallback for products materialized before listings existed.
+    // for a shade the record adopted, when it links exactly one unmerged shade (the lookup's step
+    // 0). Otherwise a brand source falls back to the brand + name + finish + collection identity
+    // (products materialized before listings existed); a reseller or feed source applies nothing.
     const listing = await query<{ shadeId: number | string }>(
-      `SELECT ssp.shade_id AS "shadeId"
+      `SELECT DISTINCT ssp.shade_id AS "shadeId"
        FROM shade_source_product ssp
        JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
+       JOIN shade lsh ON lsh.shade_id = ssp.shade_id
        WHERE ep.data_source_id = $1
          AND ep.external_id = $2
-       ORDER BY ssp.last_seen_at DESC, ssp.shade_id DESC
-       LIMIT 1`,
+         AND lsh.merged_into_shade_id IS NULL
+       ORDER BY ssp.shade_id`,
       [dataSourceId, externalId]
     );
-    const listedShadeId = listing.rows[0]?.shadeId ?? null;
+    const listedShadeId = listing.rows.length === 1 ? listing.rows[0].shadeId : null;
+    if (listedShadeId === null && adopts) {
+      noShadeMatch += 1;
+      continue;
+    }
     const targetSql =
       listedShadeId !== null
         ? `target AS (
@@ -2266,6 +2348,7 @@ export async function applyAiBatchShadeDetections(
            END,
            detected_finishes = CASE
              WHEN $5::boolean AND $4::text[] IS NOT NULL THEN $4::text[]
+             ${adopts ? "WHEN cardinality(sh.detected_finishes) > 0 THEN sh.detected_finishes" : ""}
              WHEN sh.detected_finishes IS NULL THEN $4::text[]
              WHEN $4::text[] IS NULL THEN sh.detected_finishes
              ELSE (
@@ -2655,22 +2738,46 @@ type ExistingShadeLookup =
   | { outcome: "ambiguous"; candidateShadeIds: number[] };
 
 /**
+ * `data_source.metadata ->> 'sourceKind'` of `alias` as SQL, normalized like `readSourceKind`
+ * (trimmed, lower-cased, missing = brand). Anything that is not `reseller` or `feed` is a brand.
+ */
+function sourceKindSql(alias: string): string {
+  return `COALESCE(NULLIF(lower(btrim(${alias}.metadata ->> 'sourceKind')), ''), 'brand')`;
+}
+
+/** SQL condition: shade `shadeColumn` has a listing from a source whose kind is (or is not) non-brand. */
+function shadeListedBySql(shadeColumn: string, nonBrand: boolean): string {
+  return `EXISTS (
+         SELECT 1
+         FROM shade_source_product kssp
+         JOIN external_product kep ON kep.external_product_id = kssp.external_product_id
+         JOIN data_source kds ON kds.data_source_id = kep.data_source_id
+         WHERE kssp.shade_id = ${shadeColumn}
+           AND ${sourceKindSql("kds")} ${nonBrand ? "IN" : "NOT IN"} ('reseller', 'feed')
+       )`;
+}
+
+/**
  * The existing shade a connector record materializes onto, or none (create a new shade).
  *
  * 0. For every source kind, the product's own `shade_source_product` listing wins outright when
- *    exactly one links it to an active, unmerged shade (written by an earlier run, so it is exact
- *    for adopted shades too). Several such links are ambiguous: the record is skipped.
+ *    exactly one links it to an unmerged shade of any status (written by an earlier run, so it is
+ *    exact for adopted shades too, and an admin-`excluded` shade is reused rather than
+ *    duplicated). Several such links: an adopting source skips the record as ambiguous; a brand
+ *    source falls back to steps 1–2 (today's identity match, no regression for existing stores).
  * 1. A brand source then tries the exact identity (brand + name + legacy `finish` +
  *    `collection`). An adopting source skips it: its records carry no legacy finish or
  *    collection, so the exact match would attach any listing to a same-name shade.
- * 2. Then the brand's active, unmerged same-name shades: all of them for an adopting source; for a
- *    brand source only those with no legacy finish and no collection (shades a reseller or feed
- *    created), kept by `finishesFitRecord`. Exactly one left is adopted; none left means a new
- *    shade; several (never picked by listing count) skip the record. `candidateShadeIds` lists
- *    every same-name candidate so the caller can warn.
+ * 2. Then the brand's `active` or `excluded`, unmerged same-name shades: all of them for an
+ *    adopting source; for a brand source only those with no legacy finish and no collection that
+ *    carry at least one listing from a reseller/feed source and none from a brand source (shades a
+ *    reseller or feed created, so a brand's same-name re-release still gets its own shade), kept
+ *    by `finishesFitRecord`. Exactly one left is adopted; none left means a new shade; several
+ *    (never picked by listing count) skip the record. `candidateShadeIds` lists every same-name
+ *    candidate so the caller can warn.
  */
 async function findExistingShadeForRecord(
-  client: PoolClient,
+  client: Pick<PoolClient, "query">,
   params: {
     kind: ShadeLookupKind;
     dataSourceId: number;
@@ -2691,16 +2798,18 @@ async function findExistingShadeForRecord(
      JOIN shade sh ON sh.shade_id = ssp.shade_id
      WHERE ep.data_source_id = $1
        AND ep.external_id = $2
-       AND sh.status = 'active'
        AND sh.merged_into_shade_id IS NULL
      ORDER BY ssp.shade_id`,
     [dataSourceId, externalId]
   );
-  const listedShadeIds = listed.rows.map((row) => row.shadeId).filter((id) => id !== null && id !== undefined);
+  const listedShadeIds = listed.rows
+    .map((row) => row.shadeId)
+    .filter((id) => id !== null && id !== undefined)
+    .map(Number);
   if (listedShadeIds.length === 1) {
     return { outcome: "found", shadeId: listedShadeIds[0] };
   }
-  if (listedShadeIds.length > 1) {
+  if (listedShadeIds.length > 1 && kind === "adopt") {
     return { outcome: "ambiguous", candidateShadeIds: listedShadeIds };
   }
 
@@ -2717,7 +2826,7 @@ async function findExistingShadeForRecord(
       [brandId, name, finish, collection]
     );
     if (exact.rows.length > 0) {
-      return { outcome: "found", shadeId: exact.rows[0].shadeId };
+      return { outcome: "found", shadeId: Number(exact.rows[0].shadeId) };
     }
   }
 
@@ -2727,9 +2836,15 @@ async function findExistingShadeForRecord(
      WHERE brand_id = $1
        AND product_line_id IS NULL
        AND lower(shade_name_canonical) = lower($2)
-       AND status = 'active'
+       AND status IN ('active', 'excluded')
        AND merged_into_shade_id IS NULL
-       ${kind === "brand" ? "AND finish IS NULL AND collection IS NULL" : ""}
+       ${
+         kind === "brand"
+           ? `AND finish IS NULL AND collection IS NULL
+       AND ${shadeListedBySql("shade.shade_id", true)}
+       AND NOT ${shadeListedBySql("shade.shade_id", false)}`
+           : ""
+       }
      ORDER BY shade_id`,
     [brandId, name]
   );
@@ -2740,9 +2855,9 @@ async function findExistingShadeForRecord(
   const compatible = candidates.rows.filter((candidate) =>
     finishesFitRecord(finishes, candidate.finishes ?? [], finishCatalog)
   );
-  const candidateShadeIds = candidates.rows.map((candidate) => candidate.shadeId);
+  const candidateShadeIds = candidates.rows.map((candidate) => Number(candidate.shadeId));
   if (compatible.length === 1) {
-    return { outcome: "found", shadeId: compatible[0].shadeId };
+    return { outcome: "found", shadeId: Number(compatible[0].shadeId) };
   }
   return { outcome: compatible.length === 0 ? "create" : "ambiguous", candidateShadeIds };
 }
@@ -2773,6 +2888,122 @@ function finishesFitRecord(
   const candidateFamilies = familiesOf(candidateFinishes);
   if (recordFamilies.size === 0 || candidateFamilies.size === 0) return true;
   return [...candidateFamilies].some((family) => recordFamilies.has(family));
+}
+
+/**
+ * Whether the shade's newest `source_product` swatch shows another source's image (reseller and
+ * feed images never replace it). A shade without a product swatch, or whose product image this
+ * source stored itself, answers false.
+ */
+async function shadeHasForeignProductImage(
+  client: Pick<PoolClient, "query">,
+  shadeId: number,
+  dataSourceId: number
+): Promise<boolean> {
+  const productSwatch = await client.query<{ ownImage: boolean }>(
+    `SELECT (ia.owner_type = 'source' AND ia.owner_id = $2) IS TRUE AS "ownImage"
+     FROM swatch sw
+     LEFT JOIN image_asset ia ON ia.image_id = sw.image_id_original
+     WHERE sw.shade_id = $1
+       AND sw.swatch_type = 'source_product'
+     ORDER BY sw.swatch_id DESC
+     LIMIT 1`,
+    [shadeId, dataSourceId]
+  );
+  return productSwatch.rows.length > 0 && !productSwatch.rows[0].ownImage;
+}
+
+interface PreResolvedRecordShade {
+  lookup: ExistingShadeLookup;
+  /** Adopting source only: the found shade already shows another source's product image. */
+  foreignProductImage: boolean;
+}
+
+/**
+ * Resolution before detection: every record's shade is looked up (`findExistingShadeForRecord`,
+ * read-only: a brand that does not exist yet means `create`) before any image is downloaded, so
+ * an ambiguous record costs no upload or vision call, the admin-category gate sees a shade adopted
+ * on this very run, and an adopting source skips images it would never link. A record without a
+ * name or brand, or whose lookup fails, is left out (the materializer resolves it itself).
+ */
+async function preResolveRecordShades(
+  records: ConnectorProductRecord[],
+  dataSourceId: number,
+  params: {
+    adopt: boolean;
+    sourceName?: string;
+    finishCatalog?: FinishCatalog;
+    sourceLogPrefix: string;
+  }
+): Promise<Map<string, PreResolvedRecordShade>> {
+  const out = new Map<string, PreResolvedRecordShade>();
+  const client = { query } as Pick<PoolClient, "query">;
+  const brandIds = new Map<string, Promise<number | null>>();
+  const brandIdFor = (brandName: string): Promise<number | null> => {
+    const key = brandName.toLowerCase();
+    let pending = brandIds.get(key);
+    if (!pending) {
+      pending = query<{ brandId: number }>(
+        `SELECT brand_id AS "brandId"
+         FROM brand
+         WHERE lower(name_canonical) = lower($1)
+         ORDER BY brand_id
+         LIMIT 1`,
+        [brandName]
+      ).then((result) => (result.rows.length > 0 ? Number(result.rows[0].brandId) : null));
+      brandIds.set(key, pending);
+    }
+    return pending;
+  };
+
+  const limit = pLimit(4);
+  await Promise.all(
+    records.map((record) =>
+      limit(async () => {
+        const normalized =
+          record.normalized && typeof record.normalized === "object"
+            ? (record.normalized as Record<string, unknown>)
+            : null;
+        if (!normalized) return;
+        const holo = parseHoloTacoNormalized(normalized);
+        const brandName = holo.name ? resolveHoloTacoBrandName(holo, params.sourceName) : null;
+        if (!holo.name || !brandName) return;
+        try {
+          const brandId = await brandIdFor(brandName);
+          if (brandId === null) {
+            out.set(record.externalId, { lookup: { outcome: "create", candidateShadeIds: [] }, foreignProductImage: false });
+            return;
+          }
+          const lookup = await findExistingShadeForRecord(
+            client,
+            {
+              kind: params.adopt ? "adopt" : "brand",
+              dataSourceId,
+              externalId: record.externalId,
+              brandId,
+              name: holo.name,
+              finish: holo.finish,
+              collection: holo.collection,
+              finishes: resolveIngestedShadeFinishResolution(normalized, params.finishCatalog).finishes,
+            },
+            params.finishCatalog
+          );
+          const foreignProductImage =
+            params.adopt && lookup.outcome === "found"
+              ? await shadeHasForeignProductImage(client, lookup.shadeId, dataSourceId)
+              : false;
+          out.set(record.externalId, { lookup, foreignProductImage });
+        } catch (error) {
+          console.warn(
+            `${params.sourceLogPrefix} Shade pre-resolution failed for ${record.externalId}; resolving at materialization: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+      })
+    )
+  );
+  return out;
 }
 
 async function materializePreparedHoloTacoRecord(
@@ -2860,20 +3091,39 @@ async function materializePreparedHoloTacoRecord(
   }
 
   const adoptsExistingShades = sourceOptions.adoptExistingShades === true;
-  const existingShade = await findExistingShadeForRecord(
-    client,
-    {
-      kind: adoptsExistingShades ? "adopt" : "brand",
-      dataSourceId,
-      externalId: record.externalId,
-      brandId,
-      name: holo.name,
-      finish: holo.finish,
-      collection: holo.collection,
-      finishes: ingestedFinishes,
-    },
-    finishCatalog
-  );
+  // The image phase resolved the record before any image work (`preResolveRecordShades`). A found
+  // shade is used unless it has since been merged away (or deleted); an ambiguous record stays
+  // skipped. A `create` is looked up again: an earlier record of this run may have created it.
+  const preResolved = preparedImage.shadeResolution ?? null;
+  let existingShade: ExistingShadeLookup | null = null;
+  if (preResolved?.outcome === "ambiguous") {
+    existingShade = preResolved;
+  } else if (preResolved?.outcome === "found") {
+    const stillThere = await client.query(
+      `SELECT 1 FROM shade WHERE shade_id = $1 AND merged_into_shade_id IS NULL`,
+      [preResolved.shadeId]
+    );
+    if (stillThere.rows.length > 0) existingShade = preResolved;
+  }
+  if (!existingShade) {
+    existingShade = await findExistingShadeForRecord(
+      client,
+      {
+        kind: adoptsExistingShades ? "adopt" : "brand",
+        dataSourceId,
+        externalId: record.externalId,
+        brandId,
+        name: holo.name,
+        finish: holo.finish,
+        collection: holo.collection,
+        finishes: ingestedFinishes,
+      },
+      finishCatalog
+    );
+  }
+  // A reseller or feed source writes an existing shade strictly fill-only: finishes only when it
+  // has none, detected finishes only when it has none, and never its product category.
+  const fillOnly = adoptsExistingShades && existingShade.outcome === "found";
 
   if (existingShade.outcome === "ambiguous") {
     // Several shades fit (listings or same-name candidates): never pick one by guesswork.
@@ -2917,7 +3167,7 @@ async function materializePreparedHoloTacoRecord(
 
   const vendorHex = holo.vendorHex;
   const detectedHex = preparedImage.detectedHex || null;
-  const detectedFinishes = preparedImage.detectedFinishes || null;
+  let detectedFinishes = preparedImage.detectedFinishes || null;
   const detectedHexProvenance = preparedImage.detectedHexProvenance ?? EMPTY_DETECTED_HEX_PROVENANCE;
   const nameHex = holo.nameHex;
   console.log(
@@ -2946,13 +3196,18 @@ async function materializePreparedHoloTacoRecord(
   // Vendor tag finishes are merged (never removed) so manual edits survive re-imports;
   // descriptor/description finishes only fill a shade that has none yet (#352); an admin-set
   // list (finishes_source = 'admin') is written back exactly as it is.
+  // A fill-only (adopting) write keeps a shade's finishes once it has any.
   const currentFinishes = currentShade.rows[0]?.finishes ?? [];
   const currentFinishesSource = currentShade.rows[0]?.finishesSource ?? null;
   const mergedFinishes =
-    currentFinishesSource === "admin"
+    currentFinishesSource === "admin" || (fillOnly && currentFinishes.length > 0)
       ? currentFinishes
       : applyIngestedFinishes(currentFinishes, finishResolution, finishCatalog) ??
         mergeFinishLists([currentFinishes], finishCatalog);
+  if (fillOnly && (currentShade.rows[0]?.detectedFinishes?.length ?? 0) > 0) {
+    // NULL makes the UPDATE keep detected_finishes (the row is locked FOR UPDATE above).
+    detectedFinishes = null;
+  }
 
   // A vendor hex follows the overwrite rule, except an admin-promoted manual label, which
   // ingestion never replaces (#321, D12): the vendor value is kept in vendor_hex_previous.
@@ -3023,29 +3278,22 @@ async function materializePreparedHoloTacoRecord(
   );
 
   // Product category (#349): the connector's rule category, re-checked with the merged finishes
-  // (a `topper` finish makes a topper). An admin-set category is never changed.
-  const { category: productCategory } = classifyProductCategory({
-    shadeName: holo.name,
-    colorName: holo.colorName,
-    finishes: [...asStringArray(normalized.finishes), ...(mergedFinishes ?? [])],
-    products: [{ title: holo.name, productType: asString(normalized.productType), tags: holo.tags }],
-  });
-  await applyRuleProductCategory(client, shadeId, productCategory);
+  // (a `topper` finish makes a topper). An admin-set category is never changed, and a reseller or
+  // feed never re-classifies a shade it adopted (its "Top Coat" tag must not flip a brand shade).
+  if (!fillOnly) {
+    const { category: productCategory } = classifyProductCategory({
+      shadeName: holo.name,
+      colorName: holo.colorName,
+      finishes: [...asStringArray(normalized.finishes), ...(mergedFinishes ?? [])],
+      products: [{ title: holo.name, productType: asString(normalized.productType), tags: holo.tags }],
+    });
+    await applyRuleProductCategory(client, shadeId, productCategory);
+  }
 
   // Reseller and feed images never replace another source's: they are linked only to a shade
   // with no product image yet, or whose product image came from this source (its own refresh).
   if (adoptsExistingShades) {
-    const productSwatch = await client.query<{ ownImage: boolean }>(
-      `SELECT (ia.owner_type = 'source' AND ia.owner_id = $2) IS TRUE AS "ownImage"
-       FROM swatch sw
-       LEFT JOIN image_asset ia ON ia.image_id = sw.image_id_original
-       WHERE sw.shade_id = $1
-         AND sw.swatch_type = 'source_product'
-       ORDER BY sw.swatch_id DESC
-       LIMIT 1`,
-      [shadeId, dataSourceId]
-    );
-    if (productSwatch.rows.length > 0 && !productSwatch.rows[0].ownImage) {
+    if (await shadeHasForeignProductImage(client, shadeId, dataSourceId)) {
       console.log(
         `${sourceLogPrefix} Shade ${shadeId} has another source's product image; not linking this source's images`
       );
@@ -3400,7 +3648,8 @@ export async function materializeHoloTacoRecords(
           { externalId: record.externalId, ...delta.skipDetails }
         );
       }
-    }
+    },
+    finishCatalog
   );
 
   const result = {

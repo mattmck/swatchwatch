@@ -42,8 +42,20 @@ function nonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function readSourceKind(value: unknown): SourceKind {
-  return (SOURCE_KINDS as readonly unknown[]).includes(value) ? (value as SourceKind) : "brand";
+/**
+ * `metadata.sourceKind`, trimmed and lower-cased; a missing (or empty) value is a brand source. An
+ * explicitly unknown value throws, failing the job: a typo must never silently grant a reseller
+ * brand-style image storage and catalog overwrites.
+ */
+export function readSourceKind(value: unknown, sourceName?: string): SourceKind {
+  if (value === undefined || value === null) return "brand";
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : null;
+  if (normalized === "") return "brand";
+  if (normalized !== null && (SOURCE_KINDS as readonly string[]).includes(normalized)) {
+    return normalized as SourceKind;
+  }
+  const shown = typeof value === "string" ? value : JSON.stringify(value);
+  throw new Error(`Unknown sourceKind "${shown}"${sourceName ? ` on data_source ${sourceName}` : ""}`);
 }
 
 function readVendorAliases(value: unknown): Record<string, string> {
@@ -65,10 +77,13 @@ function readStringList(value: unknown): string[] {
   });
 }
 
-/** Parses `data_source.metadata` into the settings a job runs with (defaults for anything missing). */
-export function readSourceSettings(metadata: unknown): SourceSettings {
+/**
+ * Parses `data_source.metadata` into the settings a job runs with (defaults for anything missing).
+ * Throws on an unknown `sourceKind` (`readSourceKind`); `sourceName` names the source in the error.
+ */
+export function readSourceSettings(metadata: unknown, sourceName?: string): SourceSettings {
   const meta = isRecord(metadata) ? metadata : {};
-  const kind = readSourceKind(meta.sourceKind);
+  const kind = readSourceKind(meta.sourceKind, sourceName);
   const maxPages = meta.maxPages;
   return {
     kind,

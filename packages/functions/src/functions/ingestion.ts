@@ -644,7 +644,7 @@ export async function processIngestionJobQueueMessage(
       throw new Error(`Data source '${payload.request.source}' not found in data_source table`);
     }
     // Source kind, image permission and connector keys, read once per job (lib/source-settings.ts).
-    const sourceSettings = readSourceSettings(source.metadata);
+    const sourceSettings = readSourceSettings(source.metadata, source.name);
     logger.info(`Found data source`, {
       dataSourceId: source.dataSourceId,
       baseUrl: source.baseUrl,
