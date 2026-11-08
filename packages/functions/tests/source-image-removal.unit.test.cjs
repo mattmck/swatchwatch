@@ -78,7 +78,11 @@ function makeDb({ enabled = false, sourceExists = true } = {}) {
       const id = params[0];
       const removed = state.images.filter((i) => i.image_id === id);
       state.images = state.images.filter((i) => i.image_id !== id);
+      if (state.afterImageDelete) state.afterImageDelete(id);
       return { rows: removed.map((i) => ({ imageId: i.image_id })) };
+    }
+    if (/FROM image_asset WHERE storage_url = \$1/.test(sql)) {
+      return { rows: state.images.filter((i) => i.storage_url === params[0]).slice(0, 1).map(() => ({ found: 1 })) };
     }
     if (/FOR UPDATE/.test(sql)) {
       const [imageId, ownerId] = params;
@@ -287,6 +291,19 @@ describe("runSourceImageRemovalBatch guards", () => {
     assert.deepEqual(outcome, { status: "source_busy", activeJobs: 2 });
     assert.ok(!statements.some((sql) => /image_asset/.test(sql)));
     assert.deepEqual(deps.deleted, []);
+  });
+
+  it("keeps the blob when a row started referencing its URL after the shared check", async () => {
+    const { state, deps } = makeDb();
+    // A capture frame attaches image 11's URL between the in-transaction check and the delete.
+    state.afterImageDelete = (id) => {
+      if (id === 11) state.images.push({ image_id: 500, owner_type: "user", owner_id: 42, storage_url: `${BLOB}/7/b.jpg`, checksum_sha256: null });
+    };
+    const result = (await runSourceImageRemovalBatch(deps, { ...base, dryRun: false })).result;
+    assert.equal(result.imagesDeleted, 2);
+    assert.equal(result.blobsDeleted, 0);
+    assert.ok(!deps.deleted.some((u) => u.includes("/7/b.jpg")));
+    assert.ok(result.kept.some((k) => k.imageId === 11 && k.reason === "shared_blob"));
   });
 
   it("keeps deleting the other blobs of an image after one variant delete fails", async () => {

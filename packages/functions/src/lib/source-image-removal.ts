@@ -263,6 +263,17 @@ export async function runSourceImageRemovalBatch(
       continue;
     }
     if (!deps.ownsBlob(removed.flags.storageUrl)) continue; // vendor URL: no blob of ours
+    // The shared-blob check ran inside the transaction; a row written since (a capture frame
+    // attaching this URL, a concurrent ingest reusing it) would point at a deleted blob. Re-check
+    // after commit, right before the delete, and keep the blob when any row now references it.
+    const referencedAgain = await deps.query(
+      `SELECT 1 AS "found" FROM image_asset WHERE storage_url = $1 LIMIT 1`,
+      [removed.flags.storageUrl]
+    );
+    if (referencedAgain.rows.length > 0) {
+      result.kept.push({ imageId: scanned.imageId, reason: "shared_blob" });
+      continue;
+    }
     // The row is already gone, so a failure names the blob: it is the operator's only way to
     // find the orphan and delete it by hand (a re-run cannot see it any more).
     // Each blob is attempted on its own: one failed variant must not leave the others behind.
