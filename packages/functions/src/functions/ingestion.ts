@@ -1728,8 +1728,12 @@ async function bulkIngestionHandler(
   }
   // Provision first (a pending Shopify source is created disabled), then check, so nothing is queued.
   const ensuredRows = new Map<string, DataSourceRecord | null>();
-  for (const source of sources) {
-    ensuredRows.set(source, await ensureDataSourceByName(source));
+  try {
+    for (const source of sources) {
+      ensuredRows.set(source, await ensureDataSourceByName(source));
+    }
+  } catch (error) {
+    return internalServerError(context, error, "Bulk ingestion: provisioning data sources failed", "ingestion.bulk");
   }
   const disabledSources = partitionDisabledSources([...ensuredRows.values()]);
   if (disabledSources.length > 0) {
