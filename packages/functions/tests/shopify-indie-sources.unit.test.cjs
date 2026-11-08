@@ -293,6 +293,15 @@ describe("Polish Pickup retailer source", () => {
   });
 });
 
+describe("Hypnotic Polish retailer source", () => {
+  it("is pending approval, disabled by default and has its base URL", () => {
+    assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has("HypnoticPolishShopify"), true);
+    assert.equal(SHOPIFY_SOURCE_BASE_URLS.HypnoticPolishShopify, "https://www.hypnoticpolish.com");
+    assert.equal(isShopifySourceEnabledByDefault("HypnoticPolishShopify"), false);
+    assert.ok(SUPPORTED_SOURCES.includes("HypnoticPolishShopify"));
+  });
+});
+
 describe("Polish Pickup retailer kind", () => {
   it("is the only retailer source", () => {
     assert.deepEqual([...SHOPIFY_RETAILER_SOURCES], ["PolishPickupShopify"]);

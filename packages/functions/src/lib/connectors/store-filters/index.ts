@@ -1,6 +1,7 @@
 import { isBeyondPolishPolish } from "./beyond-polish.js";
 import { isCirqueColorsPolish } from "./cirque-colors.js";
 import { isHarlowAndCoPolish } from "./harlow-and-co.js";
+import { isHypnoticPolishPolish } from "./hypnotic-polish.js";
 import { isLemmingLacquerPolish } from "./lemming-lacquer.js";
 import { isPahlishPolish } from "./pahlish.js";
 import { isPolishPickupPolish } from "./polish-pickup.js";
@@ -26,6 +27,7 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   PolishPickupShopify: isPolishPickupPolish,
   HarlowAndCoShopify: isHarlowAndCoPolish,
   BeyondPolishShopify: isBeyondPolishPolish,
+  HypnoticPolishShopify: isHypnoticPolishPolish,
 };
 
 /** The store filter's verdict for `product`, or null when `source` has none. */

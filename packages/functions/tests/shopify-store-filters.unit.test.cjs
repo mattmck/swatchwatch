@@ -13,6 +13,7 @@ const {
 const { ShopifyGenericConnector, isBundle } = require("../dist/lib/connectors/shopify-generic");
 const { isHarlowAndCoPolish } = require("../dist/lib/connectors/store-filters/harlow-and-co");
 const { isBeyondPolishPolish } = require("../dist/lib/connectors/store-filters/beyond-polish");
+const { isHypnoticPolishPolish } = require("../dist/lib/connectors/store-filters/hypnotic-polish");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -386,11 +387,12 @@ describe("store-filters/sweet-and-sour — isSweetAndSourPolish (#273 batch 3)",
 });
 
 describe("store-filters — shopifyStoreProductVerdict", () => {
-  it("registers filters for Beyond Polish, Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour, Polish Pickup and Harlow & Co only", () => {
+  it("registers filters for Beyond Polish, Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour, Polish Pickup, Harlow & Co and Hypnotic Polish only", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
       "BeyondPolishShopify",
       "CirqueColorsShopify",
       "HarlowAndCoShopify",
+      "HypnoticPolishShopify",
       "LemmingLacquerShopify",
       "PahlishShopify",
       "PolishPickupShopify",
@@ -727,5 +729,104 @@ describe("store-filters/beyond-polish — isBeyondPolishPolish", () => {
     assert.equal(shopifyStoreProductVerdict("BeyondPolishShopify", gel), false);
     assert.equal(shopifyStoreProductVerdict("BeyondPolishShopify", gel, readSourceSettings({ kind: "retailer", includeGel: true })), true);
     assert.equal(shopifyStoreProductVerdict("BeyondPolishShopify", gel, readSourceSettings({ kind: "retailer" })), false);
+  });
+});
+
+// hypnoticpolish.com/products.json, fetched 2026-11-08 (998 products over 4 pages), trimmed to 101
+// (fixture _note). Hypnotic Polish is a multi-brand EU retailer (metadata.kind = "retailer"),
+// registered disabled until the store's written OK.
+const HYPNOTIC = require("./fixtures/hypnotic-polish-products.json").products;
+const hypnotic = (title) => {
+  const product = HYPNOTIC.find((p) => p.title === title);
+  assert.ok(product, `Hypnotic Polish fixture has no product titled ${title}`);
+  return product;
+};
+const hypnoticListing = (title, product_type, extra = {}) => ({ title, product_type, vendor: "ILNP", tags: [], ...extra });
+
+describe("store-filters/hypnotic-polish — isHypnoticPolishPolish", () => {
+  it("accepts polishes, including a *PRE-ORDER* listing", () => {
+    for (const title of ["ILNP - Turquoise Water", "*PRE-ORDER* ILNP - Molten", "Cosmic Polish - Star Garnet (Magnetic)"]) {
+      assert.notEqual(isHypnoticPolishPolish(hypnoticListing(title, "Nail Polish")), false, title);
+    }
+    assert.equal(isHypnoticPolishPolish(hypnotic("*PRE-ORDER* ILNP - Molten")), null);
+  });
+
+  it("defers coats, toppers and treatments to the generic gate (null)", () => {
+    for (const type of ["Top Coat", "Base Coat", "Topper", "Treatment", "Nail Polish"]) {
+      assert.equal(isHypnoticPolishPolish(hypnoticListing("ILNP - Glass Candy", type)), null, type);
+    }
+  });
+
+  it("rejects cuticle treatments and accessories, in any case", () => {
+    for (const type of ["Cuticle Treatment", "Accessories", "cuticle treatment", " ACCESSORIES "]) {
+      assert.equal(isHypnoticPolishPolish(hypnoticListing("KBShimmer - Barely There Matte Cuticle Cream", type)), false, type);
+    }
+    const rejected = HYPNOTIC.filter((p) => ["Cuticle Treatment", "Accessories"].includes(p.product_type));
+    assert.equal(rejected.length, 12);
+    for (const product of rejected) assert.equal(isHypnoticPolishPolish(product), false, product.title);
+  });
+
+  it("rejects grab bag and mystery titles, in any case, even under Nail Polish", () => {
+    for (const title of [
+      "ILNP - Grab Bag",
+      "KBShimmer - GRAB BAG of 5",
+      "Cirque Colors - Mystery Box",
+      "Starrily - mystery polish",
+    ]) {
+      assert.equal(isHypnoticPolishPolish(hypnoticListing(title, "Nail Polish")), false, title);
+    }
+  });
+
+  it("is registered for HypnoticPolishShopify", () => {
+    assert.equal(shopifyStoreProductVerdict("HypnoticPolishShopify", hypnotic("*PRE-ORDER* ILNP - Molten")), null);
+    assert.equal(
+      shopifyStoreProductVerdict("HypnoticPolishShopify", hypnoticListing("KBShimmer - Magnetic Wand", "Accessories")),
+      false
+    );
+  });
+});
+
+describe("HypnoticPolishShopify — connector over the fixture", () => {
+  const SETTINGS_METADATA = {
+    kind: "retailer",
+    currency: "EUR",
+    vendorAliases: { "Cuticula Nail Lacquer": "Cuticula", "Bee's Knees Lacquer": "Bee's Knees" },
+  };
+  const pull = async () => {
+    const settings = readSourceSettings(SETTINGS_METADATA, "HypnoticPolishShopify");
+    return new ShopifyGenericConnector("HypnoticPolishShopify", "https://www.hypnoticpolish.com", {
+      currency: "EUR",
+      settings,
+    }).pullProducts({
+      searchTerm: "",
+      page: 1,
+      pageSize: 1000,
+      maxRecords: 1000,
+      catalogCache: { load: async () => HYPNOTIC, save: async () => {} },
+    });
+  };
+
+  it("accepts 88 records (63 colors, 6 toppers, 19 coats), drops the 12 accessories and cuticle treatments and the Cadillacquer trio set", async () => {
+    const result = await pull();
+    assert.equal(result.metadata.fetchedProductCount, 101);
+    assert.equal(result.records.length, 88);
+    // "*PRE-ORDER* Cadillacquer - FB Trio - Spotted Glass Frog" ends a segment with a set word.
+    assert.ok(!result.records.some((r) => /FB Trio/.test(r.normalized.listingTitle)));
+    const categories = {};
+    for (const r of result.records) categories[r.normalized.productCategory] = (categories[r.normalized.productCategory] ?? 0) + 1;
+    assert.deepEqual(categories, { color: 63, base_coat: 11, top_coat: 8, topper: 6 });
+  });
+
+  it("reads brand and shade from a Brand - Shade title, with aliases and pipe markers handled", async () => {
+    const records = (await pull()).records;
+    const byName = (brand, name) => records.find((r) => r.normalized.brand === brand && r.normalized.name === name);
+    const cosmic = byName("Cosmic Polish", "Star Garnet");
+    assert.ok(cosmic, "Cosmic Polish - Star Garnet (Magnetic) -> Star Garnet");
+    assert.equal(cosmic.normalized.listingTitle, "Cosmic Polish - Star Garnet (Magnetic)");
+    assert.ok(byName("Cuticula", "Flames Of A Phoenix"), "*PRE-ORDER* prefix and vendor alias");
+    assert.ok(byName("Bee's Knees", "The Pond Spirit"));
+    const topCoat = byName("Starrily", "Eclipse");
+    assert.equal(topCoat.normalized.productCategory, "top_coat");
+    assert.ok(records.every((r) => !String(r.normalized.name).includes("PRE-ORDER")));
   });
 });

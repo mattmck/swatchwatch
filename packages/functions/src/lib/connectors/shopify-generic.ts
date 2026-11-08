@@ -812,6 +812,7 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   PolishPickupShopify: "https://polishpickup.com",
   HarlowAndCoShopify: "https://www.harlowandco.org",
   BeyondPolishShopify: "https://www.beyondpolish.com",
+  HypnoticPolishShopify: "https://www.hypnoticpolish.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -832,6 +833,8 @@ export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // recorded in data_source.metadata.notes.
   // Retailer source, pending owner OK; see docs/superpowers/plans/2026-11-06-polish-pickup-retailer-listings.md.
   "PolishPickupShopify",
+  // Retailer source, pending the store's written OK (Shopify default terms clause); brand sources plan, Task 8.
+  "HypnoticPolishShopify",
 ]);
 
 /** Retailer sources (listings attach to brand shades as extra buy links; never override brand-store data). */

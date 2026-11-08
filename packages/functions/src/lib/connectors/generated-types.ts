@@ -23,6 +23,7 @@ export type SupportedConnectorSource =
   | "GreatLakesLacquerShopify"
   | "HarlowAndCoShopify"
   | "HoloTacoShopify"
+  | "HypnoticPolishShopify"
   | "ImpactAffiliateNetwork"
   | "KathleenAndCoShopify"
   | "LeMiniMacaronShopify"
@@ -72,6 +73,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   GreatLakesLacquerShopify: "Shopify",
   HarlowAndCoShopify: "Shopify",
   HoloTacoShopify: "HoloTaco",
+  HypnoticPolishShopify: "Shopify",
   ImpactAffiliateNetwork: "Custom",
   KathleenAndCoShopify: "Shopify",
   LeMiniMacaronShopify: "Shopify",
@@ -122,6 +124,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "GreatLakesLacquerShopify",
   "HarlowAndCoShopify",
   "HoloTacoShopify",
+  "HypnoticPolishShopify",
   "ImpactAffiliateNetwork",
   "KathleenAndCoShopify",
   "LeMiniMacaronShopify",
