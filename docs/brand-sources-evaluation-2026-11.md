@@ -294,8 +294,9 @@ new lacquer shades from two sources**, 40% of the target, or 80% with gel.
 
 **Risks.** Title noise and duplicates (mitigated by the parser and the audit); reseller stock churn
 (Beyond Polish lists `Discontinued` and `CLEARANCE`, which is a feature for collectors); a reseller
-asking us to stop (then disable the source: the catalog rows stay, images are removed by the existing
-cleanup); gel lines flooding color search if decision 3 is "no" and the filter is wrong.
+asking us to stop (then disable the source: the catalog rows and listings stay, and its stored images are
+removed by the admin job the plan adds for this, `POST /api/images-admin/source-images/remove`; nothing
+removes them automatically today); gel lines flooding color search if decision 3 is "no" and the filter is wrong.
 
 ### S2 — Brand stores on Shopify: enable the clause-free ones, ask the others
 
