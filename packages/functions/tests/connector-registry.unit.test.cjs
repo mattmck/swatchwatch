@@ -18,6 +18,18 @@ describe("connector registry", () => {
     assert.equal(protocolOf("UserCapture"), "Custom");
   });
 
+  it("resolves the brand-store sources (Task 10) to the Shopify protocol", () => {
+    for (const name of [
+      "DeborahLippmannShopify", "LondontownShopify", "CoteShopify", "ManucuristShopify",
+      "OliveAndJuneShopify", "PiggyPaintShopify", "MavalaShopify", "WetNWildShopify",
+      "AlchemyLacquersShopify", "PenelopeLuzShopify", "NoodlesNailPolishShopify",
+      "CndShopify", "BarryMShopify",
+    ]) {
+      assert.equal(protocolOf(name), "Shopify", name);
+      assert.equal(materializesShadeProducts(name), true, name);
+    }
+  });
+
   it("lists the runnable protocols", () => {
     for (const protocol of [
       "HoloTaco",

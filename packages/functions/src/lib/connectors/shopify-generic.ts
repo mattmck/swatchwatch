@@ -813,6 +813,19 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   HarlowAndCoShopify: "https://www.harlowandco.org",
   BeyondPolishShopify: "https://www.beyondpolish.com",
   HypnoticPolishShopify: "https://www.hypnoticpolish.com",
+  DeborahLippmannShopify: "https://deborahlippmann.com",
+  LondontownShopify: "https://londontownusa.com",
+  CoteShopify: "https://coteshop.co",
+  ManucuristShopify: "https://manucurist.com",
+  OliveAndJuneShopify: "https://oliveandjune.com",
+  PiggyPaintShopify: "https://piggypaint.com",
+  MavalaShopify: "https://mavala.com",
+  WetNWildShopify: "https://wetnwildbeauty.com",
+  AlchemyLacquersShopify: "https://alchemylacquers.com",
+  PenelopeLuzShopify: "https://penelopeluz.com",
+  NoodlesNailPolishShopify: "https://noodlesnailpolish.com",
+  CndShopify: "https://cnd.com",
+  BarryMShopify: "https://barrym.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -835,6 +848,11 @@ export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   "PolishPickupShopify",
   // Retailer source, pending the store's written OK (Shopify default terms clause); brand sources plan, Task 8.
   "HypnoticPolishShopify",
+  // Brand stores whose terms could not be read (Mavala: terms page answered 500; CND: no terms
+  // page; Barry M: terms page 404), 2026-11-08; brand sources plan, Task 10.
+  "MavalaShopify",
+  "CndShopify",
+  "BarryMShopify",
 ]);
 
 /** Retailer sources (listings attach to brand shades as extra buy links; never override brand-store data). */
