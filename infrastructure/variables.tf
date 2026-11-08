@@ -649,6 +649,18 @@ variable "shopify_connector_page_delay_ms" {
   default     = 1000
 }
 
+variable "sitemap_jsonld_max_pages_per_run" {
+  description = "Sitemap + JSON-LD connector product pages fetched per pull, 10-300 (SITEMAP_JSONLD_MAX_PAGES_PER_RUN)"
+  type        = number
+  default     = 150
+}
+
+variable "sitemap_jsonld_save_margin_ms" {
+  description = "Sitemap + JSON-LD connector time kept before the worker deadline to save the crawl checkpoint and hand off, 5000-120000 (SITEMAP_JSONLD_SAVE_MARGIN_MS)"
+  type        = number
+  default     = 20000
+}
+
 variable "shopify_connector_max_pages" {
   description = "Shopify connector pages of 250 products read per run, 1-200; a source overrides it with data_source.metadata.maxPages (SHOPIFY_CONNECTOR_MAX_PAGES)"
   type        = number

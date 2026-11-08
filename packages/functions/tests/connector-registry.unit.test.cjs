@@ -46,6 +46,13 @@ describe("connector registry", () => {
     }
   });
 
+  it("resolves OpiSitemap (Task 15) to the sitemap protocol, never auto-provisioned", () => {
+    assert.equal(protocolOf("OpiSitemap"), "SitemapJsonLd");
+    assert.equal(materializesShadeProducts("OpiSitemap"), true);
+    assert.equal(isShopifyProductsSource("OpiSitemap"), false);
+    assert.equal(isAutoProvisionableSource("OpiSitemap"), false);
+  });
+
   it("lists the runnable protocols", () => {
     for (const protocol of [
       "HoloTaco",

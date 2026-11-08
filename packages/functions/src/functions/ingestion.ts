@@ -68,8 +68,10 @@ import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
 import { ProductFeedConnector } from "../lib/connectors/product-feed";
+import { SitemapJsonLdConnector } from "../lib/connectors/sitemap-jsonld";
 import { isFeatureEnabled } from "../lib/feature-flags";
 import {
+  ConnectorCheckpointSupersededError,
   ProductConnector,
   SOURCE_PROTOCOL_MAP,
   SupportedConnectorSource,
@@ -177,6 +179,17 @@ const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> 
       throw new Error(`${source}: no feed URL (set data_source.base_url or metadata.feedUrl)`);
     }
     return new ProductFeedConnector(source, feedUrl, settings);
+  },
+  // metadata.sitemapUrl + metadata.productUrlPrefixes; the crawl is checkpointed in the job's
+  // catalog cache, which must be durable (CONNECTOR_RAW_CONTAINER).
+  SitemapJsonLd: (source, baseUrl, settings) => {
+    if (!settings.sitemapUrl || settings.productUrlPrefixes.length === 0) {
+      throw new Error(`${source}: metadata.sitemapUrl and metadata.productUrlPrefixes are required`);
+    }
+    return new SitemapJsonLdConnector(source, baseUrl, settings, {
+      sitemapUrl: settings.sitemapUrl,
+      productUrlPrefixes: settings.productUrlPrefixes,
+    });
   },
 };
 
@@ -714,8 +727,11 @@ export async function processIngestionJobQueueMessage(
       ? toMetricsRecord(existingMetrics[WORKER_TOTALS_METRICS_KEY])
       : {};
     let connectorMetadata: Record<string, unknown> = {};
-    let listingFreshnessDone = false;
     const persistenceMetricsAggregate: Record<string, unknown> = toMetricsRecord(priorTotals.persistence);
+    // Listing freshness runs once per job, on the first pull that reports a catalog: a fresh
+    // start's download (Shopify, feeds), or the pull that finds a crawl complete (sitemap), which
+    // may be in a continuation. An earlier invocation's run is in the carried persistence totals.
+    let listingFreshnessDone = typeof persistenceMetricsAggregate.listingsMarkedMissing === "number";
     let materializationMetricsAggregate: Record<string, unknown> | null =
       priorTotals.materialization ? toMetricsRecord(priorTotals.materialization) : null;
     let totalRecordsProcessed = startCheckpoint?.recordsProcessed ?? 0;
@@ -1109,38 +1125,73 @@ export async function processIngestionJobQueueMessage(
       }
 
       const pageNumber = checkpoint.nextPage;
-      const pageResult = await connector.pullProducts({
-        searchTerm: payload.request.searchTerm,
-        page: pageNumber,
-        pageSize: payload.request.pageSize,
-        maxRecords: exhaustive ? payload.request.pageSize : payload.request.maxRecords,
-        recentDays: payload.request.recentDays,
-        catalogCache,
-      });
+      let pageResult: Awaited<ReturnType<ProductConnector["pullProducts"]>>;
+      try {
+        pageResult = await connector.pullProducts({
+          searchTerm: payload.request.searchTerm,
+          page: pageNumber,
+          pageSize: payload.request.pageSize,
+          maxRecords: exhaustive ? payload.request.pageSize : payload.request.maxRecords,
+          recentDays: payload.request.recentDays,
+          catalogCache,
+          // A crawling connector (sitemap) stops its request loop in time to save and hand off.
+          deadlineMs: invocationStartedAt + timeBudgetMs,
+        });
+      } catch (pullError) {
+        // A newer invocation saved the crawl checkpoint first: it owns the job. Stop like a
+        // lost-ownership stop, without processing, writing the job row or queueing anything.
+        if (pullError instanceof ConnectorCheckpointSupersededError) {
+          context.warn(`Job ${payload.jobId} ${pullError.message}; stopping worker without updating it`);
+          await logger.dispose({ flush: false });
+          return;
+        }
+        throw pullError;
+      }
       const records = pageResult.records;
 
-      // Once per job: the first pull of a fresh start downloaded the catalog itself (a
-      // continuation's snapshot carries no completeness flag), so only that pull reports it.
-      if (!startCheckpoint && !listingFreshnessDone) {
+      // Every pull, partial crawls included: stop before persisting anything (listing freshness,
+      // records, progress) or pulling again when the job was cancelled or taken over.
+      if (!(await stillOwnsJob())) {
+        await logger.dispose({ flush: false });
+        return;
+      }
+
+      // A crawling connector still reading its catalog: no records yet, and an empty partial
+      // result never ends the job. Call again with the same page number; each partial pull
+      // counts against the time budget, and the job hands off when another pull would not fit.
+      if (pageResult.metadata?.catalogComplete === false) {
+        connectorMetadata = { ...connectorMetadata, ...pageResult.metadata };
+        logger.info(
+          `Crawled ${String(pageResult.metadata.crawledPages ?? "?")} of ${String(pageResult.metadata.totalPages ?? "?")} pages (checkpoint ${String(pageResult.metadata.checkpointGeneration ?? "?")})`,
+          { page: pageNumber, ...pageResult.metadata }
+        );
+        await saveProgress();
+        const nextPullEstimateMs = asFinitePositiveNumber(pageResult.metadata.crawlPullEstimateMs) ?? 0;
+        if (Date.now() - invocationStartedAt + nextPullEstimateMs >= timeBudgetMs) {
+          await handOffToContinuation();
+          return;
+        }
+        continue;
+      }
+
+      if (!listingFreshnessDone && pageResult.catalog) {
         listingFreshnessDone = true;
-        if (pageResult.catalog) {
-          try {
-            const freshness = await transaction((client) =>
-              markExternalProductsMissing(client, source.dataSourceId, pageResult.catalog!)
-            );
-            persistenceMetricsAggregate.listingsMarkedMissing = freshness.marked;
-            persistenceMetricsAggregate.listingsCleared = freshness.cleared;
-            logger.info(
-              freshness.skipped
-                ? "Listing freshness skipped: the catalog fetch was incomplete or empty"
-                : `Listing freshness: ${freshness.marked} marked missing, ${freshness.cleared} cleared`,
-              { ...freshness }
-            );
-          } catch (freshnessError) {
-            logger.warn("Listing freshness update failed; continuing ingestion", {
-              error: getErrorMessage(freshnessError),
-            });
-          }
+        try {
+          const freshness = await transaction((client) =>
+            markExternalProductsMissing(client, source.dataSourceId, pageResult.catalog!)
+          );
+          persistenceMetricsAggregate.listingsMarkedMissing = freshness.marked;
+          persistenceMetricsAggregate.listingsCleared = freshness.cleared;
+          logger.info(
+            freshness.skipped
+              ? "Listing freshness skipped: the catalog fetch was incomplete or empty"
+              : `Listing freshness: ${freshness.marked} marked missing, ${freshness.cleared} cleared`,
+            { ...freshness }
+          );
+        } catch (freshnessError) {
+          logger.warn("Listing freshness update failed; continuing ingestion", {
+            error: getErrorMessage(freshnessError),
+          });
         }
       }
 

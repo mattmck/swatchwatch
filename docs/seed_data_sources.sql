@@ -710,6 +710,15 @@ VALUES
     '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Ethereal Lacquer Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (9 on page 1; types empty on all 9). robots.txt does not disallow products.json. Terms: own clause (no \"any robot, spider, scraping, data gathering and extraction\" tool) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 9, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
   ),
   (
+    'OpiSitemap',
+    'api',
+    'https://www.opi.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    NULL,
+    false,
+    '{"brand": "OPI", "sitemapUrl": "https://www.opi.com/sitemap.xml", "productUrlPrefixes": ["https://www.opi.com/products/nail-lacquer-", "https://www.opi.com/products/infinite-shine-"], "currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "OPI brand store (US, USD), read through its sitemap and product-page JSON-LD (SitemapJsonLd connector, brand sources plan Task 15). Verified 2026-11-08: https://www.opi.com/sitemap.xml is a <urlset> of 1,898 pages, 575 of them under the two product prefixes (nail-lacquer-, infinite-shine-); a product page carries one application/ld+json Product with gtin, sku, brand, images and offers. Terms: no terms page at /terms-of-use on 2026-11-08, so whether automated access is allowed is unknown. REGISTERED DISABLED AND PENDING: the owner locates and reads OPI''s site terms and asks for the OK, records it here as ''Acceptable use confirmed by <name, role> at OPI on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval. The crawl needs CONNECTOR_RAW_CONTAINER (a durable catalog cache).", "verification": {"checkedAt": "2026-11-08", "sitemap": true, "productUrls": "1898-page sitemap on 2026-11-08 (575 under the product prefixes)", "jsonLdProduct": true, "termsScrapingClause": null}}'::jsonb
+  ),
+  (
     'CosIng',
     'api',
     'https://ec.europa.eu/growth/sectors/cosmetics/cosing',

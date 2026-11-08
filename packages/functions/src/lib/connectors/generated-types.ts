@@ -60,6 +60,7 @@ export type SupportedConnectorSource =
   | "OliveAndJuneShopify"
   | "OliveAvePolishShopify"
   | "OpenBeautyFacts"
+  | "OpiSitemap"
   | "OrlyShopify"
   | "PacificaShopify"
   | "PahlishShopify"
@@ -143,6 +144,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   OliveAndJuneShopify: "Shopify",
   OliveAvePolishShopify: "Shopify",
   OpenBeautyFacts: "OpenBeautyFacts",
+  OpiSitemap: "SitemapJsonLd",
   OrlyShopify: "Shopify",
   PacificaShopify: "Shopify",
   PahlishShopify: "Shopify",
@@ -227,6 +229,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "OliveAndJuneShopify",
   "OliveAvePolishShopify",
   "OpenBeautyFacts",
+  "OpiSitemap",
   "OrlyShopify",
   "PacificaShopify",
   "PahlishShopify",

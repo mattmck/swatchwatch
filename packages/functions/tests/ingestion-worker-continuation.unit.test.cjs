@@ -119,9 +119,11 @@ class FakeConnector {
     this.source = source;
   }
   async pullProducts(options) {
-    events.push({ type: "pull", page: options.page, catalogCache: options.catalogCache });
-    const page = pages[options.page] || { records: [], metadata: {} };
-    return { source: this.source, records: page.records, metadata: { ...page.metadata } };
+    events.push({ type: "pull", page: options.page, catalogCache: options.catalogCache, deadlineMs: options.deadlineMs });
+    // A page may be a function of the pull (a crawling connector answering several pulls of one page).
+    const entry = pages[options.page];
+    const page = (typeof entry === "function" ? await entry(options) : entry) || { records: [], metadata: {} };
+    return { source: this.source, records: page.records, metadata: { ...page.metadata }, ...(page.catalog ? { catalog: page.catalog } : {}) };
   }
 }
 registerMock("connectors/holo-taco-shopify", { HoloTacoShopifyConnector: FakeConnector });
@@ -129,6 +131,21 @@ registerMock("connectors/shopify-generic", { ShopifyGenericConnector: FakeConnec
 registerMock("connectors/open-beauty-facts", { OpenBeautyFactsConnector: FakeConnector });
 registerMock("connectors/makeup-api", { MakeupApiConnector: FakeConnector });
 registerMock("lib/connector-raw-storage", { saveConnectorRawSnapshot: async () => {} });
+// Listing freshness (a complete catalog marks missing listings); recorded, no database.
+let freshnessCalls = [];
+registerMock("lib/listing-freshness", {
+  markExternalProductsMissing: async (_client, dataSourceId, catalog) => {
+    freshnessCalls.push({ dataSourceId, catalog });
+    events.push({ type: "freshness" });
+    return { marked: 0, cleared: 0, skipped: false };
+  },
+});
+registerMock("lib/db", {
+  transaction: async (fn) => fn({ query: async () => ({ rows: [], rowCount: 0 }) }),
+  query: async () => ({ rows: [], rowCount: 0 }),
+  getPool: () => ({}),
+  closePool: async () => {},
+});
 registerMock("lib/auth", { withAdmin: (handler) => handler });
 registerMock("lib/http", { withCors: (handler) => handler });
 registerMock("lib/queue-management", { getQueueStats: async () => ({}), purgeQueue: async () => ({}) });
@@ -142,6 +159,7 @@ const {
 } = require("../dist/functions/ingestion");
 const { planPoisonedIngestionMessage } = require("../dist/functions/ingestion-worker");
 const { readResumeMessageFromMetrics } = require("../dist/lib/ingestion-continuation");
+const { ConnectorCheckpointSupersededError } = require("../dist/lib/connectors/types");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -200,6 +218,7 @@ let fakeNow = 0;
 beforeEach(() => {
   events = [];
   pages = {};
+  freshnessCalls = [];
   job = { status: "queued", metrics: {} };
   fakeNow = 1_000_000;
   Date.now = () => fakeNow;
@@ -997,5 +1016,131 @@ describe("processIngestionJobQueueMessage — disabled source", () => {
     assert.ok(failed, "expected the job to be marked failed");
     assert.equal(failed.error, "Source HoloTacoShopify is disabled; the job was not run");
     assert.equal(failed.metrics.failedStage, "source_disabled");
+// ---------------------------------------------------------------------------
+// Crawling connectors (sitemap + JSON-LD): partial pulls with catalogComplete === false
+// ---------------------------------------------------------------------------
+
+describe("processIngestionJobQueueMessage — partial crawl pulls", () => {
+  const partial = (crawledPages, extra = {}) => ({
+    records: [],
+    metadata: { catalogComplete: false, crawledPages, totalPages: 400, crawlPullEstimateMs: 10000, ...extra },
+  });
+  const complete = (records) => ({
+    records,
+    metadata: { catalogComplete: true, crawledPages: 400, totalPages: 400, sourcePageCount: 1 },
+    catalog: { externalIds: records.map((record) => record.externalId), complete: true },
+  });
+  // Answers the pulls of page 1 in order; every pull spends `spendMs` of the clock.
+  const sequence = (results, spendMs = 1000) => {
+    let call = 0;
+    return async () => {
+      fakeNow += spendMs;
+      return results[Math.min(call++, results.length - 1)];
+    };
+  };
+  const pulls = () => events.filter((e) => e.type === "pull");
+
+  for (const exhaustive of [false, true]) {
+    it(`pulls the same page again until the crawl is complete (exhaustive: ${exhaustive})`, async () => {
+      pages[1] = sequence([partial(150), partial(300), complete(makeRecords(1, 3))]);
+
+      await processIngestionJobQueueMessage(makePayload({ request: { exhaustive } }), context);
+
+      assert.deepEqual(pulls().map((e) => e.page), [1, 1, 1]);
+      assert.deepEqual(materializeCalls(), [["p1-0", "p1-1", "p1-2"]]);
+      assert.equal(job.status, "succeeded");
+      assert.equal(enqueued().length, 0);
+      // Partial pulls never run listing freshness; the complete one does, once.
+      assert.equal(freshnessCalls.length, 1);
+      assert.deepEqual(freshnessCalls[0].catalog.externalIds, ["p1-0", "p1-1", "p1-2"]);
+      assert.ok(events.findIndex((e) => e.type === "freshness") < events.findIndex((e) => e.type === "materialize"));
+    });
+  }
+
+  it("passes the invocation deadline to every pull", async () => {
+    process.env.INGESTION_WORKER_TIME_BUDGET_MS = "60000";
+    const startedAt = fakeNow;
+    pages[1] = sequence([partial(150), complete(makeRecords(1, 1))]);
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.deepEqual(pulls().map((e) => e.deadlineMs), [startedAt + 60000, startedAt + 60000]);
+  });
+
+  it("saves the crawl progress after a partial pull", async () => {
+    pages[1] = sequence([partial(150), complete(makeRecords(1, 1))]);
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    const firstPull = events.findIndex((e) => e.type === "pull");
+    const saved = events.slice(firstPull).find((e) => e.type === "metrics");
+    assert.equal(saved.metrics.crawledPages, 150);
+    assert.equal(saved.metrics.catalogComplete, false);
+  });
+
+  it("hands off to a continuation at the same page when another pull would not fit the budget", async () => {
+    process.env.INGESTION_WORKER_TIME_BUDGET_MS = "60000";
+    // 35 s spent + a 30 s pull estimate >= 60 s.
+    pages[1] = sequence([partial(150, { crawlPullEstimateMs: 30000 })], 35000);
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(pulls().length, 1);
+    assert.equal(materializeCalls().length, 0);
+    const messages = enqueued();
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].checkpoint.nextPage, 1);
+    assert.equal(messages[0].checkpoint.recordOffset, 0);
+    assert.equal(messages[0].checkpoint.continuationCount, 1);
+    assert.equal(job.status, "running");
+    assert.equal(job.metrics.pipeline.stage, "continuation_queued");
+  });
+
+  it("runs listing freshness when a continuation's pull completes the crawl, and not again", async () => {
+    pages[1] = sequence([complete(makeRecords(1, 2))]);
+    const first = makePayload({ checkpoint: checkpoint({ continuationCount: 1 }) });
+    job = { status: "running", metrics: { checkpoint: checkpoint({ continuationCount: 1 }) } };
+
+    await processIngestionJobQueueMessage(first, context);
+    assert.equal(freshnessCalls.length, 1);
+
+    // A later continuation of the same job carries the freshness totals and skips it.
+    freshnessCalls = [];
+    events = [];
+    pages[1] = sequence([complete(makeRecords(1, 2))]);
+    const again = { ...job.metrics.checkpoint, nextPage: 1, recordOffset: 0, continuationCount: 2 };
+    assert.equal(job.metrics.workerTotals.persistence.listingsMarkedMissing, 0);
+    job = { status: "running", metrics: { ...job.metrics, checkpoint: again } };
+    await processIngestionJobQueueMessage(makePayload({ checkpoint: again }), context);
+    assert.equal(pulls().length, 1);
+    assert.equal(freshnessCalls.length, 0);
+  });
+
+  it("stops after a partial pull when the job was cancelled, without writing or pulling again", async () => {
+    pages[1] = async () => {
+      job.status = "cancelled";
+      return partial(150);
+    };
+
+    await processIngestionJobQueueMessage(makePayload({ request: { exhaustive: true } }), context);
+
+    assert.equal(pulls().length, 1);
+    assert.equal(job.status, "cancelled");
+    const pullIndex = events.findIndex((e) => e.type === "pull");
+    assert.ok(!events.slice(pullIndex).some((e) => ["metrics", "enqueue", "succeeded", "failed"].includes(e.type)));
+  });
+
+  it("stops without processing or queueing when a newer invocation superseded the crawl checkpoint", async () => {
+    pages[1] = async () => {
+      throw new ConnectorCheckpointSupersededError("SitemapJsonLd checkpoint superseded");
+    };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(materializeCalls().length, 0);
+    assert.equal(enqueued().length, 0);
+    assert.equal(job.status, "running");
+    const pullIndex = events.findIndex((e) => e.type === "pull");
+    assert.ok(!events.slice(pullIndex).some((e) => ["metrics", "succeeded", "failed"].includes(e.type)));
   });
 });

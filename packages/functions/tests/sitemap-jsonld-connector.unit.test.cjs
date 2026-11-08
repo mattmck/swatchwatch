@@ -1,0 +1,469 @@
+// Sitemap + JSON-LD connector (brand sources plan, Task 15). Fixtures trimmed from the opi.com
+// probe of 2026-11-08: tests/fixtures/opi-sitemap-sample.xml (10 of the sitemap's 1,898 URLs, 3
+// matching the two product prefixes, real <lastmod> values) and opi-product-sample.html (the
+// "Pink on Canvas" page reduced to its <head> JSON-LD script). Other pages are synthetic.
+const { describe, it } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const {
+  SitemapJsonLdConnector,
+  extractJsonLdProduct,
+  jsonLdImageUrls,
+  parseJsonLdAvailability,
+  parseSitemapXml,
+} = require("../dist/lib/connectors/sitemap-jsonld");
+const { ConnectorCheckpointSupersededError } = require("../dist/lib/connectors/types");
+const { readSourceSettings } = require("../dist/lib/source-settings");
+
+const FIXTURES = path.join(__dirname, "fixtures");
+const SITEMAP = fs.readFileSync(path.join(FIXTURES, "opi-sitemap-sample.xml"), "utf8");
+const PINK = fs.readFileSync(path.join(FIXTURES, "opi-product-sample.html"), "utf8");
+
+const SITEMAP_URL = "https://www.opi.com/sitemap.xml";
+const PREFIXES = ["https://www.opi.com/products/nail-lacquer-", "https://www.opi.com/products/infinite-shine-"];
+const SETTINGS = readSourceSettings(
+  { brand: "OPI", sitemapUrl: SITEMAP_URL, productUrlPrefixes: PREFIXES, currency: "USD" },
+  "OpiSitemap"
+);
+const MARGIN = 20000;
+const PULL = { searchTerm: "", page: 1, pageSize: 500, maxRecords: 500 };
+
+const ldPage = (ld) => `<html><head><script type="application/ld+json">${JSON.stringify(ld)}</script></head><body></body></html>`;
+
+/** A fake clock: `sleep` and every fetch advance it, nothing waits for real. */
+function fakeClock(start = 1_000_000) {
+  const clock = { t: start, now: () => clock.t, sleep: async (ms) => { clock.t += ms; } };
+  return clock;
+}
+
+/** An in-memory durable cache with ETags, like lib/ingestion-catalog-cache. */
+function memoryCache({ durable = true } = {}) {
+  let stored = null;
+  let counter = 0;
+  const cache = {
+    durable,
+    saves: 0,
+    load: async () => null,
+    save: async () => {},
+    loadCheckpoint: async () => (stored ? { value: JSON.parse(stored.json), etag: stored.etag } : null),
+    saveCheckpoint: async (value, etag) => {
+      if ((stored ? stored.etag : null) !== etag) throw new ConnectorCheckpointSupersededError();
+      stored = { json: JSON.stringify(value), etag: `"${++counter}"` };
+      cache.saves += 1;
+    },
+    /** Another invocation saved meanwhile. */
+    moveEtag: () => {
+      stored = { ...stored, etag: `"${++counter}"` };
+    },
+    peek: () => (stored ? JSON.parse(stored.json) : null),
+  };
+  return cache;
+}
+
+/**
+ * Fetch stub: `routes` maps a URL to a body, or to `(attempt) => ({ status, body, latencyMs })`.
+ * Every request advances the clock by `latencyMs` (default `latency`) and is logged with its start.
+ */
+function stubFetch(clock, routes, { latency = 0, log = [] } = {}) {
+  const attempts = new Map();
+  const fetchImpl = async (url, init) => {
+    const attempt = (attempts.get(url) ?? 0) + 1;
+    attempts.set(url, attempt);
+    log.push({ url, at: clock.t, headers: init.headers });
+    const route = routes[url];
+    const answer = typeof route === "function" ? route(attempt) : route === undefined ? { status: 404, body: "" } : { status: 200, body: route };
+    clock.t += answer.latencyMs ?? latency;
+    return { ok: answer.status >= 200 && answer.status < 300, status: answer.status, statusText: "", text: async () => answer.body };
+  };
+  return { fetchImpl, log };
+}
+
+function connector(clock, fetchImpl, options = {}) {
+  return new SitemapJsonLdConnector("OpiSitemap", "https://www.opi.com", options.settings ?? SETTINGS, {
+    sitemapUrl: SITEMAP_URL,
+    productUrlPrefixes: PREFIXES,
+    fetchImpl,
+    now: clock.now,
+    sleep: clock.sleep,
+    saveMarginMs: MARGIN,
+    ...options,
+  });
+}
+
+const FLAME_URL = "https://www.opi.com/products/nail-lacquer-15-minutes-of-flame";
+const SNOW_URL = "https://www.opi.com/products/infinite-shine-alpine-snow";
+const PINK_URL = "https://www.opi.com/products/nail-lacquer-pink-on-canvas";
+
+function fixtureRoutes() {
+  return {
+    [SITEMAP_URL]: SITEMAP,
+    [PINK_URL]: PINK,
+    // An @graph page whose Product title carries brand and line, with ImageObject images.
+    [FLAME_URL]: ldPage({
+      "@context": "https://schema.org",
+      "@graph": [
+        { "@type": "BreadcrumbList", itemListElement: [] },
+        {
+          "@type": "Product",
+          name: "OPI Nail Lacquer - 15 Minutes of Flame",
+          sku: "99350098460",
+          gtin13: 4064665004243,
+          brand: { "@type": "Brand", name: "OPI" },
+          image: [
+            { "@type": "ImageObject", url: "https://cdn.example/flame-1.jpg" },
+            { "@type": "ImageObject", contentUrl: "https://cdn.example/flame-2.jpg" },
+          ],
+          offers: { "@type": "Offer", price: "11.99", priceCurrency: "USD", availability: "https://schema.org/OutOfStock" },
+        },
+      ],
+    }),
+    [SNOW_URL]: ldPage([
+      { "@type": "Organization", name: "OPI" },
+      {
+        "@type": ["Product", "IndividualProduct"],
+        name: "Alpine Snow",
+        sku: "99350023478",
+        brand: "OPI",
+        image: { "@type": "ImageObject", url: "https://cdn.example/snow.jpg" },
+        offers: [{ "@type": "Offer", price: 14.5, priceCurrency: "USD", availability: "PreOrder" }],
+      },
+    ]),
+  };
+}
+
+describe("SitemapJsonLdConnector: fixtures", () => {
+  it("crawls the prefix URLs only, paced 1 s apart, and builds the records", async () => {
+    const clock = fakeClock();
+    const { fetchImpl, log } = stubFetch(clock, fixtureRoutes(), { latency: 200 });
+    const cache = memoryCache();
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 120000 });
+
+    // The sitemap, then the three matching pages in sitemap order; nothing else.
+    assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, PINK_URL, FLAME_URL, SNOW_URL]);
+    for (let i = 1; i < log.length; i += 1) assert.ok(log[i].at - log[i - 1].at >= 1000, `request ${i} paced`);
+    assert.match(log[0].headers["User-Agent"], /^SwatchWatch\/connector-ingestion/);
+
+    assert.equal(result.metadata.catalogComplete, true);
+    assert.equal(result.records.length, 3);
+    // Newest lastmod first: Alpine Snow (10-23), 15 Minutes of Flame (09-19), Pink on Canvas (09-12).
+    assert.deepEqual(result.records.map((record) => record.externalId), [
+      "/products/infinite-shine-alpine-snow",
+      "/products/nail-lacquer-15-minutes-of-flame",
+      "/products/nail-lacquer-pink-on-canvas",
+    ]);
+    const byId = Object.fromEntries(result.records.map((record) => [record.externalId, record]));
+
+    const pink = byId["/products/nail-lacquer-pink-on-canvas"];
+    assert.equal(pink.gtin, "4064665004236");
+    assert.equal(pink.normalized.vendorCode, "99350098453");
+    assert.equal(pink.normalized.brand, "OPI");
+    assert.equal(pink.normalized.name, "(P)Ink on Canvas");
+    assert.doesNotMatch(pink.normalized.name, /OPI Nail Lacquer -/);
+    // The line comes from the matching URL prefix when the title has none.
+    assert.equal(pink.normalized.productLine, "Nail Lacquer");
+    assert.equal(pink.normalized.productType, "Nail Lacquer");
+    // The saved page lists five images (the brief assumed one): all kept, the first is primary.
+    assert.equal(pink.normalized.imageUrls.length, 5);
+    assert.ok(pink.normalized.imageUrls.every((url) => typeof url === "string" && url.startsWith("https://cdn.shopify.com/")));
+    assert.equal(pink.normalized.primaryImageUrl, pink.normalized.imageUrls[0]);
+    assert.equal(pink.normalized.productUrl, PINK_URL);
+    assert.equal(pink.normalized.price, "11.99");
+    assert.equal(pink.normalized.currency, "USD");
+    assert.equal(pink.normalized.available, true);
+    assert.equal(pink.normalized.descriptionText, "A pastel crème blush nail polish for your own interpretation.");
+    assert.equal(pink.normalized.kind, "brand");
+    assert.deepEqual(pink.normalized.tags, []);
+    assert.equal(pink.normalized.productCategory, "color");
+
+    const flame = byId["/products/nail-lacquer-15-minutes-of-flame"];
+    // Enterprise title: brand and line stripped, the line kept.
+    assert.equal(flame.normalized.name, "15 Minutes of Flame");
+    assert.equal(flame.normalized.productLine, "Nail Lacquer");
+    assert.equal(flame.gtin, "4064665004243");
+    assert.deepEqual(flame.normalized.imageUrls, ["https://cdn.example/flame-1.jpg", "https://cdn.example/flame-2.jpg"]);
+    assert.equal(flame.normalized.primaryImageUrl, "https://cdn.example/flame-1.jpg");
+    assert.equal(flame.normalized.available, false);
+
+    const snow = byId["/products/infinite-shine-alpine-snow"];
+    assert.equal(snow.normalized.productLine, "Infinite Shine");
+    assert.deepEqual(snow.normalized.imageUrls, ["https://cdn.example/snow.jpg"]);
+    assert.equal(snow.normalized.price, "14.50");
+    assert.equal(snow.normalized.available, true);
+    assert.equal(snow.gtin, null);
+
+    // The complete catalog for listing freshness: every matching URL path.
+    assert.deepEqual(result.catalog, {
+      externalIds: [
+        "/products/nail-lacquer-pink-on-canvas",
+        "/products/nail-lacquer-15-minutes-of-flame",
+        "/products/infinite-shine-alpine-snow",
+      ],
+      complete: true,
+    });
+    assert.equal(cache.peek().complete, true);
+  });
+
+  it("serves later pages from a complete checkpoint without any request or save", async () => {
+    const clock = fakeClock();
+    const cache = memoryCache();
+    const first = stubFetch(clock, fixtureRoutes());
+    await connector(clock, first.fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 120000 });
+    const saves = cache.saves;
+
+    const second = stubFetch(clock, fixtureRoutes());
+    const page2 = await connector(clock, second.fetchImpl).pullProducts({ ...PULL, page: 2, pageSize: 2, catalogCache: cache });
+    assert.equal(second.log.length, 0);
+    assert.equal(cache.saves, saves);
+    assert.deepEqual(page2.records.map((record) => record.externalId), ["/products/nail-lacquer-pink-on-canvas"]);
+    assert.equal(page2.metadata.sourcePageCount, 2);
+  });
+});
+
+function syntheticSitemap(count, prefix = PREFIXES[0]) {
+  const urls = Array.from({ length: count }, (_, i) => `${prefix}shade-${i}`);
+  const xml = `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
+    .map((url, i) => `<url><loc>${url}</loc><lastmod>2026-10-${String((i % 28) + 1).padStart(2, "0")}</lastmod></url>`)
+    .join("")}<url><loc>https://www.opi.com/products/files-x</loc></url></urlset>`;
+  const routes = { [SITEMAP_URL]: xml };
+  urls.forEach((url, i) => {
+    routes[url] = ldPage({ "@type": "Product", name: `Shade ${i}`, brand: { name: "OPI" }, image: `https://cdn.example/${i}.jpg` });
+  });
+  return { urls, routes };
+}
+
+describe("SitemapJsonLdConnector: checkpointed crawl", () => {
+  it("takes three calls for 400 URLs at 150 pages per call, fetching no URL twice", async () => {
+    const clock = fakeClock();
+    const { routes } = syntheticSitemap(400);
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    const cache = memoryCache();
+    const crawler = connector(clock, fetchImpl, { maxPagesPerRun: 150 });
+    const results = [];
+    for (let call = 0; call < 3; call += 1) {
+      results.push(await crawler.pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000 }));
+    }
+
+    assert.deepEqual(results.map((result) => result.records.length), [0, 0, 400]);
+    assert.deepEqual(results.map((result) => result.metadata.catalogComplete), [false, false, true]);
+    assert.deepEqual(results.map((result) => result.metadata.crawledPages), [150, 300, 400]);
+    assert.equal(results[0].metadata.totalPages, 400);
+    assert.equal(results[0].catalog, undefined);
+    assert.equal(results[1].catalog, undefined);
+    assert.equal(results[2].catalog.externalIds.length, 400);
+    assert.deepEqual(results.map((result) => result.metadata.checkpointGeneration), [1, 2, 3]);
+    const urls = log.map((entry) => entry.url);
+    assert.equal(new Set(urls).size, urls.length, "no URL fetched twice");
+    assert.equal(urls.length, 401);
+  });
+
+  it("refuses to crawl without a durable cache, before any request", async () => {
+    const clock = fakeClock();
+    const { fetchImpl, log } = stubFetch(clock, fixtureRoutes());
+    const crawler = connector(clock, fetchImpl);
+    await assert.rejects(
+      crawler.pullProducts({ ...PULL, catalogCache: memoryCache({ durable: false }), deadlineMs: clock.t + 120000 }),
+      /SitemapJsonLd needs a durable catalog cache \(CONNECTOR_RAW_CONTAINER\)/
+    );
+    await assert.rejects(
+      crawler.pullProducts({ ...PULL, deadlineMs: clock.t + 120000 }),
+      /SitemapJsonLd needs a durable catalog cache/
+    );
+    // A Shopify-style cache without the checkpoint pair is not enough either.
+    await assert.rejects(
+      crawler.pullProducts({ ...PULL, catalogCache: { load: async () => null, save: async () => {} }, deadlineMs: clock.t + 120000 }),
+      /durable catalog cache/
+    );
+    assert.equal(log.length, 0);
+  });
+
+  it("throws before any request when the deadline leaves less than 5 s before the margin", async () => {
+    const clock = fakeClock();
+    const { fetchImpl, log } = stubFetch(clock, fixtureRoutes());
+    await assert.rejects(
+      connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: memoryCache(), deadlineMs: clock.t + 3000 }),
+      /SitemapJsonLd: worker budget too small to fetch a page/
+    );
+    assert.equal(log.length, 0);
+  });
+
+  it("makes progress on a 30 s budget with 400 ms requests, then stops and saves", async () => {
+    const clock = fakeClock();
+    const { routes } = syntheticSitemap(50);
+    const { fetchImpl, log } = stubFetch(clock, routes, { latency: 400 });
+    const cache = memoryCache();
+    const deadlineMs = clock.t + 30000;
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs });
+
+    assert.equal(result.metadata.catalogComplete, false);
+    assert.ok(result.metadata.crawledPages >= 1, "at least one page");
+    assert.ok(clock.t <= deadlineMs - MARGIN, "stopped before the save margin");
+    assert.equal(cache.peek().urls.length, 50);
+    assert.equal(Object.keys(cache.peek().pages).length, result.metadata.crawledPages);
+    assert.equal(log.length, 1 + result.metadata.crawledPages);
+  });
+
+  /** A saved checkpoint with discovery done and these URLs still to fetch. */
+  async function seededCache(urls) {
+    const cache = memoryCache();
+    await cache.saveCheckpoint(
+      {
+        discovery: { rootRead: true, children: [], done: [] },
+        urls: urls.map((url) => ({ url, lastmod: null })),
+        pages: {},
+        complete: false,
+        generation: 1,
+      },
+      null
+    );
+    return cache;
+  }
+
+  it("does not retry a page whose first attempt fails 3 s before the margin; it stays unfetched", async () => {
+    const clock = fakeClock();
+    const url = `${PREFIXES[0]}flaky`;
+    const { fetchImpl, log } = stubFetch(clock, { [url]: () => ({ status: 503, body: "", latencyMs: 5000 }) });
+    const cache = await seededCache([url]);
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + MARGIN + 8000 });
+
+    assert.equal(log.length, 1);
+    assert.equal(result.metadata.catalogComplete, false);
+    assert.equal(result.metadata.crawledPages, 0);
+    assert.deepEqual(cache.peek().pages, {});
+    assert.equal(cache.peek().generation, 2);
+  });
+
+  it("fetches exactly one page when a 3 s request leaves too little time for a second", async () => {
+    const clock = fakeClock();
+    const urls = [`${PREFIXES[0]}one`, `${PREFIXES[0]}two`];
+    const routes = Object.fromEntries(urls.map((url) => [url, ldPage({ "@type": "Product", name: "X", brand: "OPI" })]));
+    const { fetchImpl, log } = stubFetch(clock, routes, { latency: 3000 });
+    const cache = await seededCache(urls);
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 27000 });
+
+    assert.deepEqual(log.map((entry) => entry.url), [urls[0]]);
+    assert.equal(result.metadata.crawledPages, 1);
+    assert.deepEqual(Object.keys(cache.peek().pages), [urls[0]]);
+  });
+
+  it("checkpoints sitemap-index discovery and resumes with the unread child only", async () => {
+    const clock = fakeClock();
+    const children = [1, 2, 3].map((n) => `https://www.opi.com/sitemap-products-${n}.xml`);
+    const routes = {
+      [SITEMAP_URL]: `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${children
+        .map((loc) => `<sitemap><loc>${loc}</loc></sitemap>`)
+        .join("")}</sitemapindex>`,
+    };
+    children.forEach((child, n) => {
+      const url = `${PREFIXES[0]}child-${n}`;
+      routes[child] = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${url}</loc></url><url><loc>${PREFIXES[0]}child-0</loc></url></urlset>`;
+      routes[url] = ldPage({ "@type": "Product", name: `Child ${n}`, brand: "OPI" });
+    });
+    const { fetchImpl, log } = stubFetch(clock, routes, { latency: 3000 });
+    const cache = memoryCache();
+    // 12 s before the margin: the index (0–3 s), child 1 (3–6 s), child 2 (6–9 s); child 3 would start with 3 s left.
+    const first = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + MARGIN + 12000 });
+    assert.equal(first.metadata.catalogComplete, false);
+    assert.deepEqual(cache.peek().discovery, { rootRead: true, children, done: children.slice(0, 2) });
+    assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, children[0], children[1]]);
+
+    log.length = 0;
+    const second = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000 });
+    assert.deepEqual(log.map((entry) => entry.url), [children[2], `${PREFIXES[0]}child-0`, `${PREFIXES[0]}child-1`, `${PREFIXES[0]}child-2`]);
+    assert.equal(second.metadata.catalogComplete, true);
+    // The URL two children list is kept once.
+    assert.equal(second.records.length, 3);
+  });
+
+  it("with the page limit at 300 and 400 ms pages, stops at the deadline minus the margin and resumes from the saved page", async () => {
+    const clock = fakeClock();
+    const { urls, routes } = syntheticSitemap(400);
+    const { fetchImpl, log } = stubFetch(clock, routes, { latency: 400 });
+    const cache = memoryCache();
+    const deadlineMs = clock.t + 30000;
+    const first = await connector(clock, fetchImpl, { maxPagesPerRun: 300 }).pullProducts({ ...PULL, catalogCache: cache, deadlineMs });
+
+    const stopAt = deadlineMs - MARGIN;
+    assert.equal(first.metadata.catalogComplete, false);
+    assert.ok(first.metadata.crawledPages < 300, "the deadline, not the page limit, stopped it");
+    assert.ok(log[log.length - 1].at <= stopAt - 5000, "no request started with less than 5 s left");
+    assert.ok(clock.t <= stopAt);
+    const fetched = first.metadata.crawledPages;
+    assert.deepEqual(Object.keys(cache.peek().pages), urls.slice(0, fetched));
+
+    log.length = 0;
+    await connector(clock, fetchImpl, { maxPagesPerRun: 300 }).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 30000 });
+    assert.equal(log[0].url, urls[fetched]);
+  });
+
+  it("throws checkpoint superseded when another invocation saved first, keeping its checkpoint", async () => {
+    const clock = fakeClock();
+    const { routes } = syntheticSitemap(20);
+    const { fetchImpl } = stubFetch(clock, routes);
+    const cache = memoryCache();
+    await connector(clock, fetchImpl, { maxPagesPerRun: 10 }).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000 });
+    const before = cache.peek();
+
+    // The stale pull reads the checkpoint, then a newer continuation saves while it crawls.
+    const realLoad = cache.loadCheckpoint;
+    cache.loadCheckpoint = async () => {
+      const loaded = await realLoad();
+      cache.moveEtag();
+      return loaded;
+    };
+    await assert.rejects(
+      connector(clock, fetchImpl, { maxPagesPerRun: 10 }).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000 }),
+      (error) => error instanceof ConnectorCheckpointSupersededError && /SitemapJsonLd checkpoint superseded/.test(error.message)
+    );
+    assert.deepEqual(cache.peek(), before);
+  });
+
+  it("records a page that answers 404 as fetched with nothing on it", async () => {
+    const clock = fakeClock();
+    const { routes, urls } = syntheticSitemap(2);
+    delete routes[urls[1]];
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    const cache = memoryCache();
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 120000 });
+    assert.equal(log.length, 3);
+    assert.equal(result.metadata.catalogComplete, true);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.metadata.pagesWithoutProduct, 1);
+    assert.equal(cache.peek().pages[urls[1]], null);
+  });
+});
+
+describe("sitemap + JSON-LD helpers", () => {
+  it("parseSitemapXml reads a urlset and an index", () => {
+    const urlset = parseSitemapXml(SITEMAP);
+    assert.equal(urlset.kind, "urlset");
+    assert.equal(urlset.entries.length, 10);
+    assert.deepEqual(urlset.entries[1], { url: PINK_URL, lastmod: "2026-09-12T20:07:58.713Z" });
+    const index = parseSitemapXml('<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>https://x.example/a.xml</loc></sitemap></sitemapindex>');
+    assert.deepEqual(index, { kind: "index", entries: [{ url: "https://x.example/a.xml", lastmod: null }] });
+    assert.throws(() => parseSitemapXml("<html></html>"), /neither a <urlset> nor a <sitemapindex>/);
+  });
+
+  it("extractJsonLdProduct finds the Product past broken blocks and other types", () => {
+    const html = `<script type="application/ld+json">{ broken</script><script type='application/ld+json'>{"@type":"WebSite"}</script>${ldPage({ "@graph": [{ "@type": "Product", name: "G" }] })}`;
+    assert.equal(extractJsonLdProduct(html).name, "G");
+    assert.equal(extractJsonLdProduct("<html></html>"), null);
+    assert.equal(extractJsonLdProduct(PINK).gtin, "4064665004236");
+  });
+
+  it("jsonLdImageUrls normalizes strings, ImageObjects and arrays of either", () => {
+    assert.deepEqual(jsonLdImageUrls("https://a/1.jpg"), ["https://a/1.jpg"]);
+    assert.deepEqual(jsonLdImageUrls([{ url: "https://a/1.jpg" }, { contentUrl: "https://a/2.jpg" }, "https://a/1.jpg"]), ["https://a/1.jpg", "https://a/2.jpg"]);
+    assert.deepEqual(jsonLdImageUrls(undefined), []);
+  });
+
+  it("parseJsonLdAvailability maps schema.org values", () => {
+    assert.equal(parseJsonLdAvailability("https://schema.org/InStock"), true);
+    assert.equal(parseJsonLdAvailability("PreOrder"), true);
+    assert.equal(parseJsonLdAvailability("http://schema.org/OutOfStock"), false);
+    assert.equal(parseJsonLdAvailability("BackOrder"), false);
+    assert.equal(parseJsonLdAvailability("Mystery"), null);
+    assert.equal(parseJsonLdAvailability(undefined), null);
+  });
+});

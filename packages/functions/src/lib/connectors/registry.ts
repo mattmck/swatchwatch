@@ -30,6 +30,19 @@ const NON_SHADE_PRODUCT_PROTOCOLS: ReadonlySet<ConnectorProtocol> = new Set<Conn
   "MakeupAPI",
 ]);
 
+/**
+ * Non-Shopify sources registered disabled until the owner approves them. They are never
+ * auto-provisioned (`isAutoProvisionableSource` is Shopify-only), so their migration is their
+ * only registration and this set is bookkeeping: tests check each is seeded `enabled = false`
+ * with `"pendingApproval": true`. Shopify stores use `SHOPIFY_SOURCES_PENDING_APPROVAL`
+ * (lib/connectors/shopify-generic.ts), which also drives auto-provisioning.
+ */
+export const CONNECTOR_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
+  // OPI brand store via sitemap + JSON-LD: no terms page at /terms-of-use on 2026-11-08; the
+  // owner locates and reads the site terms and asks for the OK (brand sources plan, Task 15).
+  "OpiSitemap",
+]);
+
 export function protocolOf(source: SupportedConnectorSource): ConnectorProtocol {
   return SOURCE_PROTOCOL_MAP[source] ?? "Custom";
 }
