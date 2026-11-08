@@ -5,12 +5,13 @@
  * the `g:` namespace, http://base.google.com/ns/1.0) or delimited text (first row = attribute
  * names, tab or comma separated). The feed URL is `data_source.base_url` unless
  * `metadata.feedUrl` overrides it; `metadata.feedAuthEnv` names an env var holding `user:pass`,
- * sent as HTTP basic auth (`PRODUCT_FEED_AUTH_<SOURCE>`, never logged).
+ * sent as HTTP basic auth (it must match `PRODUCT_FEED_AUTH_[A-Z0-9_]+`, never logged).
  *
  * The whole feed is one download, cached per job through `catalogCache`; `pullProducts` windows
- * it by page like the Shopify connector. Every record carries `normalized.available`
- * (`g:availability`: true for "in stock", false for any other value, null when missing), the
- * availability contract `BUY_LINK_CANDIDATES_SQL` reads first.
+ * it by page like the Shopify connector; the pull that downloaded the feed reports every item id
+ * as a complete `catalog` (listing freshness). Every record carries `normalized.available`
+ * (`g:availability`: true for "in stock" / "preorder", false for "out of stock" / "backorder",
+ * null otherwise), the availability contract `BUY_LINK_CANDIDATES_SQL` reads first.
  */
 
 import { XMLParser } from "fast-xml-parser";
@@ -42,6 +43,8 @@ const MAX_REQUEST_RETRIES = parseIntEnv(process.env.SHOPIFY_CONNECTOR_MAX_RETRIE
 const RETRY_BASE_DELAY_MS = parseIntEnv(process.env.SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS, 1000, 100, 30000);
 const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
 const GOOGLE_NAMESPACE = "http://base.google.com/ns/1.0";
+/** The only app setting names `metadata.feedAuthEnv` may point at. */
+export const FEED_AUTH_ENV_PATTERN = /^PRODUCT_FEED_AUTH_[A-Z0-9_]+$/;
 
 /** One feed item: attribute name (without the `g:` prefix) → value, or values when repeated. */
 export type FeedItem = Record<string, string | string[]>;
@@ -305,10 +308,16 @@ export function parseFeedPrice(value: unknown): ProductPrice {
   return price && currency ? { price, currency } : none;
 }
 
-/** `g:availability`: true for "in stock" (any case, `_` or space), false for any other value, null when missing. */
+/**
+ * `g:availability` (any case, `_`, `-` or space): "in stock" and "preorder" are buyable (true),
+ * "backorder" and "out of stock" are not (false), anything else or a missing value is null.
+ */
 export function parseFeedAvailability(value: unknown): boolean | null {
   if (typeof value !== "string" || !value.trim()) return null;
-  return value.trim().toLowerCase().replace(/[_\s]+/g, " ") === "in stock";
+  const normalized = value.trim().toLowerCase().replace(/[_\s-]+/g, " ");
+  if (normalized === "in stock" || normalized === "preorder" || normalized === "pre order") return true;
+  if (normalized === "out of stock" || normalized === "backorder" || normalized === "back order") return false;
+  return null;
 }
 
 // ── Gate and records ─────────────────────────────────────────────────────────
@@ -329,8 +338,9 @@ type GateOutcome = { accept: true; gated: GatedItem } | { accept: false; vendorl
  * Whether a feed item is ingested: it needs an id and a title; a brand from `g:brand`, else
  * `settings.brand` (neither = skipped, counted as vendorless); the shared connector gate
  * (`classifyIngestedProduct` over the title, `g:product_type` and `g:color`, plus a textual
- * `g:google_product_category`); and no set word (gate evidence `set`, a title ending in one, or
- * a feed/retailer title `parseRetailerTitle` reads as a set).
+ * `g:google_product_category`); and no set (gate evidence `set`; for a `feed` or `retailer`
+ * source also a title ending in a set word or one `parseRetailerTitle` reads as a set; a brand
+ * source relies on the gate alone, so its shade "Jet Set" is kept).
  */
 export function gateFeedItem(item: FeedItem, settings: SourceSettings): GateOutcome {
   const externalId = first(item, "id");
@@ -344,11 +354,14 @@ export function gateFeedItem(item: FeedItem, settings: SourceSettings): GateOutc
     (tag): tag is string => Boolean(tag)
   );
   const gate = classifyIngestedProduct({ title, productType: first(item, "product_type"), tags });
-  if (!gate.accept || gate.evidence === "set" || isRetailerSetSegment(title)) return { accept: false };
+  if (!gate.accept || gate.evidence === "set") return { accept: false };
 
+  // A brand feed relies on the generic gate's set evidence (its shade "Jet Set" is a polish);
+  // a feed or retailer listing ending in a set word is a multi-item listing.
   if (settings.kind === "brand") {
     return { accept: true, gated: { item, externalId, title, brand, category: gate.category } };
   }
+  if (isRetailerSetSegment(title)) return { accept: false };
   const listing = parseRetailerTitle(title, brand);
   if (!listing || listing.isSet) return { accept: false };
   return { accept: true, gated: { item, externalId, title, brand, category: gate.category, listing } };
@@ -447,10 +460,16 @@ export class ProductFeedConnector implements ProductConnector {
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
+    // Fail on a bad feedAuthEnv before anything is read or requested.
+    const authorization = this.authorizationHeader();
     // The cache holds items only; a cached run reports the format it parsed earlier, or null.
+    // Set only when this pull downloaded the feed (like Shopify's `fetchedComplete`): a cached
+    // feed reports no catalog, so listing freshness runs once, on the download.
+    let downloaded = false;
     const items = await loadCatalogWithCache<FeedItem>(options.catalogCache, async () => {
-      const feed = await this.fetchFeed();
+      const feed = await this.fetchFeed(authorization);
       this.format = feed.format;
+      downloaded = true;
       return feed.items;
     });
 
@@ -480,9 +499,16 @@ export class ProductFeedConnector implements ProductConnector {
       .filter((entry) => entry.invalidCheckDigit !== null)
       .map((entry) => ({ externalId: entry.record.externalId, gtin: entry.invalidCheckDigit as string }));
 
+    // Every item id of the downloaded feed, before the gate and the window: a feed is one
+    // download, so a successful one is the whole catalog (`fetchFeed` rejects an empty feed).
+    const catalogIds = downloaded
+      ? [...new Set(items.map((item) => first(item, "id")).filter((id): id is string => id !== null))]
+      : [];
+
     return {
       source: this.source,
       records: built.map((entry) => entry.record),
+      ...(downloaded ? { catalog: { externalIds: catalogIds, complete: catalogIds.length > 0 } } : {}),
       metadata: {
         requestUrl: displayUrl(this.feedUrl),
         responsePage: options.page,
@@ -500,10 +526,17 @@ export class ProductFeedConnector implements ProductConnector {
     };
   }
 
-  /** Basic auth header from the env var `metadata.feedAuthEnv` names (`user:pass`), if set. */
+  /**
+   * Basic auth header from the env var `metadata.feedAuthEnv` names (`user:pass`), if set. The
+   * name must match `FEED_AUTH_ENV_PATTERN`, so a source row can never send another app setting
+   * (a storage key, a signing key) as credentials.
+   */
   private authorizationHeader(): Record<string, string> {
     const envName = this.settings.feedAuthEnv;
     if (!envName) return {};
+    if (!FEED_AUTH_ENV_PATTERN.test(envName)) {
+      throw new Error(`${this.source}: metadata.feedAuthEnv must match ^PRODUCT_FEED_AUTH_[A-Z0-9_]+$ (got ${envName})`);
+    }
     const value = process.env[envName]?.trim();
     if (!value) {
       throw new Error(`${this.source}: metadata.feedAuthEnv names ${envName}, which is not set`);
@@ -511,11 +544,11 @@ export class ProductFeedConnector implements ProductConnector {
     return { Authorization: `Basic ${Buffer.from(value, "utf8").toString("base64")}` };
   }
 
-  private async fetchFeed(): Promise<CachedFeed> {
+  private async fetchFeed(authorization: Record<string, string>): Promise<CachedFeed> {
     const headers = {
       Accept: "application/xml, text/xml, text/tab-separated-values, text/csv, text/plain;q=0.9, */*;q=0.5",
       "User-Agent": USER_AGENT,
-      ...this.authorizationHeader(),
+      ...authorization,
     };
     const shownUrl = displayUrl(this.feedUrl);
     const attemptCount = MAX_REQUEST_RETRIES + 1;

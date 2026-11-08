@@ -116,6 +116,24 @@ describe("ProductFeedConnector: fixtures", () => {
     assert.deepEqual(result.records.map((record) => record.externalId), ["EX-002"]);
   });
 
+  it("reports every item id as a complete catalog when it downloaded the feed", async () => {
+    const result = await connector(XML, "application/xml").pullProducts({ ...PULL, pageSize: 2 });
+    // Every item, before the gate and the window (the set and the stamping plate included).
+    assert.deepEqual(result.catalog, {
+      externalIds: ["EX-001", "EX-002", "EX-003", "EX-004", "EX-005", "EX-006", "EX-007"],
+      complete: true,
+    });
+  });
+
+  it("reports no catalog when the feed came from the job's cache", async () => {
+    const cache = { load: async () => parseProductFeed(XML, "application/xml", "https://lacquer.example/feed").items, save: async () => {} };
+    const calls = [];
+    const result = await connector(XML, "application/xml", {}, { calls }).pullProducts({ ...PULL, catalogCache: cache });
+    assert.equal(calls.length, 0);
+    assert.equal(result.catalog, undefined);
+    assert.equal(result.records.length, 5);
+  });
+
   it("downloads once per job through the catalog cache", async () => {
     let saved = null;
     const cache = { load: async () => saved, save: async (items) => { saved = items; } };
@@ -201,6 +219,16 @@ describe("ProductFeedConnector: feed-kind pull", () => {
     assert.equal(result.records.length, 0);
   });
 
+  it("keeps a brand-kind shade whose name ends in a set word (the generic gate decides)", async () => {
+    const body = rss([feedItem({ id: "B-2", title: "Jet Set", brand: "Example Lacquer" })]);
+    const brand = await connector(body, "application/xml", { kind: "brand" }).pullProducts(PULL);
+    assert.deepEqual(brand.records.map((record) => record.externalId), ["B-2"]);
+    assert.equal(brand.records[0].normalized.name, "Jet Set");
+    // A feed or retailer source still drops a title ending in a set word.
+    const feed = await connector(body, "application/xml", { kind: "feed" }).pullProducts(PULL);
+    assert.equal(feed.records.length, 0);
+  });
+
   it("keeps a brand-kind title as the shade name", async () => {
     const body = rss([feedItem({ id: "B-1", title: "Night Swim - Holo", brand: "Example Lacquer" })]);
     const result = await connector(body, "application/xml", { kind: "brand" }).pullProducts(PULL);
@@ -223,6 +251,22 @@ describe("ProductFeedConnector: fetch", () => {
     const headers = calls[0].init.headers;
     assert.match(headers["User-Agent"], /^SwatchWatch\/connector-ingestion/);
     assert.equal(headers.Authorization, `Basic ${Buffer.from("feeduser:s3cret").toString("base64")}`);
+  });
+
+  it("refuses a feedAuthEnv outside PRODUCT_FEED_AUTH_* before any request", async () => {
+    process.env.AZURE_STORAGE_CONNECTION_TEST_ONLY = "secret";
+    try {
+      for (const name of ["AZURE_STORAGE_CONNECTION_TEST_ONLY", "PRODUCT_FEED_AUTH_", "product_feed_auth_x", "PRODUCT_FEED_AUTH_X-Y"]) {
+        const calls = [];
+        await assert.rejects(
+          connector(XML, "application/xml", { feedAuthEnv: name }, { calls }).pullProducts(PULL),
+          /feedAuthEnv must match \^PRODUCT_FEED_AUTH_\[A-Z0-9_\]\+\$/
+        );
+        assert.equal(calls.length, 0, name);
+      }
+    } finally {
+      delete process.env.AZURE_STORAGE_CONNECTION_TEST_ONLY;
+    }
   });
 
   it("sends no Authorization header without feedAuthEnv", async () => {
@@ -263,11 +307,15 @@ describe("product feed helpers", () => {
     assert.deepEqual(parseFeedPrice(null), { price: null, currency: null });
   });
 
-  it("parseFeedAvailability: in stock is true, any other value false, missing null", () => {
+  it("parseFeedAvailability: in stock and preorder are buyable, backorder and out of stock not, anything else null", () => {
     assert.equal(parseFeedAvailability("in stock"), true);
     assert.equal(parseFeedAvailability("IN_STOCK"), true);
+    assert.equal(parseFeedAvailability("preorder"), true);
+    assert.equal(parseFeedAvailability("pre_order"), true);
     assert.equal(parseFeedAvailability("out of stock"), false);
-    assert.equal(parseFeedAvailability("preorder"), false);
+    assert.equal(parseFeedAvailability("out_of_stock"), false);
+    assert.equal(parseFeedAvailability("backorder"), false);
+    assert.equal(parseFeedAvailability("discontinued"), null);
     assert.equal(parseFeedAvailability(""), null);
     assert.equal(parseFeedAvailability(undefined), null);
   });
