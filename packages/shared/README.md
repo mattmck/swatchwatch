@@ -501,7 +501,7 @@ The "add it as new" card for a bottle the catalog could not match. Pure.
 | Type | Description |
 |------|-------------|
 | `IngestionSourceName` | Allowed generated source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, HoloTacoShopify, Shopify sources, CosIng, etc.) |
-| `ConnectorProtocol` | Connector protocol group: `"HoloTaco" \| "Shopify" \| "OpenBeautyFacts" \| "MakeupAPI" \| "GS1" \| "Custom"` |
+| `ConnectorProtocol` | Connector protocol group: `"HoloTaco" \| "Shopify" \| "OpenBeautyFacts" \| "MakeupAPI" \| "GS1" \| "ProductFeed" \| "SitemapJsonLd" \| "WooCommerce" \| "BigCartel" \| "Custom"`; generated per source into `SOURCE_PROTOCOL_MAP` from the source-name suffix (`Shopify`, `Feed`, `Sitemap`, `WooCommerce`, `BigCartel`) |
 | `IngestionJobStatus` | Job lifecycle status: `queued \| running \| succeeded \| failed \| cancelled` |
 | `IngestionLogLevel` | Job log level: `debug \| info \| warn \| error` |
 | `IngestionLogEntry` | One job log line in `metrics.logs`: `{ ts, level, msg, data? }`; the single omission marker also carries `omitted` |

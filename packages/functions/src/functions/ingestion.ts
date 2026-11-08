@@ -2,6 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext, output } from "@
 import {
   BulkIngestionRequest,
   BulkIngestionResponse,
+  ConnectorProtocol,
   IngestionJobListResponse,
   IngestionJobRecord,
   IngestionJobRunRequest,
@@ -69,6 +70,7 @@ import {
   SupportedConnectorSource,
   SUPPORTED_SOURCES,
 } from "../lib/connectors/types";
+import { materializesShadeProducts, protocolOf } from "../lib/connectors/registry";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -146,8 +148,25 @@ function isSupportedSource(value: string): value is SupportedConnectorSource {
   return (SUPPORTED_SOURCES as readonly string[]).includes(value);
 }
 
+type ConnectorFactory = (
+  source: SupportedConnectorSource,
+  baseUrl?: string | null,
+  currency?: string | null
+) => ProductConnector;
+
+/**
+ * One factory per protocol that has a connector today. A runnable protocol without an entry
+ * (see `isRunnableProtocol` in lib/connectors/registry.ts) is not queueable yet.
+ */
+const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> = {
+  OpenBeautyFacts: (_source, baseUrl) => new OpenBeautyFactsConnector(baseUrl),
+  MakeupAPI: (_source, baseUrl) => new MakeupApiConnector(baseUrl),
+  HoloTaco: (_source, baseUrl, currency) => new HoloTacoShopifyConnector(baseUrl, { currency }),
+  Shopify: (source, baseUrl, currency) => new ShopifyGenericConnector(source, baseUrl, { currency }),
+};
+
 function hasRunnableConnector(source: SupportedConnectorSource): boolean {
-  return source === "OpenBeautyFacts" || source === "MakeupAPI" || source.endsWith("Shopify");
+  return protocolOf(source) in CONNECTOR_FACTORIES;
 }
 
 function isRunnableConnectorSource(value: string): value is SupportedConnectorSource {
@@ -159,22 +178,11 @@ function createConnector(
   baseUrl?: string | null,
   currency?: string | null
 ): ProductConnector {
-  if (source === "OpenBeautyFacts") {
-    return new OpenBeautyFactsConnector(baseUrl);
+  const factory = CONNECTOR_FACTORIES[protocolOf(source)];
+  if (!factory) {
+    throw new Error(`No connector available for source: ${source}`);
   }
-  if (source === "MakeupAPI") {
-    return new MakeupApiConnector(baseUrl);
-  }
-  if (source === "HoloTacoShopify") {
-    return new HoloTacoShopifyConnector(baseUrl, { currency });
-  }
-
-  // All other Shopify stores use the generic Shopify connector
-  if (source.endsWith("Shopify")) {
-    return new ShopifyGenericConnector(source, baseUrl, { currency });
-  }
-
-  throw new Error(`No connector available for source: ${source}`);
+  return factory(source, baseUrl, currency);
 }
 
 function getErrorMessage(error: unknown): string {
@@ -811,7 +819,7 @@ export async function processIngestionJobQueueMessage(
         }
       }
 
-      if (payload.request.source.endsWith("Shopify") && payload.request.materializeToInventory) {
+      if (materializesShadeProducts(payload.request.source) && payload.request.materializeToInventory) {
         stage = "materialize_inventory";
         logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
           queuedAt: payload.queuedAt,
@@ -924,7 +932,7 @@ export async function processIngestionJobQueueMessage(
     // detection costs an AI call + delay per record, so it runs in small chunks.
     const usesBatchHexDetection =
       hexBatchConfig.enabled &&
-      payload.request.source.endsWith("Shopify") &&
+      materializesShadeProducts(payload.request.source) &&
       payload.request.materializeToInventory &&
       payload.request.detectHexFromImage;
     const currentChunkSize = (): number =>
