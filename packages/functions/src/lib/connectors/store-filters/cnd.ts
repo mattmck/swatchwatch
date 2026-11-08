@@ -56,7 +56,7 @@ const NON_POLISH_TITLE_REGEX = new RegExp(
       "colou?r\\s+powders?",
       "additives",
     ].join("|") +
-    ")",
+    ")(?![a-z0-9])",
   "i"
 );
 const SHELLAC_REGEX = /\bshellac\b/i;

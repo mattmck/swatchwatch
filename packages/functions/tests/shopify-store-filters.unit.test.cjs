@@ -1329,6 +1329,15 @@ describe("store-filters/noodles — isNoodlesPolish", () => {
 const CND = require("./fixtures/cnd-products.json").products;
 
 describe("store-filters/cnd — isCndPolish", () => {
+  it("drops whole words only: a shade whose name starts with a blocklisted stem is not rejected by the title rule", () => {
+    const cnd = (title) => isCndPolish({ title, product_type: "", tags: [], vendor: "CND", body_html: "", variants: [], images: [] });
+    for (const title of ["Tipsy", "Brushed Gold", "Settle Down", "Kitten Heels"]) {
+      assert.notEqual(cnd(title), false, title);
+    }
+    assert.equal(cnd("Nail Art Kit"), false);
+    assert.equal(cnd("Brushes - 3 pack"), false);
+  });
+
   it("with the generic gate keeps 12 of the 117 fixture products (17 with includeGel)", () => {
     assert.equal(CND.length, 117);
     // The 2 Vinylux top coats and the 10 lacquer treatments (Solaroil, RidgeFx, Stickey, …).
