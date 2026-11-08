@@ -1,0 +1,431 @@
+{
+  "records": [
+    {
+      "externalId": "7001",
+      "gtin": "094100006611",
+      "raw": {
+        "id": 7001,
+        "title": "OPI Nail Lacquer - No Room for the Blues 0.5 oz - #NLB83",
+        "handle": "opi-nail-lacquer-no-room-for-the-blues",
+        "vendor": "OPI",
+        "product_type": "Nail Polish",
+        "tags": [
+          "Blue",
+          "bp-discontinued",
+          "Creme",
+          "OPI"
+        ],
+        "body_html": "<p>A deep navy creme.</p>",
+        "published_at": "2026-11-05T10:00:00-05:00",
+        "created_at": "2026-11-05T10:00:00-05:00",
+        "updated_at": "2026-11-06T10:00:00-05:00",
+        "variants": [
+          {
+            "id": 81,
+            "title": "Default Title",
+            "option1": "Default Title",
+            "sku": "NLB83",
+            "barcode": "094100006611",
+            "price": "11.50",
+            "available": true
+          }
+        ],
+        "images": [
+          {
+            "src": "https://cdn.shopify.com/s/files/1/beyond/opi-nlb83.jpg",
+            "position": 1,
+            "alt": null
+          }
+        ]
+      },
+      "normalized": {
+        "source": "OPI Nail Lacquer - No Room for the Blues 0.5 oz - #NLB83",
+        "productId": "7001",
+        "brand": "OPI",
+        "name": "OPI Nail Lacquer - No Room for the Blues 0.5 oz - #NLB83",
+        "rawTitle": "OPI Nail Lacquer - No Room for the Blues 0.5 oz - #NLB83",
+        "editionCap": null,
+        "handle": "opi-nail-lacquer-no-room-for-the-blues",
+        "productType": "Nail Polish",
+        "productCategory": "color",
+        "collections": [],
+        "finishes": [],
+        "tags": [
+          "Blue",
+          "bp-discontinued",
+          "Creme",
+          "OPI"
+        ],
+        "descriptionText": "A deep navy creme.",
+        "descriptors": [
+          "Nail Polish",
+          "Blue",
+          "bp-discontinued",
+          "Creme",
+          "OPI"
+        ],
+        "tagColors": [],
+        "imageUrls": [
+          "https://cdn.shopify.com/s/files/1/beyond/opi-nlb83.jpg"
+        ],
+        "images": [
+          {
+            "url": "https://cdn.shopify.com/s/files/1/beyond/opi-nlb83.jpg",
+            "alt": null,
+            "position": 1
+          }
+        ],
+        "primaryImageUrl": "https://cdn.shopify.com/s/files/1/beyond/opi-nlb83.jpg",
+        "productUrl": "https://www.beyondpolish.com/products/opi-nail-lacquer-no-room-for-the-blues",
+        "price": "11.50",
+        "currency": "USD",
+        "variants": [
+          {
+            "id": "81",
+            "title": "Default Title",
+            "sku": "NLB83",
+            "barcode": "094100006611",
+            "price": "11.50",
+            "compareAtPrice": null,
+            "available": true,
+            "option1": "Default Title",
+            "option2": null,
+            "option3": null
+          }
+        ],
+        "colorName": "Default Title",
+        "vendorHex": null,
+        "nameHex": "#112233",
+        "hexSource": "ai-lookup",
+        "createdAt": "2026-11-05T10:00:00-05:00",
+        "updatedAt": "2026-11-06T10:00:00-05:00",
+        "publishedAt": "2026-11-05T10:00:00-05:00"
+      }
+    },
+    {
+      "externalId": "7002",
+      "gtin": null,
+      "raw": {
+        "id": 7002,
+        "title": "Orly Nail Lacquer - Velvet Dreams - #2000478",
+        "handle": "orly-nail-lacquer-velvet-dreams",
+        "vendor": "ORLY",
+        "product_type": "Nail Polish",
+        "tags": [
+          "Purple",
+          "Shimmer"
+        ],
+        "published_at": "2026-11-04T10:00:00-05:00",
+        "created_at": "2026-11-04T10:00:00-05:00",
+        "updated_at": "2026-11-04T10:00:00-05:00",
+        "variants": [
+          {
+            "id": 82,
+            "title": "Default Title",
+            "option1": "Default Title",
+            "sku": "2000478",
+            "barcode": null,
+            "price": "10.00",
+            "available": true
+          }
+        ],
+        "images": []
+      },
+      "normalized": {
+        "source": "Orly Nail Lacquer - Velvet Dreams - #2000478",
+        "productId": "7002",
+        "brand": "ORLY",
+        "name": "Orly Nail Lacquer - Velvet Dreams - #2000478",
+        "rawTitle": "Orly Nail Lacquer - Velvet Dreams - #2000478",
+        "editionCap": null,
+        "handle": "orly-nail-lacquer-velvet-dreams",
+        "productType": "Nail Polish",
+        "productCategory": "color",
+        "collections": [],
+        "finishes": [],
+        "tags": [
+          "Purple",
+          "Shimmer"
+        ],
+        "descriptionText": null,
+        "descriptors": [
+          "Nail Polish",
+          "Purple",
+          "Shimmer"
+        ],
+        "tagColors": [],
+        "imageUrls": [],
+        "images": [],
+        "primaryImageUrl": null,
+        "productUrl": "https://www.beyondpolish.com/products/orly-nail-lacquer-velvet-dreams",
+        "price": "10.00",
+        "currency": "USD",
+        "variants": [
+          {
+            "id": "82",
+            "title": "Default Title",
+            "sku": "2000478",
+            "barcode": null,
+            "price": "10.00",
+            "compareAtPrice": null,
+            "available": true,
+            "option1": "Default Title",
+            "option2": null,
+            "option3": null
+          }
+        ],
+        "colorName": "Default Title",
+        "vendorHex": null,
+        "nameHex": "#112233",
+        "hexSource": "ai-lookup",
+        "createdAt": "2026-11-04T10:00:00-05:00",
+        "updatedAt": "2026-11-04T10:00:00-05:00",
+        "publishedAt": "2026-11-04T10:00:00-05:00"
+      }
+    },
+    {
+      "externalId": "7003",
+      "gtin": null,
+      "raw": {
+        "id": 7003,
+        "title": "OPI - Gel & Lacquer Combo - Metallic Rewind",
+        "handle": "opi-gel-lacquer-combo-metallic-rewind",
+        "vendor": "OPI",
+        "product_type": "Nail Polish",
+        "tags": [
+          "Nail Set",
+          "OPI"
+        ],
+        "published_at": "2026-11-03T10:00:00-05:00",
+        "created_at": "2026-11-03T10:00:00-05:00",
+        "updated_at": "2026-11-03T10:00:00-05:00",
+        "variants": [
+          {
+            "id": 83,
+            "title": "Default Title",
+            "option1": "Default Title",
+            "price": "24.00",
+            "available": true
+          }
+        ],
+        "images": []
+      },
+      "normalized": {
+        "source": "OPI - Gel & Lacquer Combo - Metallic Rewind",
+        "productId": "7003",
+        "brand": "OPI",
+        "name": "OPI - Gel & Lacquer Combo - Metallic Rewind",
+        "rawTitle": "OPI - Gel & Lacquer Combo - Metallic Rewind",
+        "editionCap": null,
+        "handle": "opi-gel-lacquer-combo-metallic-rewind",
+        "productType": "Nail Polish",
+        "productCategory": "color",
+        "collections": [],
+        "finishes": [],
+        "tags": [
+          "Nail Set",
+          "OPI"
+        ],
+        "descriptionText": null,
+        "descriptors": [
+          "Nail Polish",
+          "Nail Set",
+          "OPI"
+        ],
+        "tagColors": [],
+        "imageUrls": [],
+        "images": [],
+        "primaryImageUrl": null,
+        "productUrl": "https://www.beyondpolish.com/products/opi-gel-lacquer-combo-metallic-rewind",
+        "price": "24.00",
+        "currency": "USD",
+        "variants": [
+          {
+            "id": "83",
+            "title": "Default Title",
+            "sku": null,
+            "barcode": null,
+            "price": "24.00",
+            "compareAtPrice": null,
+            "available": true,
+            "option1": "Default Title",
+            "option2": null,
+            "option3": null
+          }
+        ],
+        "colorName": "Default Title",
+        "vendorHex": null,
+        "nameHex": "#112233",
+        "hexSource": "ai-lookup",
+        "createdAt": "2026-11-03T10:00:00-05:00",
+        "updatedAt": "2026-11-03T10:00:00-05:00",
+        "publishedAt": "2026-11-03T10:00:00-05:00"
+      }
+    },
+    {
+      "externalId": "7004",
+      "gtin": null,
+      "raw": {
+        "id": 7004,
+        "title": "Zoya - Sonnet Fall Collection",
+        "handle": "zoya-sonnet-fall-collection",
+        "vendor": "Zoya",
+        "product_type": "Nail Polish",
+        "tags": [
+          "Zoya"
+        ],
+        "published_at": "2026-11-02T10:00:00-05:00",
+        "created_at": "2026-11-02T10:00:00-05:00",
+        "updated_at": "2026-11-02T10:00:00-05:00",
+        "variants": [
+          {
+            "id": 84,
+            "title": "Default Title",
+            "option1": "Default Title",
+            "price": "60.00",
+            "available": true
+          }
+        ],
+        "images": []
+      },
+      "normalized": {
+        "source": "Zoya - Sonnet Fall Collection",
+        "productId": "7004",
+        "brand": "Zoya",
+        "name": "Zoya - Sonnet Fall Collection",
+        "rawTitle": "Zoya - Sonnet Fall Collection",
+        "editionCap": null,
+        "handle": "zoya-sonnet-fall-collection",
+        "productType": "Nail Polish",
+        "productCategory": "color",
+        "collections": [],
+        "finishes": [],
+        "tags": [
+          "Zoya"
+        ],
+        "descriptionText": null,
+        "descriptors": [
+          "Nail Polish",
+          "Zoya"
+        ],
+        "tagColors": [],
+        "imageUrls": [],
+        "images": [],
+        "primaryImageUrl": null,
+        "productUrl": "https://www.beyondpolish.com/products/zoya-sonnet-fall-collection",
+        "price": "60.00",
+        "currency": "USD",
+        "variants": [
+          {
+            "id": "84",
+            "title": "Default Title",
+            "sku": null,
+            "barcode": null,
+            "price": "60.00",
+            "compareAtPrice": null,
+            "available": true,
+            "option1": "Default Title",
+            "option2": null,
+            "option3": null
+          }
+        ],
+        "colorName": "Default Title",
+        "vendorHex": null,
+        "nameHex": "#112233",
+        "hexSource": "ai-lookup",
+        "createdAt": "2026-11-02T10:00:00-05:00",
+        "updatedAt": "2026-11-02T10:00:00-05:00",
+        "publishedAt": "2026-11-02T10:00:00-05:00"
+      }
+    },
+    {
+      "externalId": "7005",
+      "gtin": null,
+      "raw": {
+        "id": 7005,
+        "title": "Midnight Garden",
+        "handle": "midnight-garden",
+        "vendor": "vendor-unknown",
+        "product_type": "Nail Polish",
+        "tags": [
+          "Green"
+        ],
+        "published_at": "2026-11-01T10:00:00-05:00",
+        "created_at": "2026-11-01T10:00:00-05:00",
+        "updated_at": "2026-11-01T10:00:00-05:00",
+        "variants": [
+          {
+            "id": 85,
+            "title": "Default Title",
+            "option1": "Default Title",
+            "price": "12.00",
+            "available": true
+          }
+        ],
+        "images": []
+      },
+      "normalized": {
+        "source": "Midnight Garden",
+        "productId": "7005",
+        "brand": "Beyond Polish",
+        "name": "Midnight Garden",
+        "rawTitle": "Midnight Garden",
+        "editionCap": null,
+        "handle": "midnight-garden",
+        "productType": "Nail Polish",
+        "productCategory": "color",
+        "collections": [],
+        "finishes": [],
+        "tags": [
+          "Green"
+        ],
+        "descriptionText": null,
+        "descriptors": [
+          "Nail Polish",
+          "Green"
+        ],
+        "tagColors": [],
+        "imageUrls": [],
+        "images": [],
+        "primaryImageUrl": null,
+        "productUrl": "https://www.beyondpolish.com/products/midnight-garden",
+        "price": "12.00",
+        "currency": "USD",
+        "variants": [
+          {
+            "id": "85",
+            "title": "Default Title",
+            "sku": null,
+            "barcode": null,
+            "price": "12.00",
+            "compareAtPrice": null,
+            "available": true,
+            "option1": "Default Title",
+            "option2": null,
+            "option3": null
+          }
+        ],
+        "colorName": "Default Title",
+        "vendorHex": null,
+        "nameHex": "#112233",
+        "hexSource": "ai-lookup",
+        "createdAt": "2026-11-01T10:00:00-05:00",
+        "updatedAt": "2026-11-01T10:00:00-05:00",
+        "publishedAt": "2026-11-01T10:00:00-05:00"
+      }
+    }
+  ],
+  "metadata": {
+    "requestUrl": "https://www.beyondpolish.com/products.json",
+    "responsePage": 1,
+    "responsePageSize": 50,
+    "sourceCount": 5,
+    "sourcePageCount": 1,
+    "fetchedProductCount": 5,
+    "recentDays": null,
+    "textFilter": null,
+    "connectorType": "generic-shopify",
+    "storeCurrency": "USD",
+    "storeCurrencySource": "source_metadata"
+  }
+}

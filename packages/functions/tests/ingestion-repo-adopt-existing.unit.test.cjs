@@ -1000,3 +1000,38 @@ describe("materializeHoloTacoRecords — catalog authority (one write-rule imple
     assert.equal(metrics.hexDetectionSkippedUnchanged, 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Retailer-mode connector record → shade (brand sources plan, Task 5)
+// ---------------------------------------------------------------------------
+
+describe("materializeHoloTacoRecords — a retailer-mode Shopify record", () => {
+  it("creates the shade with no legacy finish key and its finishes from the store tags", async () => {
+    const { ShopifyGenericConnector } = require("../dist/lib/connectors/shopify-generic");
+    const { readSourceSettings } = require("../dist/lib/source-settings");
+    const { products } = require("./fixtures/beyond-polish-products.json");
+    const opiListing = products.find((product) => product.id === 7001);
+    const connector = new ShopifyGenericConnector("BeyondPolishShopify", "https://www.beyondpolish.com", {
+      currency: "USD",
+      settings: readSourceSettings({ kind: "retailer" }),
+    });
+    const { records } = await connector.pullProducts({
+      searchTerm: "",
+      page: 1,
+      pageSize: 50,
+      maxRecords: 50,
+      catalogCache: { load: async () => [opiListing], save: async () => {} },
+    });
+    assert.equal(records.length, 1);
+    brands = { opi: 1 };
+
+    const metrics = await materialize({ ...records[0], externalId: "r1" }, RETAILER);
+
+    assert.equal(metrics.shadesCreated, 1);
+    const [insert] = shadeInserts();
+    assert.equal(insert.params[1], "No Room for the Blues");
+    assert.equal(insert.params[2], null, "legacy shade.finish identity key");
+    assert.equal(insert.params[3], null, "collection");
+    assert.deepEqual([...insert.params[4]], ["creme"]);
+  });
+});

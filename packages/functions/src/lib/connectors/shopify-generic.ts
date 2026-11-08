@@ -19,7 +19,8 @@ import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.
 import { shopifyProductText } from "../product-text.js";
 import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
 import type { ProductCategory } from "swatchwatch-shared";
-import type { SourceSettings } from "../source-settings.js";
+import type { SourceKind, SourceSettings } from "../source-settings.js";
+import { parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import {
   parseEditionCap,
@@ -510,8 +511,7 @@ export class ShopifyGenericConnector implements ProductConnector {
     this.source = source;
     this.configuredCurrency = options.currency ?? null;
     this.settings = options.settings;
-    // Extract brand name from source (e.g., "MooncatShopify" -> "Mooncat")
-    this.brandName = source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
+    this.brandName = shopifyBrandName(source);
     this.baseUrl = stripTrailingSlashes(baseUrl || this.defaultBaseUrl());
   }
 
@@ -548,11 +548,19 @@ export class ShopifyGenericConnector implements ProductConnector {
     });
     const storeCurrency = await this.resolveStoreCurrency(allProducts);
     // Gate, filter and sort on raw product fields (sync, no AI); only the page window is enriched.
-    const gated: Array<{ product: ShopifyProduct; category: ProductCategory; timestamp: number }> = [];
+    const gated: Array<{
+      product: ShopifyProduct;
+      category: ProductCategory;
+      retailer: RetailerListing | undefined;
+      timestamp: number;
+    }> = [];
+    let vendorlessSkipped = 0;
     for (const product of allProducts) {
       const gate = gateShopifyProduct(product, this.source, this.settings);
       if (gate.accept) {
-        gated.push({ product, category: gate.category, timestamp: productTimestamp(product) });
+        gated.push({ product, category: gate.category, retailer: gate.retailer, timestamp: productTimestamp(product) });
+      } else if (gate.vendorless) {
+        vendorlessSkipped += 1;
       }
     }
 
@@ -566,18 +574,19 @@ export class ShopifyGenericConnector implements ProductConnector {
 
     let filtered = gated;
     if (textFilter) {
-      filtered = filtered.filter(({ product }) => {
-        const tags = normalizeTags(product.tags);
+      filtered = filtered.filter(({ product, retailer }) => {
+        const tags = retailer ? retailer.tags : normalizeTags(product.tags);
         const values = [
           asNonEmptyString(product.title),
           asNonEmptyString(product.vendor),
-          // The brand the record will carry (a placeholder vendor resolves to the store's brand).
-          resolveShopifyVendor(product.vendor, this.brandName),
+          // The brand the record will carry (a placeholder vendor resolves to the store's brand;
+          // a retailer listing's vendor goes through the source's alias map).
+          retailer ? retailer.brand : resolveShopifyVendor(product.vendor, this.brandName),
           asNonEmptyString(product.handle),
           ...tags,
           // The record's derived collections and finishes, as the enriched record carries them.
-          ...extractTaggedValues(tags, "collection:"),
-          ...extractFinishFromTags(tags),
+          ...(retailer ? [] : extractTaggedValues(tags, "collection:")),
+          ...(retailer ? [] : extractFinishFromTags(tags)),
         ].filter((entry): entry is string => Boolean(entry));
         return values.some((entry) => entry.toLowerCase().includes(textFilter));
       });
@@ -593,13 +602,14 @@ export class ShopifyGenericConnector implements ProductConnector {
     const offset = Math.max(0, (options.page - 1) * options.pageSize);
     const windowed = filtered.slice(offset, offset + options.pageSize).slice(0, options.maxRecords);
     const records = await Promise.all(
-      windowed.map(({ product, category }) =>
+      windowed.map(({ product, category, retailer }) =>
         enrichShopifyRecord(product, {
           baseUrl: this.baseUrl,
           brandName: this.brandName,
           source: this.source,
           storeCurrency: storeCurrency.currency,
           category,
+          ...(retailer ? { retailer } : {}),
         })
       )
     );
@@ -630,6 +640,8 @@ export class ShopifyGenericConnector implements ProductConnector {
         connectorType: "generic-shopify",
         storeCurrency: storeCurrency.currency,
         storeCurrencySource: storeCurrency.source,
+        // Retailer listings dropped because no brand could be read from the vendor.
+        ...(usesRetailerListingTitles(this.source, this.settings) ? { vendorlessSkipped } : {}),
       },
     };
   }
@@ -853,6 +865,76 @@ export function resolveShopifyVendor(vendor: unknown, brandName: string): string
   return normalized;
 }
 
+function collapseVendorKey(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * The brand a retailer (or feed) listing belongs to: the source's `vendorAliases` entry for the
+ * vendor (matched lower-cased and whitespace-collapsed), else the vendor as `resolveShopifyVendor`
+ * reads it. A brand source falls back to its own brand for a missing or placeholder vendor; a
+ * retailer or feed gets null, because a multi-brand store's own name is never a polish brand.
+ */
+export function resolveRetailerVendor(
+  vendor: unknown,
+  aliases: Record<string, string>,
+  fallbackBrand: string,
+  kind: SourceKind = "brand"
+): string | null {
+  const normalized = asNonEmptyString(vendor);
+  if (normalized) {
+    const key = collapseVendorKey(normalized);
+    const alias = Object.entries(aliases).find(([aliasKey]) => collapseVendorKey(aliasKey) === key);
+    if (alias) {
+      return alias[1];
+    }
+  }
+  if (kind !== "brand" && (!normalized || PLACEHOLDER_VENDORS.has(normalized.toLowerCase()))) {
+    return null;
+  }
+  return resolveShopifyVendor(vendor, fallbackBrand);
+}
+
+/**
+ * Whether `source` runs in retailer mode: its settings say it is not a brand store, and it has no
+ * store title parser of its own (Polish Pickup's "Vendor | Shade" titles keep that parser).
+ */
+function usesRetailerListingTitles(source: string, settings: SourceSettings | undefined): settings is SourceSettings {
+  return settings !== undefined && settings.kind !== "brand" && !SHOPIFY_TITLE_PARSER_SOURCES.includes(source);
+}
+
+/** Retailer tags without leading pipes and spaces (Hypnotic Polish tags finishes "| Shimmer", "|| Top Coat"). */
+function stripRetailerTagPipes(tags: string[]): string[] {
+  return tags.map((tag) => tag.replace(/^[|\s]+/, "")).filter(Boolean);
+}
+
+const RETAILER_DISCONTINUED_TAGS: ReadonlySet<string> = new Set(["discontinued", "bp-discontinued"]);
+
+/** A retailer listing as `gateShopifyProduct` read it, handed to `enrichShopifyRecord` unchanged. */
+export interface RetailerListing {
+  kind: SourceKind;
+  /** The listing's brand (`resolveRetailerVendor`). */
+  brand: string;
+  /** `parseRetailerTitle` of the listing title (never a set). */
+  title: RetailerTitle;
+  /** The product's tags with leading pipes stripped. */
+  tags: string[];
+}
+
+export interface ShopifyGateResult {
+  accept: boolean;
+  category: ProductCategory;
+  /** Set on an accepted product of a retailer-mode source. */
+  retailer?: RetailerListing;
+  /** A retailer-mode product dropped because its vendor names no brand. */
+  vendorless?: true;
+}
+
+/** The brand name a source's name spells ("MooncatShopify" -> "Mooncat"). */
+function shopifyBrandName(source: string): string {
+  return source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
+}
+
 export function defaultShopifyBaseUrl(source: string): string {
   return (
     SHOPIFY_SOURCE_BASE_URLS[source] ||
@@ -864,20 +946,23 @@ const MONTH_ABBREVIATION_REGEX = /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|No
 
 /**
  * The sync ingest decision for one Shopify product: the store filter (store-filters/, #328), the
- * shared connector gate and the bundle/set checks. `settings` is reserved for settings-aware
- * store filters and is not read yet.
+ * shared connector gate and the bundle/set checks. In retailer mode (`settings.kind` is not
+ * `brand`, and the source has no store title parser) the product also needs a brand from its
+ * vendor (`resolveRetailerVendor`) and a single-shade listing title (`parseRetailerTitle`); the
+ * accepted result carries that parse as `retailer`.
  */
 export function gateShopifyProduct(
   product: ShopifyProduct,
   source: string,
-  _settings?: SourceSettings
-): { accept: boolean; category: ProductCategory } {
+  settings?: SourceSettings
+): ShopifyGateResult {
   const reject = { accept: false, category: "accessory" as ProductCategory };
   if (!asNonEmptyString(product.id) || !asNonEmptyString(product.title)) {
     return reject;
   }
 
-  const tags = normalizeTags(product.tags);
+  const retailerMode = usesRetailerListingTitles(source, settings);
+  const tags = retailerMode ? stripRetailerTagPipes(normalizeTags(product.tags)) : normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
   // Skip accessories, non-nail products and bundles; keep coats/toppers with their category (#347).
@@ -899,7 +984,29 @@ export function gateShopifyProduct(
           products: [{ productType, tags }],
         }).category
       : gate.category;
-  return { accept: true, category };
+  if (!retailerMode) {
+    return { accept: true, category };
+  }
+  return gateRetailerListing(product, settings, source, tags, category);
+}
+
+/** The retailer-mode step of `gateShopifyProduct` for a product the shared gate accepted. */
+function gateRetailerListing(
+  product: ShopifyProduct,
+  settings: SourceSettings,
+  source: string,
+  tags: string[],
+  category: ProductCategory
+): ShopifyGateResult {
+  const brand = resolveRetailerVendor(product.vendor, settings.vendorAliases, shopifyBrandName(source), settings.kind);
+  if (!brand) {
+    return { accept: false, category: "accessory", vendorless: true };
+  }
+  const title = parseRetailerTitle(asNonEmptyString(product.title) as string, brand);
+  if (!title || title.isSet) {
+    return { accept: false, category: "accessory" };
+  }
+  return { accept: true, category, retailer: { kind: settings.kind, brand, title, tags } };
 }
 
 export interface ShopifyEnrichContext {
@@ -910,6 +1017,8 @@ export interface ShopifyEnrichContext {
   storeCurrency: string | null;
   /** The category `gateShopifyProduct` returned for this product. */
   category: ProductCategory;
+  /** The retailer listing `gateShopifyProduct` returned (retailer mode only). */
+  retailer?: RetailerListing;
 }
 
 /** Builds the record for a product `gateShopifyProduct` accepted, including the AI color-name lookup. */
@@ -917,19 +1026,25 @@ export async function enrichShopifyRecord(
   product: ShopifyProduct,
   context: ShopifyEnrichContext
 ): Promise<ConnectorProductRecord> {
-  const { baseUrl, brandName, source, storeCurrency, category: productCategory } = context;
+  const { baseUrl, brandName, source, storeCurrency, category: productCategory, retailer } = context;
   const externalId = asNonEmptyString(product.id) as string;
   const rawTitle = asNonEmptyString(product.title) as string;
-  // Retailer titles ("Vendor | Shade") are parsed per store, then any " PPU" exclusive suffix is
-  // dropped for every source. The raw title stays in normalized.rawTitle.
-  const name = stripRetailerExclusiveSuffix(shopifyStoreShadeName(source, product) ?? rawTitle);
-  const tags = normalizeTags(product.tags);
+  // Retailer titles ("Vendor | Shade", or a retailer-mode "Brand Line - Shade - #CODE") are parsed
+  // per store, then any " PPU" exclusive suffix is dropped for every source. The raw title stays in
+  // normalized.rawTitle.
+  const name = stripRetailerExclusiveSuffix(
+    retailer ? retailer.title.shadeName : shopifyStoreShadeName(source, product) ?? rawTitle
+  );
+  const tags = retailer ? retailer.tags : normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
   const handle = asNonEmptyString(product.handle);
-  const vendor = resolveShopifyVendor(product.vendor, brandName);
-  const collections = extractTaggedValues(tags, "collection:");
-  const finishes = extractFinishFromTags(tags);
+  const vendor = retailer ? retailer.brand : resolveShopifyVendor(product.vendor, brandName);
+  // A retailer's tags are its own merchandising, not the brand's collections, and its listing
+  // never sets the legacy finish identity key: canonical finishes come from the tags at
+  // materialization (tags, then descriptors, then description text).
+  const collections = retailer ? [] : extractTaggedValues(tags, "collection:");
+  const finishes = retailer ? [] : extractFinishFromTags(tags);
   const tagColors = extractColorFromTags(tags);
   const images = normalizeShopifyImages(product.images);
   const imageUrls = images.map((image) => image.url);
@@ -1020,6 +1135,15 @@ export async function enrichShopifyRecord(
       createdAt: asNonEmptyString(product.created_at),
       updatedAt: asNonEmptyString(product.updated_at),
       publishedAt: asNonEmptyString(product.published_at),
+      ...(retailer
+        ? {
+            productLine: retailer.title.productLine,
+            vendorCode: retailer.title.vendorCode,
+            listingTitle: rawTitle,
+            discontinued: tags.some((tag) => RETAILER_DISCONTINUED_TAGS.has(tag.trim().toLowerCase())),
+            kind: retailer.kind,
+          }
+        : {}),
     },
   };
 }
