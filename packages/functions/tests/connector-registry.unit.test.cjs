@@ -30,6 +30,19 @@ describe("connector registry", () => {
     }
   });
 
+  it("resolves the pending clause stores (Task 12) to the Shopify protocol", () => {
+    for (const name of [
+      "DazzleDryShopify", "SundaysShopify", "JinsoonShopify", "TenovertenShopify", "NailberryShopify",
+      "DndShopify", "GlamPolishShopify", "NailHootShopify", "MoonShineManiShopify", "FunLacquerShopify",
+      "AnchorAndHeartShopify", "ButterLondonShopify", "EllaMilaShopify", "KiaraSkyShopify",
+      "StaticNailsShopify", "PacificaShopify", "RevlonShopify", "ModelonesShopify",
+      "DreamlandLacquerShopify", "EtherealLacquerShopify",
+    ]) {
+      assert.equal(protocolOf(name), "Shopify", name);
+      assert.equal(materializesShadeProducts(name), true, name);
+    }
+  });
+
   it("lists the runnable protocols", () => {
     for (const protocol of [
       "HoloTaco",

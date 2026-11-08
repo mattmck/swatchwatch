@@ -7,9 +7,11 @@ import type { ConnectorProtocol } from "swatchwatch-shared";
 
 export type SupportedConnectorSource =
   | "AlchemyLacquersShopify"
+  | "AnchorAndHeartShopify"
   | "BarryMShopify"
   | "BeesKneesLacquerShopify"
   | "BeyondPolishShopify"
+  | "ButterLondonShopify"
   | "ChinaGlazeShopify"
   | "CirqueColorsShopify"
   | "ClionadhShopify"
@@ -20,17 +22,26 @@ export type SupportedConnectorSource =
   | "CrackedPolishShopify"
   | "CupcakePolishShopify"
   | "DamNailPolishShopify"
+  | "DazzleDryShopify"
   | "DeborahLippmannShopify"
+  | "DndShopify"
+  | "DreamlandLacquerShopify"
   | "DrunkFairyPolishShopify"
+  | "EllaMilaShopify"
   | "EmilyDeMollyShopify"
+  | "EtherealLacquerShopify"
+  | "FunLacquerShopify"
   | "GS1Lookup"
   | "GardenPathLacquersShopify"
+  | "GlamPolishShopify"
   | "GreatLakesLacquerShopify"
   | "HarlowAndCoShopify"
   | "HoloTacoShopify"
   | "HypnoticPolishShopify"
   | "ImpactAffiliateNetwork"
+  | "JinsoonShopify"
   | "KathleenAndCoShopify"
+  | "KiaraSkyShopify"
   | "LeMiniMacaronShopify"
   | "LemmingLacquerShopify"
   | "LightsLacquerShopify"
@@ -39,13 +50,18 @@ export type SupportedConnectorSource =
   | "MakeupAPI"
   | "ManucuristShopify"
   | "MavalaShopify"
+  | "ModelonesShopify"
+  | "MoonShineManiShopify"
   | "MooncatShopify"
+  | "NailHootShopify"
+  | "NailberryShopify"
   | "NightOwlLacquerShopify"
   | "NoodlesNailPolishShopify"
   | "OliveAndJuneShopify"
   | "OliveAvePolishShopify"
   | "OpenBeautyFacts"
   | "OrlyShopify"
+  | "PacificaShopify"
   | "PahlishShopify"
   | "PaintItPrettyPolishShopify"
   | "PenelopeLuzShopify"
@@ -55,12 +71,16 @@ export type SupportedConnectorSource =
   | "PrismParadeShopify"
   | "RakutenAdvertising"
   | "RedEyedLacquerShopify"
+  | "RevlonShopify"
   | "RogueLacquerShopify"
   | "RoylaleeShopify"
   | "SassysaucePolishShopify"
   | "StarrilyShopify"
+  | "StaticNailsShopify"
   | "StellaChromaShopify"
+  | "SundaysShopify"
   | "SweetAndSourLacquerShopify"
+  | "TenovertenShopify"
   | "TylerStrinketsShopify"
   | "UserCapture"
   | "WetNWildShopify"
@@ -70,9 +90,11 @@ export type SupportedConnectorSource =
 /** Maps each connector source to its protocol group for UI grouping and bulk selection. */
 export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProtocol> = {
   AlchemyLacquersShopify: "Shopify",
+  AnchorAndHeartShopify: "Shopify",
   BarryMShopify: "Shopify",
   BeesKneesLacquerShopify: "Shopify",
   BeyondPolishShopify: "Shopify",
+  ButterLondonShopify: "Shopify",
   ChinaGlazeShopify: "Shopify",
   CirqueColorsShopify: "Shopify",
   ClionadhShopify: "Shopify",
@@ -83,17 +105,26 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   CrackedPolishShopify: "Shopify",
   CupcakePolishShopify: "Shopify",
   DamNailPolishShopify: "Shopify",
+  DazzleDryShopify: "Shopify",
   DeborahLippmannShopify: "Shopify",
+  DndShopify: "Shopify",
+  DreamlandLacquerShopify: "Shopify",
   DrunkFairyPolishShopify: "Shopify",
+  EllaMilaShopify: "Shopify",
   EmilyDeMollyShopify: "Shopify",
+  EtherealLacquerShopify: "Shopify",
+  FunLacquerShopify: "Shopify",
   GS1Lookup: "GS1",
   GardenPathLacquersShopify: "Shopify",
+  GlamPolishShopify: "Shopify",
   GreatLakesLacquerShopify: "Shopify",
   HarlowAndCoShopify: "Shopify",
   HoloTacoShopify: "HoloTaco",
   HypnoticPolishShopify: "Shopify",
   ImpactAffiliateNetwork: "Custom",
+  JinsoonShopify: "Shopify",
   KathleenAndCoShopify: "Shopify",
+  KiaraSkyShopify: "Shopify",
   LeMiniMacaronShopify: "Shopify",
   LemmingLacquerShopify: "Shopify",
   LightsLacquerShopify: "Shopify",
@@ -102,13 +133,18 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   MakeupAPI: "MakeupAPI",
   ManucuristShopify: "Shopify",
   MavalaShopify: "Shopify",
+  ModelonesShopify: "Shopify",
+  MoonShineManiShopify: "Shopify",
   MooncatShopify: "Shopify",
+  NailHootShopify: "Shopify",
+  NailberryShopify: "Shopify",
   NightOwlLacquerShopify: "Shopify",
   NoodlesNailPolishShopify: "Shopify",
   OliveAndJuneShopify: "Shopify",
   OliveAvePolishShopify: "Shopify",
   OpenBeautyFacts: "OpenBeautyFacts",
   OrlyShopify: "Shopify",
+  PacificaShopify: "Shopify",
   PahlishShopify: "Shopify",
   PaintItPrettyPolishShopify: "Shopify",
   PenelopeLuzShopify: "Shopify",
@@ -118,12 +154,16 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   PrismParadeShopify: "Shopify",
   RakutenAdvertising: "Custom",
   RedEyedLacquerShopify: "Shopify",
+  RevlonShopify: "Shopify",
   RogueLacquerShopify: "Shopify",
   RoylaleeShopify: "Shopify",
   SassysaucePolishShopify: "Shopify",
   StarrilyShopify: "Shopify",
+  StaticNailsShopify: "Shopify",
   StellaChromaShopify: "Shopify",
+  SundaysShopify: "Shopify",
   SweetAndSourLacquerShopify: "Shopify",
+  TenovertenShopify: "Shopify",
   TylerStrinketsShopify: "Shopify",
   UserCapture: "Custom",
   WetNWildShopify: "Shopify",
@@ -134,9 +174,11 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
 // Runtime array for validation - same values as the type above
 export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "AlchemyLacquersShopify",
+  "AnchorAndHeartShopify",
   "BarryMShopify",
   "BeesKneesLacquerShopify",
   "BeyondPolishShopify",
+  "ButterLondonShopify",
   "ChinaGlazeShopify",
   "CirqueColorsShopify",
   "ClionadhShopify",
@@ -147,17 +189,26 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "CrackedPolishShopify",
   "CupcakePolishShopify",
   "DamNailPolishShopify",
+  "DazzleDryShopify",
   "DeborahLippmannShopify",
+  "DndShopify",
+  "DreamlandLacquerShopify",
   "DrunkFairyPolishShopify",
+  "EllaMilaShopify",
   "EmilyDeMollyShopify",
+  "EtherealLacquerShopify",
+  "FunLacquerShopify",
   "GS1Lookup",
   "GardenPathLacquersShopify",
+  "GlamPolishShopify",
   "GreatLakesLacquerShopify",
   "HarlowAndCoShopify",
   "HoloTacoShopify",
   "HypnoticPolishShopify",
   "ImpactAffiliateNetwork",
+  "JinsoonShopify",
   "KathleenAndCoShopify",
+  "KiaraSkyShopify",
   "LeMiniMacaronShopify",
   "LemmingLacquerShopify",
   "LightsLacquerShopify",
@@ -166,13 +217,18 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "MakeupAPI",
   "ManucuristShopify",
   "MavalaShopify",
+  "ModelonesShopify",
+  "MoonShineManiShopify",
   "MooncatShopify",
+  "NailHootShopify",
+  "NailberryShopify",
   "NightOwlLacquerShopify",
   "NoodlesNailPolishShopify",
   "OliveAndJuneShopify",
   "OliveAvePolishShopify",
   "OpenBeautyFacts",
   "OrlyShopify",
+  "PacificaShopify",
   "PahlishShopify",
   "PaintItPrettyPolishShopify",
   "PenelopeLuzShopify",
@@ -182,12 +238,16 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "PrismParadeShopify",
   "RakutenAdvertising",
   "RedEyedLacquerShopify",
+  "RevlonShopify",
   "RogueLacquerShopify",
   "RoylaleeShopify",
   "SassysaucePolishShopify",
   "StarrilyShopify",
+  "StaticNailsShopify",
   "StellaChromaShopify",
+  "SundaysShopify",
   "SweetAndSourLacquerShopify",
+  "TenovertenShopify",
   "TylerStrinketsShopify",
   "UserCapture",
   "WetNWildShopify",

@@ -1,5 +1,7 @@
 # Indie Shopify sources — survey, October 2026 (#273, #328)
 
+> **Later work (November 2026):** the brand-sources plan (`docs/brand-sources-evaluation-2026-11.md`, Phase C) registers further stores, including the twenty whose terms carry an automated-access clause, disabled and pending the owner's email.
+
 Survey of the next indie stores for the generic Shopify connector
 (`packages/functions/src/lib/connectors/shopify-generic.ts`), run on **2026-10-18**. It re-checks the
 2026-10-17 pass recorded in the comment above the indie rows in `docs/seed_data_sources.sql` and adds

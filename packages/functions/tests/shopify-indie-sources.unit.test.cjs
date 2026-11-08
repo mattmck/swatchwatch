@@ -418,6 +418,81 @@ describe("clause-free brand stores (brand sources plan, Task 10)", () => {
   });
 });
 
+describe("clause-bound brand stores pending approval (brand sources plan, Task 12)", () => {
+  const PENDING = {
+    DazzleDryShopify: ["https://dazzledry.com", "USD", "Shopify"],
+    SundaysShopify: ["https://dearsundays.com", "USD", "Shopify"],
+    JinsoonShopify: ["https://jinsoon.com", "USD", "Shopify"],
+    TenovertenShopify: ["https://tenoverten.com", "USD", "Shopify"],
+    NailberryShopify: ["https://nailberry.co.uk", "GBP", "Shopify"],
+    DndShopify: ["https://dndgel.com", "USD", "Shopify"],
+    GlamPolishShopify: ["https://glampolish.com.au", "AUD", "Shopify"],
+    NailHootShopify: ["https://nailhoot.com", "USD", "Shopify"],
+    MoonShineManiShopify: ["https://moonshinemani.com", "USD", "Shopify"],
+    FunLacquerShopify: ["https://funlacquer.com", "USD", "Shopify"],
+    AnchorAndHeartShopify: ["https://anchorandheartlacquer.com", "USD", "Shopify"],
+    ButterLondonShopify: ["https://butterlondon.com", "USD", "own"],
+    EllaMilaShopify: ["https://ellamila.com", "USD", "own"],
+    KiaraSkyShopify: ["https://kiarasky.com", "USD", "own"],
+    StaticNailsShopify: ["https://staticnails.com", "USD", "own"],
+    PacificaShopify: ["https://pacificabeauty.com", "USD", "own"],
+    RevlonShopify: ["https://revlon.com", "USD", "own"],
+    ModelonesShopify: ["https://modelones.com", "USD", "own"],
+    DreamlandLacquerShopify: ["https://dreamlandlacquer.com", "USD", "own"],
+    EtherealLacquerShopify: ["https://ethereallacquer.com", "USD", "own"],
+  };
+  const FILE = "20261108160000000_add-pending-clause-shopify-sources.sql";
+  const metadataOf = (sql, name) => {
+    const tuple = seedTuple(sql, name);
+    const literal = tuple.slice(tuple.indexOf("'{"), tuple.lastIndexOf("}'") + 1);
+    return JSON.parse(literal.slice(1).replace(/''/g, "'"));
+  };
+
+  it("registers all twenty stores disabled, pending and clause-flagged", () => {
+    assert.equal(Object.keys(PENDING).length, 20);
+    for (const [source, [baseUrl, currency, clause]] of Object.entries(PENDING)) {
+      assert.ok(SUPPORTED_SOURCES.includes(source), source);
+      assert.equal(SHOPIFY_SOURCE_BASE_URLS[source], baseUrl, source);
+      assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has(source), true, source);
+      assert.equal(SHOPIFY_RETAILER_SOURCES.has(source), false, source);
+      assert.equal(isShopifySourceEnabledByDefault(source), false, source);
+      const tuple = seedTuple(SEED_SQL, source);
+      assert.match(tuple, /,\s*false,\s*'\{/, `${source} must be seeded disabled`);
+      assert.doesNotMatch(tuple, /"kind"/, source);
+      assert.doesNotMatch(tuple, /"imagesPermitted"/, source);
+      const meta = metadataOf(SEED_SQL, source);
+      assert.equal(meta.pendingApproval, true, source);
+      assert.equal(meta.verification.termsScrapingClause, true, source);
+      assert.equal(meta.verification.robotsTxt, "products-json-not-disallowed", source);
+      assert.equal(meta.currency, currency, source);
+      assert.match(meta.notes, clause === "own" ? /Terms: own clause/ : /Terms: Shopify clause/, source);
+      assert.match(meta.notes, /pending the owner's email/, source);
+    }
+  });
+
+  it("DND's notes say includeGel must be true", () => {
+    assert.match(metadataOf(SEED_SQL, "DndShopify").notes, /includeGel/);
+  });
+
+  it("the migration inserts the seed's metadata plus its stamp, insert-only, and its Down reverts only stamped rows", () => {
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, FILE), "utf8");
+    const at = sql.search(/^\s*--[\s-]*down\s+migration/im);
+    const up = sql.slice(0, at);
+    const down = sql.slice(at);
+    const id = FILE.split("_")[0];
+    for (const name of Object.keys(PENDING)) {
+      const fromMigration = metadataOf(sql, name);
+      assert.equal(fromMigration.insertedByMigration, id, name);
+      delete fromMigration.insertedByMigration;
+      assert.deepEqual(fromMigration, metadataOf(SEED_SQL, name), name);
+      assert.ok(down.includes(`'${name}'`), `${name} not reverted`);
+    }
+    assert.match(up, /ON CONFLICT \(name\) DO NOTHING/, "the pending rows are insert-only");
+    assert.doesNotMatch(up, /DO UPDATE/);
+    assert.match(down, new RegExp(`metadata->>'insertedByMigration' = '${id}'\\s+AND NOT EXISTS`));
+  });
+});
+
 describe("retailer source kind", () => {
   it("lists the four retailer sources", () => {
     assert.deepEqual(
