@@ -254,6 +254,7 @@ function materialize(rec, options) {
 const shadeInserts = () => calls.filter((c) => c.sql.startsWith("INSERT INTO shade "));
 const brandInserts = () => calls.filter((c) => c.sql.startsWith("INSERT INTO brand"));
 const sourceProductInserts = () => calls.filter((c) => c.sql.startsWith("INSERT INTO shade_source_product"));
+const aliasInserts = () => calls.filter((c) => c.sql.startsWith("INSERT INTO shade_alias"));
 const catalogUpdates = () => calls.filter((c) => c.sql.startsWith("UPDATE shade SET color_name"));
 
 beforeEach(() => {
@@ -276,6 +277,34 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("materializeHoloTacoRecords — retailer source adopts the brand's shade", () => {
+  it("adds the vendor code and the raw listing title as aliases of the shade", async () => {
+    shades = [{ shadeId: 11, name: "Big Apple Red", finish: "creme", collection: null, finishes: ["creme"] }];
+    const rec = record({ name: "Big Apple Red", finishes: ["creme"] });
+    rec.normalized.vendorCode = "NLB83";
+    rec.normalized.listingTitle = "OPI - Big Apple Red #NLB83";
+
+    await materialize(rec, RETAILER);
+
+    const aliases = aliasInserts();
+    assert.deepEqual(aliases.map((c) => [c.params[0], c.params[1]]), [
+      [11, "NLB83"],
+      [11, "OPI - Big Apple Red #NLB83"],
+    ]);
+    assert.ok(aliases.every((c) => c.sql.includes("ON CONFLICT DO NOTHING")));
+  });
+
+  it("adds no alias for a record without a code, and never one equal to the shade name", async () => {
+    shades = [{ shadeId: 11, name: "Big Apple Red", finish: "creme", collection: null, finishes: ["creme"] }];
+    await materialize(record({ name: "Big Apple Red", finishes: ["creme"] }), RETAILER);
+    assert.equal(aliasInserts().length, 0);
+
+    const rec = record({ name: "Big Apple Red", finishes: ["creme"] });
+    rec.normalized.vendorCode = "  ";
+    rec.normalized.listingTitle = " big apple red ";
+    await materialize(rec, RETAILER);
+    assert.equal(aliasInserts().length, 0);
+  });
+
   it("adopts the one same-name shade and writes fill-only", async () => {
     shades = [{ shadeId: 11, name: "Velvet Dreams", finish: "creme", collection: "Fall 2025", finishes: ["creme"] }];
 
