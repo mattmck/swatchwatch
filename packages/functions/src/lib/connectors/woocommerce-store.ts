@@ -67,7 +67,13 @@ function defaultPageDelayMs(): number {
 type FetchLike = (
   url: string,
   init: { method: string; headers: Record<string, string>; signal: AbortSignal }
-) => Promise<{ ok: boolean; status: number; statusText?: string; text(): Promise<string> }>;
+) => Promise<{
+  ok: boolean;
+  status: number;
+  statusText?: string;
+  headers?: { get(name: string): string | null };
+  text(): Promise<string>;
+}>;
 
 /** One Store API product as returned (the record's `raw`); only the fields read are typed. */
 export interface WooStoreProduct extends Record<string, unknown> {
@@ -243,7 +249,11 @@ export function buildWooStoreRecord(gated: GatedProduct, settings: SourceSetting
       name: listing?.shadeName ?? title,
       rawTitle: title,
       productLine: listing?.productLine ?? null,
-      vendorCode: plain(product.sku) ?? listing?.vendorCode ?? null,
+      // A retailer's SKU is its own stock code: the maker's "#CODE" in the title comes first.
+      vendorCode:
+        settings.kind === "brand"
+          ? plain(product.sku) ?? listing?.vendorCode ?? null
+          : listing?.vendorCode ?? plain(product.sku) ?? null,
       productType,
       // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
       productCategory: category,
@@ -378,7 +388,11 @@ export class WooCommerceStoreConnector implements ProductConnector {
     };
   }
 
-  /** robots.txt once, then the Store API pages until a short page or the page cap. */
+  /**
+   * robots.txt once, then the Store API pages until a short page, the last page `X-WP-TotalPages`
+   * names, a 400/404 on the page after a full one (WordPress answers an out-of-range page with
+   * `rest_post_invalid_page_number`), or the page cap.
+   */
   private async fetchCatalog(): Promise<FetchedCatalog> {
     await this.assertRobotsAllow();
     const maxPages = this.settings.maxPages ?? defaultMaxPages();
@@ -386,6 +400,10 @@ export class WooCommerceStoreConnector implements ProductConnector {
     for (let page = 1; page <= maxPages; page += 1) {
       const url = `${this.baseUrl}${WOOCOMMERCE_STORE_API_PATH}?per_page=${WOOCOMMERCE_PAGE_SIZE}&page=${page}`;
       const response = await this.request(url, "application/json");
+      if (!response.ok && page > 1 && (response.status === 400 || response.status === 404)) {
+        // The previous page was full and this one is out of range: the catalog ended there.
+        return { products, complete: true, pagesFetched: page - 1 };
+      }
       if (!response.ok) {
         throw new Error(`${this.source} Store API request failed: HTTP ${response.status} (page ${page})`);
       }
@@ -397,7 +415,7 @@ export class WooCommerceStoreConnector implements ProductConnector {
       }
       if (!Array.isArray(parsed)) throw new Error(`${this.source} Store API page ${page} is not a product array`);
       products.push(...parsed.filter(isRecord));
-      if (parsed.length < WOOCOMMERCE_PAGE_SIZE) {
+      if (parsed.length < WOOCOMMERCE_PAGE_SIZE || (response.totalPages !== null && page >= response.totalPages)) {
         if (products.length === 0) throw new Error(`${this.source} Store API returned no products`);
         return { products, complete: true, pagesFetched: page };
       }
@@ -420,7 +438,10 @@ export class WooCommerceStoreConnector implements ProductConnector {
    * and network errors with linear backoff. Returns the final response (ok or a non-retryable
    * status); throws when a retryable failure persists or on any other thrown error.
    */
-  private async request(url: string, accept: string): Promise<{ ok: boolean; status: number; body: string }> {
+  private async request(
+    url: string,
+    accept: string
+  ): Promise<{ ok: boolean; status: number; body: string; totalPages: number | null }> {
     const attemptCount = MAX_REQUEST_RETRIES + 1;
     let backoffMs = 0;
     let lastError: Error | null = null;
@@ -439,7 +460,14 @@ export class WooCommerceStoreConnector implements ProductConnector {
           signal: controller.signal,
         });
         if (response.ok || !isRetryableStatus(response.status)) {
-          return { ok: response.ok, status: response.status, body: response.ok ? await response.text() : "" };
+          const totalPagesHeader = response.headers?.get("x-wp-totalpages") ?? null;
+          const totalPages = totalPagesHeader && /^\d+$/.test(totalPagesHeader.trim()) ? Number(totalPagesHeader.trim()) : null;
+          return {
+            ok: response.ok,
+            status: response.status,
+            body: response.ok ? await response.text() : "",
+            totalPages: totalPages && totalPages > 0 ? totalPages : null,
+          };
         }
         retryReason = `HTTP ${response.status}`;
         lastError = new Error(`${this.source} request failed: HTTP ${response.status} ${response.statusText ?? ""}`.trim());

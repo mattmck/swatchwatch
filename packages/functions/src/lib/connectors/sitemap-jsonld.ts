@@ -381,7 +381,11 @@ export function buildCrawledRecord(gated: GatedPage, settings: SourceSettings): 
   const offer = firstOffer(product);
   const price = normalizePriceAmount(offer?.price ?? offer?.lowPrice ?? null);
   const currency = normalizeCurrencyCode(offer?.priceCurrency);
-  const vendorCode = text(product.sku) ?? listing?.vendorCode ?? null;
+  // A retailer's or feed's SKU is its own stock code: the maker's "#CODE" in the title comes first.
+  const vendorCode =
+    settings.kind === "brand"
+      ? text(product.sku) ?? listing?.vendorCode ?? null
+      : listing?.vendorCode ?? text(product.sku) ?? null;
   return {
     invalidCheckDigit: gtin && !gtin.checkDigitValid ? gtin.gtin : null,
     record: {

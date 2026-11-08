@@ -9,7 +9,9 @@ const path = require("node:path");
 
 const {
   SitemapJsonLdConnector,
+  buildCrawledRecord,
   extractJsonLdProduct,
+  gateCrawledPage,
   jsonLdImageUrls,
   parseJsonLdAvailability,
   parseSitemapXml,
@@ -606,6 +608,31 @@ describe("SitemapJsonLdConnector: checkpointed crawl", () => {
     assert.equal(result.records.length, 1);
     assert.equal(result.metadata.pagesWithoutProduct, 1);
     assert.equal(cache.peek().pages[urls[1]], null);
+  });
+});
+
+describe("sitemap + JSON-LD vendor codes", () => {
+  const page = (name) => ({
+    url: "https://shop.example/products/nail-lacquer-big-apple-red",
+    lastmod: null,
+    product: { "@type": "Product", name, brand: { name: "OPI" }, sku: "RET-55501" },
+  });
+  const vendorCode = (name, settings) => {
+    const outcome = gateCrawledPage(page(name), settings, ["https://shop.example/products/nail-lacquer-"]);
+    assert.equal(outcome.accept, true);
+    return buildCrawledRecord(outcome.gated, settings).record.normalized.vendorCode;
+  };
+
+  it("retailer/feed: the #CODE parsed from the title wins over the store SKU, else the SKU", () => {
+    for (const kind of ["retailer", "feed"]) {
+      const settings = readSourceSettings({ kind, sitemapUrl: SITEMAP_URL, productUrlPrefixes: PREFIXES }, "ShopSitemap");
+      assert.equal(vendorCode("OPI - Big Apple Red #NLN25", settings), "NLN25");
+      assert.equal(vendorCode("OPI - Big Apple Red", settings), "RET-55501");
+    }
+  });
+
+  it("brand mode keeps the SKU first", () => {
+    assert.equal(vendorCode("OPI - Big Apple Red #NLN25", SETTINGS), "RET-55501");
   });
 });
 

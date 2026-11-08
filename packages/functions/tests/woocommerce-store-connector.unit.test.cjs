@@ -30,7 +30,14 @@ function stubFetch(routes) {
     log.push({ url, headers: init.headers, at: Date.now() });
     const route = typeof routes === "function" ? routes(url) : routes[url];
     const answer = route === undefined ? { status: 404, body: "" } : typeof route === "string" ? { status: 200, body: route } : route;
-    return { ok: answer.status >= 200 && answer.status < 300, status: answer.status, statusText: "", text: async () => answer.body };
+    const headers = answer.headers ?? {};
+    return {
+      ok: answer.status >= 200 && answer.status < 300,
+      status: answer.status,
+      statusText: "",
+      headers: { get: (name) => headers[name.toLowerCase()] ?? null },
+      text: async () => answer.body,
+    };
   };
   return { fetchImpl, log };
 }
@@ -192,6 +199,53 @@ describe("WooCommerceStoreConnector: fixture", () => {
     assert.equal(result.records[0].normalized.name, "Aurora");
     assert.equal(result.records[0].normalized.listingTitle, "Picture Polish – Aurora");
     assert.equal(result.metadata.vendorlessSkipped, 4);
+  });
+
+  for (const status of [400, 404]) {
+    it(`ends the download as complete when the page after a full page answers ${status}`, async () => {
+      const full = Array.from({ length: 100 }, (_, i) => ({ ...SAMPLE[0], id: 30000 + i, name: `Shade ${i}` }));
+      const { fetchImpl, log } = stubFetch({
+        [pageUrl(1)]: JSON.stringify(full),
+        [pageUrl(2)]: { status, body: '{"code":"rest_invalid_param"}' },
+      });
+      const result = await connector(fetchImpl).instance.pullProducts({ ...PULL, pageSize: 500, maxRecords: 500 });
+      assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1), pageUrl(2)]);
+      assert.equal(result.catalog.complete, true);
+      assert.equal(result.catalog.externalIds.length, 100);
+      assert.equal(result.metadata.storePagesFetched, 1);
+    });
+  }
+
+  it("still fails on a 404 for the first page", async () => {
+    const { fetchImpl } = stubFetch({});
+    await assert.rejects(connector(fetchImpl).instance.pullProducts(PULL), /Store API request failed: HTTP 404 \(page 1\)/);
+  });
+
+  it("stops at X-WP-TotalPages without requesting the page after it", async () => {
+    const full = Array.from({ length: 100 }, (_, i) => ({ ...SAMPLE[0], id: 40000 + i, name: `Shade ${i}` }));
+    const { fetchImpl, log } = stubFetch({
+      [pageUrl(1)]: { status: 200, body: JSON.stringify(full), headers: { "x-wp-totalpages": "1" } },
+      [pageUrl(2)]: JSON.stringify(SAMPLE),
+    });
+    const result = await connector(fetchImpl).instance.pullProducts({ ...PULL, pageSize: 500, maxRecords: 500 });
+    assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1)]);
+    assert.equal(result.catalog.complete, true);
+    assert.equal(result.metadata.storePagesFetched, 1);
+  });
+
+  it("retailer mode: the #CODE parsed from the title wins over the store SKU; brand mode keeps the SKU", async () => {
+    const product = { ...SAMPLE[0], id: 5001, name: "Picture Polish – Atomic #PP12", sku: "RET-998877" };
+    const { fetchImpl } = stubFetch({ [pageUrl(1)]: JSON.stringify([product]) });
+    const retailer = readSourceSettings({ kind: "retailer", brand: "Picture Polish" }, SOURCE);
+    const [listing] = (await connector(fetchImpl, { settings: retailer }).instance.pullProducts(PULL)).records;
+    assert.equal(listing.normalized.vendorCode, "PP12");
+    const noCode = { ...product, name: "Picture Polish – Atomic" };
+    const { fetchImpl: fetchNoCode } = stubFetch({ [pageUrl(1)]: JSON.stringify([noCode]) });
+    const [fallback] = (await connector(fetchNoCode, { settings: retailer }).instance.pullProducts(PULL)).records;
+    assert.equal(fallback.normalized.vendorCode, "RET-998877");
+    const { fetchImpl: fetchBrand } = stubFetch({ [pageUrl(1)]: JSON.stringify([product]) });
+    const [brand] = (await connector(fetchBrand).instance.pullProducts(PULL)).records;
+    assert.equal(brand.normalized.vendorCode, "RET-998877");
   });
 
   it("fails the pull on a Store API error status", async () => {
