@@ -790,7 +790,7 @@ describe("HypnoticPolishShopify — connector over the fixture", () => {
   const SETTINGS_METADATA = {
     kind: "retailer",
     currency: "EUR",
-    vendorAliases: { "Cuticula Nail Lacquer": "Cuticula", "Bee's Knees Lacquer": "Bee's Knees" },
+    vendorAliases: { "Cuticula Nail Lacquer": "Cuticula" },
   };
   const pull = async () => {
     const settings = readSourceSettings(SETTINGS_METADATA, "HypnoticPolishShopify");
@@ -824,7 +824,8 @@ describe("HypnoticPolishShopify — connector over the fixture", () => {
     assert.ok(cosmic, "Cosmic Polish - Star Garnet (Magnetic) -> Star Garnet");
     assert.equal(cosmic.normalized.listingTitle, "Cosmic Polish - Star Garnet (Magnetic)");
     assert.ok(byName("Cuticula", "Flames Of A Phoenix"), "*PRE-ORDER* prefix and vendor alias");
-    assert.ok(byName("Bee's Knees", "The Pond Spirit"));
+    // No alias: the vendor is the catalog brand (Bee's Knees Lacquer), and its full name is stripped.
+    assert.ok(byName("Bee's Knees Lacquer", "The Pond Spirit"));
     const topCoat = byName("Starrily", "Eclipse");
     assert.equal(topCoat.normalized.productCategory, "top_coat");
     // product_type "Nail Polish" with both "|| Top Coat" and "|| Topper" tags: the tags decide,

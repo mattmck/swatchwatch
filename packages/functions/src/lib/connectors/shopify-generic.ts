@@ -838,7 +838,15 @@ export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
 ]);
 
 /** Retailer sources (listings attach to brand shades as extra buy links; never override brand-store data). */
-export const SHOPIFY_RETAILER_SOURCES: ReadonlySet<string> = new Set(["PolishPickupShopify"]);
+// Every data_source seeded with metadata.kind = "retailer" must be listed here, or
+// auto-provisioning (createDataSourceIfMissing) creates it as a brand store on a database
+// that has not run its migration (tests/shopify-indie-sources.unit.test.cjs checks the seed).
+export const SHOPIFY_RETAILER_SOURCES: ReadonlySet<string> = new Set([
+  "PolishPickupShopify",
+  "HarlowAndCoShopify",
+  "BeyondPolishShopify",
+  "HypnoticPolishShopify",
+]);
 
 export function isShopifyRetailerSource(source: string): boolean {
   return SHOPIFY_RETAILER_SOURCES.has(source);
