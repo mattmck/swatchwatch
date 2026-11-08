@@ -1470,6 +1470,8 @@ const {
   parseBarryMTitle,
   parsePiggyPaintTitle,
   parseLineAndShadeTitle,
+  parseCoteTitle,
+  parseAlchemyLacquersTitle,
 } = require("../dist/lib/connectors/store-filters/brand-store-titles");
 
 const SEED_SQL = readSeedFile(resolveSeedPath(__dirname, "../../../docs/seed_data_sources.sql"), "utf8");
@@ -1521,6 +1523,12 @@ describe("resolveBrandStoreVendor — brand stores consult vendorAliases first (
     assert.equal(resolveBrandStoreVendor("  WET N WILD   beauty ", aliases, "Wet N Wild"), "Wet n Wild");
   });
 
+  it("Barry M's seeded aliases fold its other vendor spellings into Barry M", () => {
+    const barryM = readSourceSettings(seedMetadata("BarryMShopify")).vendorAliases;
+    assert.equal(resolveBrandStoreVendor("barry m store", barryM, "Barry M"), "Barry M");
+    assert.equal(resolveBrandStoreVendor("barrym-cosmetics", barryM, "Barry M"), "Barry M");
+  });
+
   it("falls back to resolveShopifyVendor exactly without an alias match or without aliases", () => {
     for (const vendor of ["Other Brand", "vendor-unknown", "", null, "STELLA CHROMA", "LONDONTOWN"]) {
       for (const brand of ["Stella Chroma", "Londontown"]) {
@@ -1547,6 +1555,39 @@ describe("brand-store title parsers (I1)", () => {
     assert.equal(SHOPIFY_STORE_TITLE_PARSERS.WetNWildShopify, parseWetNWildTitle);
     assert.equal(SHOPIFY_STORE_TITLE_PARSERS.BarryMShopify, parseBarryMTitle);
     assert.equal(SHOPIFY_STORE_TITLE_PARSERS.PiggyPaintShopify, parsePiggyPaintTitle);
+    assert.equal(SHOPIFY_STORE_TITLE_PARSERS.CoteShopify, parseCoteTitle);
+    assert.equal(SHOPIFY_STORE_TITLE_PARSERS.AlchemyLacquersShopify, parseAlchemyLacquersTitle);
+  });
+
+  it("Côte: strips a trailing Nail Polish / Nail Lacquer; keeps the phrase alone or a title without it", () => {
+    const parse = (title) => parseCoteTitle({ title });
+    assert.equal(parse("Pink Clouds Nail Polish"), "Pink Clouds");
+    assert.equal(parse("Blush & Bashful nail polish"), "Blush & Bashful");
+    assert.equal(parse("Sea Glass Nail Lacquer"), "Sea Glass");
+    assert.equal(parse("Nail Polish"), null);
+    assert.equal(parse("Quick Dry Top Coat"), null);
+    assert.equal(parse("Growth with Garlic Nail Treatment"), null);
+  });
+
+  it("Alchemy Lacquers: strips one finish/topper/edition note, keeps any other parenthetical", () => {
+    const parse = (title) => parseAlchemyLacquersTitle({ title });
+    assert.equal(parse("Cauldron of Chaos (Magnetic)"), "Cauldron of Chaos");
+    assert.equal(parse("Obsidian Kaleidoscope (Glitter Topper)"), "Obsidian Kaleidoscope");
+    assert.equal(parse("Vanishing Act (Thermal)"), "Vanishing Act");
+    assert.equal(parse("Pink Static (Limited Edition)"), "Pink Static");
+    assert.equal(parse("Ultimate Question (Topper)"), "Ultimate Question");
+    // Full 2026-11-08 page spellings: Solar, Solar & Thermal, Reflective.
+    assert.equal(parse("Sunbeam (Solar & Thermal)"), "Sunbeam");
+    assert.equal(parse("Sunbeam (Solar)"), "Sunbeam");
+    assert.equal(parse("Mirrorball (Reflective)"), "Mirrorball");
+    // Only one note is stripped.
+    assert.equal(parse("Ghost (LE) (Magnetic)"), "Ghost (LE)");
+    // Coat descriptions and anything else stay.
+    assert.equal(parse("Quicksilver Top Coat (Quick Dry, Glossy, 5 Free)"), null);
+    assert.equal(parse("Glitter Elixir (Smoothing Top Coat)"), null);
+    assert.equal(parse("House Red (Lady is a Tramp)"), null);
+    assert.equal(parse("Hammy"), null);
+    assert.equal(parse("(Magnetic)"), null);
   });
 
   it("parseLineAndShadeTitle splits line and shade on the first pipe", () => {
@@ -1572,9 +1613,29 @@ describe("brand-store title parsers (I1)", () => {
     assert.equal(parse("Gelly Hi Shine Nail Paint | Black Cherry"), "Black Cherry");
     assert.equal(parse("Holochrome Holographic Effect Nail Paint  | Pistachio Prism"), "Pistachio Prism");
     assert.equal(parse("Barry M Colour Changing Sunlight Reactive Nail Paint | White to Pink C"), "White to Pink C");
-    assert.equal(parse("Gelly Hi Shine Nail Paint | Black Cherry - 10ml"), "Black Cherry");
     assert.equal(parse("Gelly Hi Shine Nail Paint | Black Cherry | Colour Change"), "Black Cherry");
     assert.equal(parse("Matte Topcoat"), null);
+  });
+
+  it("Barry M: never cuts a shade at ' - '", () => {
+    const parse = (title) => parseBarryMTitle({ title });
+    assert.equal(parse("Gelly Hi Shine Nail Paint | Black Cherry - 10ml"), "Black Cherry - 10ml");
+    assert.equal(parse("Nail Paint | Rock - n - Roll"), "Rock - n - Roll");
+  });
+
+  it("Barry M: keeps the whole title when the line names a treatment or coat", () => {
+    const parse = (title) => parseBarryMTitle({ title });
+    for (const title of [
+      "Mani Hero Nail Treatment | Strengthen",
+      "Mani Hero Nail Treatment | Hydrate",
+      "Super Size Base Coat | Clear",
+      "Gelly Topcoat | Glossy",
+      "Nail Care | Repair",
+    ]) {
+      assert.equal(parse(title), null, title);
+    }
+    // "Strength" is not "strengthen": the hardening nail paints are shades.
+    assert.equal(parse("Sheer Strength Hardening Nail Paint | Sheer Luck"), "Sheer Luck");
   });
 
   it("Piggy Paint: strips a ' - <descriptor>' suffix after a plausible shade name, never without ' - '", () => {
@@ -1614,6 +1675,12 @@ describe("wet n wild and Olive & June through the connector (C1, I1)", () => {
     assert.equal(recordFor(records, "Gelly Hi Shine Nail Paint | Black Cherry").normalized.name, "Black Cherry");
     assert.equal(recordFor(records, "Rose Tinted Nail Paint | Eden Rose").normalized.name, "Eden Rose");
     assert.equal(recordFor(records, "Matte Topcoat").normalized.name, "Matte Topcoat");
+    assert.equal(
+      recordFor(records, "Mani Hero Nail Treatment | Strengthen").normalized.name,
+      "Mani Hero Nail Treatment | Strengthen"
+    );
+    // The seeded vendorAliases fold Barry M's other vendor spellings into the brand.
+    assert.ok(records.every((record) => record.normalized.brand === "Barry M"), records.map((r) => r.normalized.brand).join());
   });
 
   it("Piggy Paint records drop the descriptor suffix; SOPHi stays its own brand", async () => {
@@ -1692,6 +1759,9 @@ describe("store-filters/cote — isCotePolish (I2)", () => {
     assert.equal(records.length, 22);
     // Vendor "Côte Beauty" would otherwise create a second brand next to the seeded "Côte".
     assert.ok(records.every((record) => record.normalized.brand === "Côte"));
+    assert.equal(recordFor(records, "Pink Clouds Nail Polish").normalized.name, "Pink Clouds");
+    assert.equal(recordFor(records, "Sugar Côte Nail Polish").normalized.name, "Sugar Côte");
+    assert.equal(recordFor(records, "Quick Dry Top Coat").normalized.name, "Quick Dry Top Coat");
   });
 });
 
@@ -1728,5 +1798,11 @@ describe("store-filters/alchemy-lacquers — isAlchemyLacquersPolish (I2)", () =
     assert.equal(records.length, 61);
     assert.equal(recordFor(records, "Hammy").raw.vendor, "My Store");
     assert.ok(records.every((record) => record.normalized.brand === "Alchemy Lacquers"));
+    assert.equal(recordFor(records, "Cauldron of Chaos (Magnetic)").normalized.name, "Cauldron of Chaos");
+    assert.equal(recordFor(records, "Hologram (Glitter Topper)").normalized.name, "Hologram");
+    assert.equal(
+      recordFor(records, "Quicksilver Top Coat (Quick Dry, Glossy, 5 Free)").normalized.name,
+      "Quicksilver Top Coat (Quick Dry, Glossy, 5 Free)"
+    );
   });
 });

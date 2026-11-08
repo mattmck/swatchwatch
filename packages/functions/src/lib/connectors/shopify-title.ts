@@ -1,24 +1,35 @@
 import {
+  parseAlchemyLacquersTitle,
   parseBarryMTitle,
+  parseCoteTitle,
   parsePiggyPaintTitle,
   parseWetNWildTitle,
 } from "./store-filters/brand-store-titles.js";
 import { parsePolishPickupTitle } from "./store-filters/polish-pickup-title.js";
 import type { StoreFilterProduct, StoreTitleParser } from "./store-filters/types.js";
 
-export { parseBarryMTitle, parsePiggyPaintTitle, parsePolishPickupTitle, parseWetNWildTitle };
+export {
+  parseAlchemyLacquersTitle,
+  parseBarryMTitle,
+  parseCoteTitle,
+  parsePiggyPaintTitle,
+  parsePolishPickupTitle,
+  parseWetNWildTitle,
+};
 export { parseLineAndShadeTitle } from "./store-filters/brand-store-titles.js";
 
 /**
  * Per-source shade-name parsers for stores whose product title is not the shade name: the
  * Polish Pickup retailer, and brand stores whose titles carry a line prefix or a descriptor
- * suffix (wet n wild, Barry M, Piggy Paint).
+ * suffix (wet n wild, Barry M, Piggy Paint, Côte, Alchemy Lacquers).
  */
 export const SHOPIFY_STORE_TITLE_PARSERS: Readonly<Record<string, StoreTitleParser>> = {
   PolishPickupShopify: parsePolishPickupTitle,
   WetNWildShopify: parseWetNWildTitle,
   BarryMShopify: parseBarryMTitle,
   PiggyPaintShopify: parsePiggyPaintTitle,
+  CoteShopify: parseCoteTitle,
+  AlchemyLacquersShopify: parseAlchemyLacquersTitle,
 };
 
 /**
