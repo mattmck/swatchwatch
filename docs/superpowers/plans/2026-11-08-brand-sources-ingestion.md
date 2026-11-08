@@ -470,7 +470,7 @@ assert.deepEqual(parseRetailerTitle("Brand - Nail Polish - Lacquer Up", "Brand")
 
 ## Owner checklist (runs alongside the phases)
 
-0. Before the first retailer job: run `docs/queries/ambiguous-listings.sql` on dev and prod; every pair it lists is a product an older run linked to two shades, to be merged in the review queue first.
+0. Before the first retailer job: run `docs/queries/ambiguous-listings.sql` on dev and prod. Each row is one product linked to two or more shades; look at every pair before acting: when the shades are duplicates of one polish, merge them in the review queue; when they are distinct polishes that one stale listing wrongly ties together (a renamed or re-used external id), delete that stale `shade_source_product` row instead. Never merge on the query's say-so alone.
 1. After Phase A merges: email Beyond Polish and Harlow & Co (spec §7); on "no objection" nothing changes (both are enabled, images off); on an images OK set `metadata.imagesPermitted = true` and re-run the job.
 2. Email Hypnotic Polish; on a yes, enable (README "Enabling a pending store").
 3. Phase C pending group: 20 emails; CND and Barry M after reading their site terms.
