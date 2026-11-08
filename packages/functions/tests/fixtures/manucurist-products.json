@@ -1,5 +1,5 @@
 {
-  "_note": "manucurist.com/products.json fetched 2026-11-08 (250 products on page 1), trimmed to 104: the first products of each product_type in page order (Active 10, Vernis à ongles Green™ 41, Semi-permanent LED Green Flash™ 18, Nail art 4, Accessoires 8, Vernis enfants 4, Vernis à ongles 1, (empty) 4, Soins 14); body_html cut to 300 characters, at most 2 variants and 2 images per product",
+  "_note": "manucurist.com/products.json fetched 2026-11-08 (250 products on page 1), trimmed to 104: the first products of each product_type in page order plus Top Coat Pailleté, Top Coat Gel Xtrem Flash™, Lampe 18W, Base Coat Vitaminée Green Flash™, Gouttes Séchantes (Active 10, Vernis à ongles Green™ 41, Semi-permanent LED Green Flash™ 18, Nail art 4, Accessoires 8, Vernis enfants 4, Vernis à ongles 1, (empty) 4, Soins 14); body_html cut to 300 characters, at most 2 variants and 2 images per product",
   "products": [
     {
       "id": 9697149911382,

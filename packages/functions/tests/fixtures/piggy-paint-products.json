@@ -1,5 +1,5 @@
 {
-  "_note": "piggypaint.com/products.json fetched 2026-11-08 (250 products on page 1), trimmed to 82: the first products of each product_type in page order ((empty) 30, Wholesale 4, Nail Care 4, Nail Art Kits & Accessories 12, Decorative Stickers 1, Gift Sets 7, Nail Polishes 24); body_html cut to 300 characters, at most 2 variants and 2 images per product",
+  "_note": "piggypaint.com/products.json fetched 2026-11-08 (250 products on page 1), trimmed to 82: the first products of each product_type in page order plus Kiss of Color - SOPHi - Non-Toxic Nail Polish, Spring ROME-ance - SOPHi - Non-Toxic Nail Polish, Bare Minimum - SOPHi - Non-toxic Nail Polish, Yippee Yellow Piggy Paint Pen - Kids Non-toxic Nail Polish, Twirly Teal Piggy Paint Pen - Kids Non-toxic Nail Polish, Sweetheart 2-pack Piggy Pen Bundle ((empty) 30, Wholesale 4, Nail Care 4, Nail Art Kits & Accessories 12, Decorative Stickers 1, Gift Sets 7, Nail Polishes 24); body_html cut to 300 characters, at most 2 variants and 2 images per product",
   "products": [
     {
       "id": 8924801728769,
