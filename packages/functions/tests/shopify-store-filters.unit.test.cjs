@@ -10,10 +10,11 @@ const {
   SHOPIFY_STORE_PRODUCT_FILTERS,
   shopifyStoreProductVerdict,
 } = require("../dist/lib/connectors/store-filters");
-const { ShopifyGenericConnector, isBundle } = require("../dist/lib/connectors/shopify-generic");
+const { ShopifyGenericConnector, isBundle, gateShopifyProduct } = require("../dist/lib/connectors/shopify-generic");
 const { isHarlowAndCoPolish } = require("../dist/lib/connectors/store-filters/harlow-and-co");
 const { isBeyondPolishPolish } = require("../dist/lib/connectors/store-filters/beyond-polish");
 const { isHypnoticPolishPolish } = require("../dist/lib/connectors/store-filters/hypnotic-polish");
+const { isLondontownPolish } = require("../dist/lib/connectors/store-filters/londontown");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
@@ -387,13 +388,14 @@ describe("store-filters/sweet-and-sour — isSweetAndSourPolish (#273 batch 3)",
 });
 
 describe("store-filters — shopifyStoreProductVerdict", () => {
-  it("registers filters for Beyond Polish, Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour, Polish Pickup, Harlow & Co and Hypnotic Polish only", () => {
+  it("registers filters for the retailers, the indie stores and the brand stores that need one, and no other source", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
       "BeyondPolishShopify",
       "CirqueColorsShopify",
       "HarlowAndCoShopify",
       "HypnoticPolishShopify",
       "LemmingLacquerShopify",
+      "LondontownShopify",
       "PahlishShopify",
       "PolishPickupShopify",
       "StellaChromaShopify",
@@ -834,5 +836,100 @@ describe("HypnoticPolishShopify — connector over the fixture", () => {
     assert.ok(tagged, "KBShimmer - In A Flurry");
     assert.equal(tagged.normalized.productCategory, "topper");
     assert.ok(records.every((r) => !String(r.normalized.name).includes("PRE-ORDER")));
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Brand stores registered in Task 10 that need a store filter (brand sources plan, Task 11).
+// Each fixture is the store's products.json first page fetched 2026-11-08, trimmed (fixture _note).
+
+/** The fixture product with `title` (and `productType`, for stores that reuse a title across types). */
+function storeProduct(products, title, productType) {
+  const product = products.find(
+    (entry) => entry.title === title && (productType === undefined || (entry.product_type || "").trim() === productType)
+  );
+  assert.ok(product, `fixture has no product titled ${title}${productType ? ` [${productType}]` : ""}`);
+  return product;
+}
+
+/** The connector gate (store filter, then the generic gate and the set rule) over a whole fixture. */
+function gateAccepts(products, source, metadata = {}) {
+  const settings = readSourceSettings(metadata, source);
+  return products.filter((product) => gateShopifyProduct(product, source, settings).accept);
+}
+
+/** Whether the connector gate accepts one product of `source`. */
+function gateKeeps(source, product, metadata = {}) {
+  return gateShopifyProduct(product, source, readSourceSettings(metadata, source)).accept;
+}
+
+// londontownusa.com/products.json, fetched 2026-11-08 (250 products on page 1), trimmed to 106.
+const LONDONTOWN = require("./fixtures/londontown-products.json").products;
+
+describe("store-filters/londontown — isLondontownPolish", () => {
+  it("with the generic gate keeps 44 of the 106 fixture products (57 with includeGel)", () => {
+    assert.equal(LONDONTOWN.length, 106);
+    // Nail Color 25, Nail Veils 5, Concealers 3, and the 11 Nail Care coats and treatments.
+    assert.equal(gateAccepts(LONDONTOWN, "LondontownShopify").length, 44);
+    // + Gels 12 and the GelShift top coat.
+    assert.equal(gateAccepts(LONDONTOWN, "LondontownShopify", { includeGel: true }).length, 57);
+  });
+
+  it("keeps Nail Color lacquers, including ones with no polish word in type or tags", () => {
+    for (const title of ["Double Fudge", "Berry Punch", "Pearl Mini", "Room Service", "Chasing Rainbows", "Milk Bath", "Truly Ruby"]) {
+      const product = storeProduct(LONDONTOWN, title, "Nail Color");
+      assert.equal(isLondontownPolish(product), true, title);
+      assert.equal(gateKeeps("LondontownShopify", product), true, title);
+    }
+    assert.equal(isLondontownPolish(storeProduct(LONDONTOWN, "Perfecting Nail Veil #11")), true);
+    assert.equal(isLondontownPolish(storeProduct(LONDONTOWN, "Bare Illuminating Nail Concealer")), true);
+  });
+
+  it("drops gels, sets, tools, lip and foot care, nail art and bundles", () => {
+    for (const [title, type] of [
+      ["Double Fudge", "Gels"], // gel twin of the Nail Color lacquer
+      ["Cloud Nine", "Gels"], // gel twin
+      ["GelShift Top Coat", "GelShift"], // gel system
+      ["Candy Cane Cuties Holiday Set", "Sets"], // set
+      ["Dream Glow Duo", "Sets"], // duo
+      ["Cuticle Nippers - Pink", "Tools"], // tool
+      ["Plush Shine Lip Gloss - Dainty", "Lip Care"], // cosmetics
+      ["Mini Foot Balm", "Foot Care"], // foot care
+      ["Care Bears Nail Decals", "Nail Art"], // nail art
+      ["Care Bears Bundle", "PR Bundle"], // bundle
+    ]) {
+      const product = storeProduct(LONDONTOWN, title, type);
+      assert.equal(isLondontownPolish(product), false, `${title} [${type}]`);
+      assert.equal(gateKeeps("LondontownShopify", product), false, `${title} [${type}]`);
+    }
+  });
+
+  it("drops a set, duo or kit title under any type", () => {
+    for (const title of ["Berry Punch Duo", "Mini Lakur Set", "GelShift Kit", "Holiday Trio"]) {
+      assert.equal(isLondontownPolish({ title, product_type: "Nail Color", tags: [] }), false, title);
+    }
+    assert.equal(isLondontownPolish({ title: "Sunset Boulevard", product_type: "Nail Color", tags: [] }), true);
+  });
+
+  it("defers Nail Care to the generic gate: coats and treatments stay, removers and creams go", () => {
+    for (const title of ["Matte Top Coat", "High Gloss Top Coat", "Get Strong Nail Hardener", "Mini Nourishing Cuticle Oil"]) {
+      const product = storeProduct(LONDONTOWN, title, "Nail Care");
+      assert.equal(isLondontownPolish(product), null, title);
+      assert.equal(gateKeeps("LondontownShopify", product), true, title);
+    }
+    for (const title of ["Lint-Free Remover Pads", "Mini Whipped Cloud Hand Cream", "Shimmering Nail Highlighter - Molten"]) {
+      assert.equal(gateKeeps("LondontownShopify", storeProduct(LONDONTOWN, title, "Nail Care")), false, title);
+    }
+  });
+
+  it("keeps gels only with includeGel", () => {
+    const gel = storeProduct(LONDONTOWN, "Red Velvet", "Gels");
+    assert.equal(isLondontownPolish(gel, readSourceSettings({ includeGel: true })), true);
+    assert.equal(gateKeeps("LondontownShopify", gel, { includeGel: true }), true);
+    assert.equal(gateKeeps("LondontownShopify", gel), false);
+  });
+
+  it("is registered for LondontownShopify", () => {
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.LondontownShopify, isLondontownPolish);
   });
 });

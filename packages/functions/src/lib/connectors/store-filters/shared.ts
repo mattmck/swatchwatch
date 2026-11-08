@@ -6,3 +6,13 @@
 /** Words a shade description uses to describe the polish's base, finish or wear. */
 export const SHADE_DESCRIPTION_REGEX =
   /\b(?:shimmers?|shimmery|(?:micro)?flakes?|flakies|holographic|holo|glitters?|hexes|jelly|cr[eè]mes?|crelly|magnetic|thermal|glow(?:s|ing)?|metallic|iridescent|chrome|duochrome|multichrome|foils?|sparkles?|matte|satin|neon|sheer|shift(?:s|ing)?|topper|coats|polish(?:es)?|lacquers?)\b/i;
+
+/** A string field lower-cased and trimmed; anything else is "". */
+export function lowerTrim(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+/** A string field with its HTML tags replaced by spaces; anything else is "". */
+export function stripHtml(value: unknown): string {
+  return typeof value === "string" ? value.replace(/<[^>]*>/g, " ") : "";
+}
