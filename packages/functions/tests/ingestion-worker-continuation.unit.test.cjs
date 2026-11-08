@@ -60,6 +60,8 @@ let job = null;
 const JOB_ID = 7;
 
 let materializeMock = async (records) => ({ processed: records.length, hexDetected: records.length });
+// data_source.metadata of the job's source (source kind, image permission, …).
+let sourceMetadata = {};
 registerMock("ingestion-repo", {
   getIngestionJobById: async (jobId) =>
     job && jobId === JOB_ID
@@ -85,7 +87,7 @@ registerMock("ingestion-repo", {
     job.metrics = clone(metrics);
     events.push({ type: "failed", error, metrics: clone(metrics) });
   },
-  getDataSourceByName: async () => ({ dataSourceId: 3, baseUrl: "https://shop.example" }),
+  getDataSourceByName: async () => ({ dataSourceId: 3, baseUrl: "https://shop.example", metadata: sourceMetadata }),
   upsertExternalProducts: async (_id, records) => ({
     processed: records.length,
     inserted: records.length,
@@ -202,6 +204,7 @@ beforeEach(() => {
   Date.now = () => fakeNow;
   sendMessageMock = async () => {};
   materializeMock = async (records) => ({ processed: records.length, hexDetected: records.length });
+  sourceMetadata = {};
   delete process.env.INGESTION_WORKER_TIME_BUDGET_MS;
   delete process.env.HEX_DETECTION_BATCH_ENABLED;
   delete process.env.HEX_DETECTION_BATCH_MAX_IN_FLIGHT;
@@ -914,5 +917,48 @@ describe("ingestion-job-poison handler", () => {
     await poisonHandler().handler(makePayload(), context);
 
     assert.equal(job.status, "running");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Source kinds (brand sources plan, Task 3)
+// ---------------------------------------------------------------------------
+
+describe("processIngestionJobQueueMessage — source kinds", () => {
+  const materializeOptions = async (metadata, request) => {
+    sourceMetadata = metadata;
+    pages[1] = { records: makeRecords(1, 3), metadata: { hasMore: false } };
+    const seen = [];
+    materializeMock = async (records, options) => {
+      seen.push(options);
+      return { processed: records.length };
+    };
+    await processIngestionJobQueueMessage(makePayload({ request: { source: "MooncatShopify", ...request } }), context);
+    assert.ok(seen.length > 0, "expected a materialization call");
+    return seen[0];
+  };
+
+  it("forces fill-only writes, no images and adoption for a reseller job", async () => {
+    const options = await materializeOptions({ sourceKind: "reseller" }, { overwriteDetectedHex: true });
+    assert.equal(options.overwriteDetectedHex, false);
+    assert.equal(options.storeImages, false);
+    assert.equal(options.adoptExistingShades, true);
+    assert.equal(options.sourceName, "MooncatShopify");
+  });
+
+  it("keeps a permitted reseller's images but still writes fill-only", async () => {
+    const options = await materializeOptions(
+      { sourceKind: "reseller", imagesPermitted: true },
+      { overwriteDetectedHex: true }
+    );
+    assert.equal(options.overwriteDetectedHex, false);
+    assert.equal(options.storeImages, true);
+  });
+
+  it("keeps the request's overwrite flag for a brand source", async () => {
+    const options = await materializeOptions({}, { overwriteDetectedHex: true });
+    assert.equal(options.overwriteDetectedHex, true);
+    assert.equal(options.storeImages, true);
+    assert.equal(options.adoptExistingShades, false);
   });
 });

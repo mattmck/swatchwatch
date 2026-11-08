@@ -71,6 +71,7 @@ import {
   SUPPORTED_SOURCES,
 } from "../lib/connectors/types";
 import { materializesShadeProducts, protocolOf } from "../lib/connectors/registry";
+import { readSourceSettings, type SourceSettings } from "../lib/source-settings";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -150,8 +151,8 @@ function isSupportedSource(value: string): value is SupportedConnectorSource {
 
 type ConnectorFactory = (
   source: SupportedConnectorSource,
-  baseUrl?: string | null,
-  currency?: string | null
+  baseUrl: string | null | undefined,
+  settings: SourceSettings
 ) => ProductConnector;
 
 /**
@@ -161,8 +162,9 @@ type ConnectorFactory = (
 const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> = {
   OpenBeautyFacts: (_source, baseUrl) => new OpenBeautyFactsConnector(baseUrl),
   MakeupAPI: (_source, baseUrl) => new MakeupApiConnector(baseUrl),
-  HoloTaco: (_source, baseUrl, currency) => new HoloTacoShopifyConnector(baseUrl, { currency }),
-  Shopify: (source, baseUrl, currency) => new ShopifyGenericConnector(source, baseUrl, { currency }),
+  HoloTaco: (_source, baseUrl, settings) => new HoloTacoShopifyConnector(baseUrl, { currency: settings.currency }),
+  Shopify: (source, baseUrl, settings) =>
+    new ShopifyGenericConnector(source, baseUrl, { currency: settings.currency, settings }),
 };
 
 function hasRunnableConnector(source: SupportedConnectorSource): boolean {
@@ -175,14 +177,14 @@ function isRunnableConnectorSource(value: string): value is SupportedConnectorSo
 
 function createConnector(
   source: SupportedConnectorSource,
-  baseUrl?: string | null,
-  currency?: string | null
+  baseUrl: string | null | undefined,
+  settings: SourceSettings
 ): ProductConnector {
   const factory = CONNECTOR_FACTORIES[protocolOf(source)];
   if (!factory) {
     throw new Error(`No connector available for source: ${source}`);
   }
-  return factory(source, baseUrl, currency);
+  return factory(source, baseUrl, settings);
 }
 
 function getErrorMessage(error: unknown): string {
@@ -640,7 +642,18 @@ export async function processIngestionJobQueueMessage(
     if (!source) {
       throw new Error(`Data source '${payload.request.source}' not found in data_source table`);
     }
-    logger.info(`Found data source`, { dataSourceId: source.dataSourceId, baseUrl: source.baseUrl });
+    // Source kind, image permission and connector keys, read once per job (lib/source-settings.ts).
+    const sourceSettings = readSourceSettings(source.metadata);
+    logger.info(`Found data source`, {
+      dataSourceId: source.dataSourceId,
+      baseUrl: source.baseUrl,
+      sourceKind: sourceSettings.kind,
+      imagesPermitted: sourceSettings.imagesPermitted,
+    });
+    // A reseller or feed only fills empty catalog data: never overwrite detected hexes, so the
+    // AI batch submission and the poller's apply step (which read this flag) inherit it too.
+    const overwriteDetectedHex =
+      sourceSettings.kind === "brand" ? payload.request.overwriteDetectedHex : false;
 
     // Connector pull
     stage = "connector_pull";
@@ -657,7 +670,7 @@ export async function processIngestionJobQueueMessage(
       recentDays: payload.request.recentDays,
     });
 
-    const connector = createConnector(payload.request.source, source.baseUrl, source.currency);
+    const connector = createConnector(payload.request.source, source.baseUrl, sourceSettings);
     // One catalog download per job, reused across pages and continuation invocations.
     const catalogCache = createIngestionCatalogCache({
       jobId: payload.jobId,
@@ -835,7 +848,7 @@ export async function processIngestionJobQueueMessage(
           userId: payload.userId,
           dataSourceId: source.dataSourceId,
           detectHexFromImage: payload.request.detectHexFromImage,
-          overwriteDetectedHex: payload.request.overwriteDetectedHex,
+          overwriteDetectedHex,
           hexBatchEnabled: hexBatchConfig.enabled,
           hexBatchMinImages: hexBatchConfig.minImages,
         });
@@ -847,7 +860,10 @@ export async function processIngestionJobQueueMessage(
             {
               detectHexFromImage: payload.request.detectHexFromImage,
               detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
-              overwriteDetectedHex: payload.request.overwriteDetectedHex,
+              overwriteDetectedHex,
+              storeImages: sourceSettings.imagesPermitted,
+              adoptExistingShades: sourceSettings.kind !== "brand",
+              sourceName: payload.request.source,
               useBatchForHexDetection: hexBatchConfig.enabled && !hexBatchDegraded,
               batchMinImages: hexBatchConfig.minImages,
               progressLogger: {
@@ -882,7 +898,7 @@ export async function processIngestionJobQueueMessage(
             durationMs: materializeDuration,
             recordCount: connectorResult.records.length,
             detectHexFromImage: payload.request.detectHexFromImage,
-            overwriteDetectedHex: payload.request.overwriteDetectedHex,
+            overwriteDetectedHex,
           });
           throw materializeError;
         }

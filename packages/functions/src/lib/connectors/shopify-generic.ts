@@ -19,6 +19,7 @@ import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.
 import { shopifyProductText } from "../product-text.js";
 import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
 import type { ProductCategory } from "swatchwatch-shared";
+import type { SourceSettings } from "../source-settings.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import {
   normalizeCurrencyCode,
@@ -491,15 +492,18 @@ export class ShopifyGenericConnector implements ProductConnector {
   private readonly baseUrl: string;
   private readonly brandName: string;
   private readonly configuredCurrency: string | null;
+  /** The source's `data_source.metadata` settings (`readSourceSettings`), when the worker passed them. */
+  private readonly settings: SourceSettings | undefined;
   private storeCurrency: Promise<StoreCurrency> | null = null;
 
   constructor(
     source: SupportedConnectorSource,
     baseUrl?: string | null,
-    options: { currency?: string | null } = {}
+    options: { currency?: string | null; settings?: SourceSettings } = {}
   ) {
     this.source = source;
     this.configuredCurrency = options.currency ?? null;
+    this.settings = options.settings;
     // Extract brand name from source (e.g., "MooncatShopify" -> "Mooncat")
     this.brandName = source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
     this.baseUrl = stripTrailingSlashes(baseUrl || this.defaultBaseUrl());
@@ -535,7 +539,7 @@ export class ShopifyGenericConnector implements ProductConnector {
     // Gate, filter and sort on raw product fields (sync, no AI); only the page window is enriched.
     const gated: Array<{ product: ShopifyProduct; category: ProductCategory; timestamp: number }> = [];
     for (const product of allProducts) {
-      const gate = gateShopifyProduct(product, this.source);
+      const gate = gateShopifyProduct(product, this.source, this.settings);
       if (gate.accept) {
         gated.push({ product, category: gate.category, timestamp: productTimestamp(product) });
       }
@@ -825,7 +829,7 @@ export function defaultShopifyBaseUrl(source: string): string {
 export function gateShopifyProduct(
   product: ShopifyProduct,
   source: string,
-  _settings?: unknown
+  _settings?: SourceSettings
 ): { accept: boolean; category: ProductCategory } {
   const reject = { accept: false, category: "accessory" as ProductCategory };
   if (!asNonEmptyString(product.id) || !asNonEmptyString(product.title)) {

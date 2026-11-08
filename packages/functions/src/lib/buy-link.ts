@@ -14,9 +14,12 @@
  *   1. candidates whose URL fails validation are ignored, and so are products of a disabled
  *      `data_source` (a source is disabled when its links are dead or the store has not
  *      agreed, e.g. MakeupAPI's 2015 well.ca / dior.com URLs), so such a shade shows no link;
- *   2. then the most recently seen link (`shade_source_product.last_seen_at`);
- *   3. then the most recently fetched product (`external_product.fetched_at`);
- *   4. then the highest `external_product_id`, so ties are still deterministic.
+ *   2. then the source kind (`data_source.metadata.sourceKind`, see `source-settings.ts`): a brand
+ *      store's link beats a feed's, which beats a reseller's, however recently each was seen
+ *      (a missing or unknown kind counts as `brand`);
+ *   3. then the most recently seen link (`shade_source_product.last_seen_at`);
+ *   4. then the most recently fetched product (`external_product.fetched_at`);
+ *   5. then the highest `external_product_id`, so ties are still deterministic.
  *
  * Price: the chosen product's vendor list price (`normalized_json` `price` + `currency`,
  * written by the connectors, see `product-price.ts`) travels with the URL as one `BuyLink`.
@@ -40,6 +43,8 @@ export interface BuyLinkCandidate {
   url: string | null | undefined;
   /** `data_source.enabled` of the product's source; `false` drops the candidate. */
   sourceEnabled: boolean | null | undefined;
+  /** `data_source.metadata ->> 'sourceKind'` (`brand` when unset); brand links rank first. */
+  sourceKind?: string | null;
   /** `shade_source_product.last_seen_at`. */
   lastSeenAt: Date | string | null | undefined;
   /** `external_product.fetched_at`. */
@@ -116,8 +121,23 @@ function toIdNumber(value: string | number | null | undefined): number {
   return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
 }
 
+/** Selection rank of a source kind: brand store first, then feed, then reseller; unknown = brand. */
+const SOURCE_KIND_RANK: ReadonlyMap<string, number> = new Map([
+  ["brand", 0],
+  ["feed", 1],
+  ["reseller", 2],
+]);
+
+function sourceKindRank(kind: string | null | undefined): number {
+  return (kind ? SOURCE_KIND_RANK.get(kind) : undefined) ?? 0;
+}
+
 /** Sort comparator implementing the selection rule (best candidate first). */
 export function compareBuyLinkCandidates(a: BuyLinkCandidate, b: BuyLinkCandidate): number {
+  const kindA = sourceKindRank(a.sourceKind);
+  const kindB = sourceKindRank(b.sourceKind);
+  if (kindA !== kindB) return kindA - kindB;
+
   const seenA = toMillis(a.lastSeenAt);
   const seenB = toMillis(b.lastSeenAt);
   if (seenA !== seenB) return seenB > seenA ? 1 : -1;
@@ -203,6 +223,7 @@ export const BUY_LINK_CANDIDATES_SQL = `SELECT
        ssp.shade_id::text                      AS "shadeId",
        ep.normalized_json ->> 'productUrl'     AS url,
        ds.enabled                              AS "sourceEnabled",
+       COALESCE(ds.metadata ->> 'sourceKind', 'brand') AS "sourceKind",
        ssp.last_seen_at                        AS "lastSeenAt",
        ep.fetched_at                           AS "fetchedAt",
        ep.external_product_id::text            AS "externalProductId",
