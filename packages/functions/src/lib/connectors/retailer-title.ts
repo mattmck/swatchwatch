@@ -16,8 +16,17 @@ export interface RetailerTitle {
 export const RETAILER_LINE_REGEX =
   /\b(?:nail lacquer|nail polish|lacquer|polish|infinite shine|nature strong|vinylux|shellac|lakur|pure colour|patent shine|gel lab pro|gel couture|breathable|enhanced colour)\b/i;
 
-/** Words marking a multi-item listing (set, combo, duo, collection ...). */
-export const RETAILER_SET_REGEX = /\b(?:set|combo|duo|trio|quad|collection|kit|bundle)\b/i;
+/**
+ * Words marking a multi-item listing (set, combo, duo, collection ...). A set word counts only as
+ * the last word of a segment ("Sonnet Fall Collection"), so a shade like "Set Sail" is not a set.
+ * Apply it with `isRetailerSetSegment`, which trims trailing punctuation first.
+ */
+export const RETAILER_SET_REGEX = /\b(?:sets?|combo|duo|trio|quad|collection|kit|bundle)$/i;
+
+/** Whether one title segment (size already stripped) ends in a set word. */
+export function isRetailerSetSegment(segment: string): boolean {
+  return RETAILER_SET_REGEX.test(segment.replace(/[\s.,;:!?*)\]]+$/, ""));
+}
 
 const PRE_ORDER_REGEX = /^\s*(?:\*PRE-ORDER\*|PRE-ORDER:)\s*/i;
 const VENDOR_CODE_REGEX = /^#\s*([A-Z0-9-]+)$/i;
@@ -67,7 +76,7 @@ export function parseRetailerTitle(title: string, brand: string): RetailerTitle 
     if (stripped) names.push(stripped);
   }
 
-  const isSet = LEADING_LACQUER_SET_REGEX.test(cleaned) || names.some((n) => RETAILER_SET_REGEX.test(n));
+  const isSet = LEADING_LACQUER_SET_REGEX.test(cleaned) || names.some(isRetailerSetSegment);
 
   const lines: string[] = [];
   const shades: string[] = [];

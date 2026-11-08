@@ -52,6 +52,10 @@ test("flags sets", () => {
   assert.equal(p("Lacquer Set - Ella+Mila Pretty In Pink", "Ella+Mila").isSet, true);
   assert.equal(p("KBShimmer - Nail Polish - It's Fall Good Collection", "KBShimmer").isSet, true);
   assert.equal(p("Zoya - Sonnet Fall Collection", "Zoya").isSet, true);
+  assert.deepEqual(
+    [p("Set Sail", "ILNP"), p("ILNP - Set Sail", "ILNP")].map((r) => [r.shadeName, r.isSet]),
+    [["Set Sail", false], ["Set Sail", false]]
+  );
 });
 
 test("exports the regexes and returns null without a shade", () => {

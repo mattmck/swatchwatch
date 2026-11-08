@@ -1,4 +1,4 @@
-import { RETAILER_SET_REGEX } from "../retailer-title.js";
+import { isRetailerSetSegment } from "../retailer-title.js";
 import type { StoreFilterProduct } from "./types.js";
 
 /**
@@ -10,8 +10,7 @@ import type { StoreFilterProduct } from "./types.js";
  * plates, scrubs, oils, lotions, magnets and apparel.
  *
  * - Non-polish product types and non-polish vendors are dropped.
- * - Set, collection, bundle and similar titles are dropped (the retailer title parser's set
- *   regex), so a multi-polish listing never becomes a shade.
+ * - Set, collection, bundle and similar titles are dropped (a set word ending a title segment, as the retailer title parser reads it), so a multi-polish listing never becomes a shade.
  * - Everything else is deferred (`null`): the generic gate accepts "Nail Polish" /
  *   "Nail Polishes" and the retailer gate then resolves the vendor and parses the title.
  *
@@ -48,7 +47,7 @@ export function isHarlowAndCoPolish(product: StoreFilterProduct): boolean | null
     return false;
   }
   const title = typeof product.title === "string" ? product.title : "";
-  if (RETAILER_SET_REGEX.test(title)) {
+  if (title.split(" - ").some((segment) => isRetailerSetSegment(segment))) {
     return false;
   }
   return null;

@@ -485,7 +485,7 @@ const HARLOW = require("./fixtures/harlow-and-co-products.json").products;
 const HARLOW_ACCEPTED = [
   // ILNP
   "Save The Date", "Cherry", "Overcoat", "Building Blocks", "Overload", "Summer Stargazing",
-  "Cream Pop", "Compass", "Black Orchid", "Woven", "Jet Setter",
+  "Cream Pop", "Compass", "Black Orchid", "Woven", "Jet Setter", "Set Sail",
   // KBShimmer
   "Candy Cane Crush", "Shell We?", "Comet At Me Bro", "Give It A Whirl", "Grow With The Flow",
   "Race Against Slime", "Constellation Prize", "Ice and Easy",
@@ -507,7 +507,7 @@ const harlow = (title) => {
 };
 
 describe("store-filters/harlow-and-co — isHarlowAndCoPolish", () => {
-  it("defers every Nail Polish / Nail Polishes listing to the generic gate (null), except set-titled ones", () => {
+  it("defers every Nail Polish / Nail Polishes listing to the generic gate (null)", () => {
     for (const title of HARLOW_ACCEPTED) {
       assert.equal(isHarlowAndCoPolish(harlow(title)), null, title);
     }
@@ -532,8 +532,8 @@ describe("store-filters/harlow-and-co — isHarlowAndCoPolish", () => {
     for (const title of ["It's Fall Good Collection", "Cirque Holiday Duo", "Mini Trio", "Polish Bundle", "Mani Kit", "Winter Combo"]) {
       assert.equal(isHarlowAndCoPolish({ title, product_type: "Nail Polish", vendor: "Cirque" }), false, title);
     }
-    // The parser reads "Set" as a set word wherever it stands, so the ILNP shade "Set Sail" goes too.
-    assert.equal(isHarlowAndCoPolish(harlow("Set Sail")), false);
+    // A set word counts only at the end of a segment, so the ILNP shade "Set Sail" stays.
+    assert.equal(isHarlowAndCoPolish(harlow("Set Sail")), null);
   });
 
   it("does not drop a shade whose name only contains a set word inside another word", () => {
@@ -569,14 +569,14 @@ describe("HarlowAndCoShopify retailer ingestion", () => {
     vendorAliases: { Cirque: "Cirque Colors", "piCture pOlish": "Picture Polish" },
   });
 
-  it("accepts the 43 single-shade polishes from the fixture under their brands, and nothing else", async () => {
+  it("accepts the 44 single-shade polishes from the fixture under their brands, and nothing else", async () => {
     const connector = new ShopifyGenericConnector("HarlowAndCoShopify", "https://www.harlowandco.org", {
       currency: "CAD",
       settings,
     });
     const result = await connector.pullProducts({ searchTerm: "", page: 1, pageSize: 200, maxRecords: 200 });
     assert.equal(result.metadata.fetchedProductCount, 102);
-    assert.equal(result.records.length, 43);
+    assert.equal(result.records.length, 44);
     assert.deepEqual(result.records.map((r) => r.normalized.name).sort(), [...HARLOW_ACCEPTED].sort());
     const brands = new Set(result.records.map((r) => r.normalized.brand));
     assert.deepEqual([...brands].sort(), [
