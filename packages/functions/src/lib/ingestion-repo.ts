@@ -91,6 +91,8 @@ export interface DataSourceRecord {
   currency?: string | null;
   /** Raw `data_source.metadata` (source kind, image permission, connector keys); see `readSourceSettings`. */
   metadata?: Record<string, unknown> | null;
+  /** `data_source.enabled`; set by `getDataSourceByName` (the run endpoints refuse a disabled source). */
+  enabled?: boolean;
 }
 
 export interface IngestionJobRecord {
@@ -2000,13 +2002,15 @@ export async function getDataSourceByName(name: string): Promise<DataSourceRecor
     baseUrl: string | null;
     currency: string | null;
     metadata: Record<string, unknown> | null;
+    enabled: boolean;
   }>(
     `SELECT
        data_source_id AS "dataSourceId",
        name,
        base_url AS "baseUrl",
        metadata ->> 'currency' AS currency,
-       metadata
+       metadata,
+       enabled
      FROM data_source
      WHERE name = $1
      LIMIT 1`,

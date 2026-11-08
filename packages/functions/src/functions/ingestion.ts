@@ -34,6 +34,7 @@ import {
   updateGlobalSettings,
   upsertExternalProducts,
 } from "../lib/ingestion-repo";
+import { assertSourceEnabledForRun, partitionDisabledSources } from "../lib/ingestion-run-guard";
 
 
 import {
@@ -431,6 +432,11 @@ async function enqueueIngestionJob(
         error: `Unsupported source '${sourceInput}'. Supported: ${SUPPORTED_SOURCES.join(", ")}`,
       },
     };
+  }
+
+  const disabledResponse = await assertSourceEnabledForRun(sourceInput);
+  if (disabledResponse) {
+    return disabledResponse;
   }
 
   const normalizedRequest: NormalizedIngestionJobRequest = {
@@ -1711,6 +1717,18 @@ async function bulkIngestionHandler(
     return {
       status: 400,
       jsonBody: { error: `No ingestion connector available for: ${nonRunnableSources.join(", ")}` },
+    };
+  }
+  const sourceRows = await Promise.all(sources.map((source) => getDataSourceByName(source)));
+  const disabledSources = partitionDisabledSources(sourceRows);
+  if (disabledSources.length > 0) {
+    return {
+      status: 409,
+      jsonBody: {
+        error: "source_disabled",
+        message: `Disabled sources (pending approval or switched off): ${disabledSources.join(", ")}`,
+        sources: disabledSources,
+      },
     };
   }
   const options = body.options ?? {};
