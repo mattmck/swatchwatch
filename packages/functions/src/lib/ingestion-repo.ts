@@ -3334,8 +3334,8 @@ async function materializePreparedHoloTacoRecord(
   // adopting source a found shade is used unless it has since been merged away (or deleted), and
   // an ambiguous record stays skipped. A `create` is looked up again: an earlier record of this
   // run may have created it. A brand source always looks up again inside this transaction: an
-  // earlier record's brand listing can disqualify a step-2 candidate (it must have no brand
-  // listing), so a pre-resolved adoption may be stale.
+  // earlier record's takeover can disqualify a step-2 candidate (it must still have
+  // `catalog_authority = 'retailer'`), so a pre-resolved adoption may be stale.
   const preResolved = adoptsExistingShades ? preparedImage.shadeResolution ?? null : null;
   let existingShade: ExistingShadeLookup | null = null;
   if (preResolved?.outcome === "ambiguous") {
