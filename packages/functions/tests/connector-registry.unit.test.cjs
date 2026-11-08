@@ -5,7 +5,10 @@ const {
   protocolOf,
   isRunnableProtocol,
   materializesShadeProducts,
+  protocolOfName,
+  isShopifyProductsSource,
 } = require("../dist/lib/connectors/registry");
+const { isAutoProvisionableSource } = require("../dist/lib/ingestion-repo");
 const { SOURCE_PROTOCOL_MAP, SUPPORTED_SOURCES } = require("../dist/lib/connectors/generated-types");
 
 describe("connector registry", () => {
@@ -72,5 +75,25 @@ describe("connector registry", () => {
   it("the generator and the registry agree on every supported source", () => {
     assert.ok(SUPPORTED_SOURCES.length > 0);
     for (const s of SUPPORTED_SOURCES) assert.equal(protocolOf(s), SOURCE_PROTOCOL_MAP[s]);
+  });
+
+  it("protocol checks replace the Shopify name suffix (Task 14)", () => {
+    assert.equal(protocolOfName("MooncatShopify"), "Shopify");
+    assert.equal(protocolOfName("StellaChromaFeed"), "Custom");
+    assert.equal(protocolOfName("toString"), "Custom");
+    assert.equal(isShopifyProductsSource("MooncatShopify"), true);
+    assert.equal(isShopifyProductsSource("HoloTacoShopify"), true);
+    assert.equal(isShopifyProductsSource("StellaChromaFeed"), false);
+    assert.equal(isShopifyProductsSource("MakeupAPI"), false);
+    for (const s of SUPPORTED_SOURCES) {
+      if (SOURCE_PROTOCOL_MAP[s] === "ProductFeed") assert.equal(isShopifyProductsSource(s), false, s);
+    }
+  });
+
+  it("auto-provisions Shopify products.json sources only; feeds are registered by migration", () => {
+    assert.equal(isAutoProvisionableSource("MooncatShopify"), true);
+    assert.equal(isAutoProvisionableSource("HoloTacoShopify"), true);
+    assert.equal(isAutoProvisionableSource("StellaChromaFeed"), false);
+    assert.equal(isAutoProvisionableSource("OpenBeautyFacts"), false);
   });
 });

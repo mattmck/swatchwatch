@@ -1,6 +1,7 @@
 import { query, transaction } from "./db";
 import { ConnectorProductRecord } from "./connectors/types";
 import { SUPPORTED_SOURCES } from "./connectors/types";
+import { isShopifyProductsSource } from "./connectors/registry";
 import { defaultShopifyBaseUrl, isShopifyRetailerSource, isShopifySourceEnabledByDefault } from "./connectors/shopify-generic";
 import { detectHexWithAzureOpenAI, type HexDetectionOptions } from "./ai-color-detection";
 import {
@@ -2020,8 +2021,13 @@ export async function getDataSourceByName(name: string): Promise<DataSourceRecor
   return result.rows[0] ?? null;
 }
 
-function isAutoProvisionableSource(name: string): boolean {
-  return name.endsWith("Shopify");
+/**
+ * Only Shopify `products.json` sources are auto-provisioned (from `SHOPIFY_SOURCE_BASE_URLS`).
+ * Non-Shopify sources (product feeds, sitemaps, WooCommerce, Big Cartel) are registered by
+ * migration only: their feed URL, kind and brand live in `data_source` and cannot be guessed.
+ */
+export function isAutoProvisionableSource(name: string): boolean {
+  return isShopifyProductsSource(name);
 }
 
 async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord | null> {
@@ -2071,7 +2077,7 @@ export async function ensureDataSourceByName(name: string): Promise<DataSourceRe
 }
 
 export async function ensureSupportedShopifyDataSources(): Promise<void> {
-  const shopifySources = SUPPORTED_SOURCES.filter((source) => source.endsWith("Shopify"));
+  const shopifySources = SUPPORTED_SOURCES.filter((source) => isAutoProvisionableSource(source));
   for (const source of shopifySources) {
     await ensureDataSourceByName(source);
   }

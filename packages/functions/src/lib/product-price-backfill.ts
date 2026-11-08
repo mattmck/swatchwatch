@@ -22,6 +22,7 @@ import {
   type ProductPrice,
 } from "./product-price";
 import type { BackfillQueryFn } from "./product-text-backfill";
+import { isShopifyProductsSource } from "./connectors/registry";
 
 // ── Pure planning ───────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ export function createStoreCurrencyResolver(
       let pending = pendingBySource.get(sourceName);
       if (!pending) {
         pending = (async () => {
-          if (!sourceName.endsWith("Shopify")) {
+          if (!isShopifyProductsSource(sourceName)) {
             currencies[sourceName] = { currency: null, origin: "not_needed" };
             return null;
           }

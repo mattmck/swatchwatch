@@ -43,3 +43,24 @@ export function materializesShadeProducts(source: SupportedConnectorSource): boo
   const protocol = protocolOf(source);
   return isRunnableProtocol(protocol) && !NON_SHADE_PRODUCT_PROTOCOLS.has(protocol);
 }
+
+/**
+ * The protocol of any `data_source.name` (a DB row, a backfill argument): `protocolOf` for a
+ * seeded connector source, `Custom` for any other name.
+ */
+export function protocolOfName(name: string): ConnectorProtocol {
+  return Object.prototype.hasOwnProperty.call(SOURCE_PROTOCOL_MAP, name)
+    ? protocolOf(name as SupportedConnectorSource)
+    : "Custom";
+}
+
+/**
+ * True for a source whose raw products are Shopify `products.json` products: the generic Shopify
+ * stores and Holo Taco (its own protocol, the same payload). Replaces the old
+ * `name.endsWith("Shopify")` checks, so a `…Feed`, `…Sitemap`, `…WooCommerce` or `…BigCartel`
+ * source never takes a Shopify branch.
+ */
+export function isShopifyProductsSource(name: string): boolean {
+  const protocol = protocolOfName(name);
+  return protocol === "Shopify" || protocol === "HoloTaco";
+}

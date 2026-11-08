@@ -13,6 +13,8 @@
  * leaves it null when neither answers. We never assume USD.
  */
 
+import { isShopifyProductsSource } from "./connectors/registry";
+
 /** Largest price we accept; anything above is junk data (or a gift-card style product). */
 export const MAX_PRODUCT_PRICE = 100_000;
 
@@ -197,7 +199,7 @@ export function productPriceFromRaw(
 ): ProductPrice | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const product = raw as Record<string, unknown>;
-  if (sourceName.endsWith("Shopify")) {
+  if (isShopifyProductsSource(sourceName)) {
     return shopifyProductPrice(Array.isArray(product.variants) ? (product.variants as ShopifyPriceVariant[]) : null, storeCurrency);
   }
   if (sourceName === "MakeupAPI") return makeupApiProductPrice(product);
