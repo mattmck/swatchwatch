@@ -1,0 +1,4600 @@
+{
+  "_note": "hypnoticpolish.com/products.json fetched 2026-11-08 (998 products over 4 pages), trimmed to 101: up to 10 or 16 products for the large vendors (ILNP 16, Bee's Knees Lacquer 10, KBShimmer 10, Starrily 10, Cirque Colors 9, Emily de Molly 8, Cosmic Polish 7) and 6 or fewer for the rest (16 vendors in all), every non-polish product_type present (Nail Polish 69, Base Coat 11, Top Coat 9, Accessories 7, Cuticle Treatment 5) and the *PRE-ORDER* titles (20). The trim kept no grab bag or mystery title; the filter test covers those with synthetic titles. body_html cut to 300 chars, at most 2 variants and 2 images.",
+  "products": [
+    {
+      "id": 10229175058770,
+      "title": "ILNP - Dark Roast",
+      "handle": "ilnp-dark-roast",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Brown",
+        "| Flakie"
+      ],
+      "created_at": "2025-08-21T15:20:07+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-08-22T15:45:38+03:00",
+      "body_html": "<p>A cool cocoa brown kissed with golden light, Dark Roast stirs like the first sip of coffee on a slow morning. Shifting shimmer flickers through orange and green tones, layering in a warm gleam that builds with every coat. Rich, grounded, and quietly bold, Dark Roast stays calm while standing out.",
+      "variants": [
+        {
+          "id": 51364536648018,
+          "title": "Default Title",
+          "sku": "IL281",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 63448982716754,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/ILNP-Dark-Roast.jpg?v=1755778884",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 63448982651218,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Dark-Roast-M3.jpg?v=1755778884",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10532929929554,
+      "title": "ILNP - Pullover",
+      "handle": "pre-order-ilnp-pullover",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Creme"
+      ],
+      "created_at": "2026-01-14T14:18:55+02:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-01-14T14:18:55+02:00",
+      "body_html": "<p>Pullover stretches across your nails in storm-washed blue, gliding on effortlessly with a formula that feels smooth and weightless. Enveloping like a sweater pulled close, the creamy pigment builds in even layers, leaving behind a finish that feels crisp, refreshing, and undeniably winter.<br><br",
+      "variants": [
+        {
+          "id": 52475984478546,
+          "title": "Default Title",
+          "sku": "IL302",
+          "barcode": null,
+          "price": "11.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 67037688234322,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/ILNP-Pullover.webp?v=1768393213",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 67037688332626,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Pullover-M3.jpg?v=1768393229",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10988750602578,
+      "title": "ILNP - First Edition",
+      "handle": "ilnp-first-edition",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Purple",
+        "| Flakie"
+      ],
+      "created_at": "2026-07-29T16:14:31+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-07-31T10:01:24+03:00",
+      "body_html": "<p>Like a rare volume tucked away in a quiet library, First Edition pairs an intensely pigmented indigo crelly with warm copper metallic flakes that peek through the base like antique gilding pressed between the pages of a treasured novel. Flecks of holographic sparkle quietly reveal themselves as t",
+      "variants": [
+        {
+          "id": 54129971298642,
+          "title": "Default Title",
+          "sku": "IL353",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 72360103280978,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/ILNP-First-Edition.jpg?v=1785434258",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 72360103379282,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/First-Edition-M3.jpg?v=1785434258",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10281028223314,
+      "title": "ILNP - Distorted (Magnetic)",
+      "handle": "ilnp-distorted-magnetic",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "Orange",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2025-09-24T19:00:09+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-09-26T10:52:46+03:00",
+      "body_html": "<p>Distorted warps in streaks of blue and purple magnetics, sharp against its darkened core. Orange shimmer flashes beneath like a warning light, flaring brighter with every movement. The finish feels unstable, a signal scrambled beyond recognition, every angle a new distortion.</p>\n<p>Distorted is ",
+      "variants": [
+        {
+          "id": 51586523562322,
+          "title": "Default Title",
+          "sku": "IL291",
+          "barcode": null,
+          "price": "13.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 64236393005394,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/ILNP-Distorted.jpg?v=1758729667",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 64236393103698,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Distorted-M3-Velvet.jpg?v=1758729676",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 8632711184722,
+      "title": "ILNP - Flicker",
+      "handle": "ilnp-flicker",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Grey",
+        "| Shimmer"
+      ],
+      "created_at": "2023-11-02T16:54:58+02:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2023-11-03T14:50:14+02:00",
+      "body_html": "<br data-mce-fragment=\"1\">Flicker is a light grey nail polish with glowing orange-to-yellow iridescent shimmer.<br data-mce-fragment=\"1\"><br data-mce-fragment=\"1\">Flicker’s orange-to-yellow iridescent shimmer was carefully crafted to ward off any lurking creatures of the night. Watch it dance betwee",
+      "variants": [
+        {
+          "id": 47222042231122,
+          "title": "Default Title",
+          "sku": "IL014",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 50961261298002,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/ILNP-Flicker.jpg?v=1698937173",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 50961261330770,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Flicker-M3-Macro.jpg?v=1698937173",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 5277333957,
+      "title": "ILNP - Sweet Pea",
+      "handle": "ilnp-sweet-pea",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "| Holographic"
+      ],
+      "created_at": "2016-03-08T20:45:05+02:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2024-01-05T15:22:35+02:00",
+      "body_html": "<p>Sweet Pea is a graceful and sweet seashell pink jelly that is incredibly versatile! This sheer stunner wears beautifully alone for a subtle pop of color with a glass-like shine and intense holographic sparkle or take it a step further and sandwich it with another favorite!<br> <br> Easily built u",
+      "variants": [
+        {
+          "id": 16349923205,
+          "title": "Default Title",
+          "sku": "IL050",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 54758798426450,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/ILNP-Sweet20Pea.jpg?v=1724064385",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 54758798524754,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Sweet-Pea-Macro.jpg?v=1724064387",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10822179094866,
+      "title": "Cosmic Polish - The Inner Light",
+      "handle": "cosmic-polish-the-inner-light",
+      "vendor": "Cosmic Polish",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Rose",
+        "| Shimmer"
+      ],
+      "created_at": "2026-05-29T15:59:46+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-05-29T16:43:35+03:00",
+      "body_html": "<p>The Inner Light is packed with scattered holo and a warm peach and rose-gold shimmer that glows from within.  Golden and luminous, and quietly overwhelming - there is more than a whole lifetime in this colour.</p>\n<p>2 to 3 coats for opacity.</p>\n<p>vegan, cruelty-free and 10-free</p>\n<p>Size : 1",
+      "variants": [
+        {
+          "id": 53598479155538,
+          "title": "Default Title",
+          "sku": "CP060",
+          "barcode": null,
+          "price": "14.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 70942379671890,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Copyoftheinnerlight1.jpg?v=1780059667",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 70942379704658,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Copyoftheinnerlight2.jpg?v=1780059666",
+          "width": 1500,
+          "height": 1500,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10714701693266,
+      "title": "Cosmic Polish - Emerald Eve",
+      "handle": "pre-order-cosmic-polish-emerald-eve",
+      "vendor": "Cosmic Polish",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Green",
+        "| Shimmer"
+      ],
+      "created_at": "2026-04-11T17:58:50+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-17T16:09:54+03:00",
+      "body_html": "<p>Emerald Eve is a cool green shimmer that shifts bright green to cool green, blue and purple at extreme angles.</p>\n<p>Opaque in 2-3 coats, this shade will turn heads and make sparks fly.</p>\n<p>vegan, cruelty-free and 10-free</p>\n<p>Size : 15ml</p>\n<p> </p>",
+      "variants": [
+        {
+          "id": 53180852666706,
+          "title": "Default Title",
+          "sku": "CP014",
+          "barcode": null,
+          "price": "13.90",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 70007257366866,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/CopyofEm9.jpg?v=1775919610",
+          "width": 3024,
+          "height": 3024,
+          "position": 1
+        },
+        {
+          "id": 70007257334098,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/CopyofBurritonails-5.jpg?v=1775919610",
+          "width": 1452,
+          "height": 1452,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10721080443218,
+      "title": "Cosmic Polish - Lunar Echoes",
+      "handle": "pre-order-cosmic-polish-lunar-echoes",
+      "vendor": "Cosmic Polish",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Green",
+        "| Shimmer"
+      ],
+      "created_at": "2026-04-14T16:38:35+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-17T16:10:05+03:00",
+      "body_html": "<p>Lunar Echoes is an ethereal polish with a pale blue-green base and a strong pink to orange-gold shimmer, and silver holo flakes suspended throughout for a subtle sparkle.</p>\n<p>This polish is on the slightly sheer side and we recommend up to 3 coats for opacity. </p>\n<p><br></p>\n<p>vegan, cruelt",
+      "variants": [
+        {
+          "id": 53197160972626,
+          "title": "Default Title",
+          "sku": "CP032",
+          "barcode": null,
+          "price": "13.90",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 70057253175634,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/chloes_nails088-4.png?v=1776174242",
+          "width": 1278,
+          "height": 1278,
+          "position": 1
+        },
+        {
+          "id": 70057253208402,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/chloes_nails088-8.png?v=1776174242",
+          "width": 1278,
+          "height": 1278,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10822175752530,
+      "title": "Cosmic Polish - The Coming of Shadows",
+      "handle": "cosmic-polish-the-coming-of-shadows",
+      "vendor": "Cosmic Polish",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Purple",
+        "| Shimmer"
+      ],
+      "created_at": "2026-05-29T15:57:15+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-05-29T16:43:35+03:00",
+      "body_html": "<p>The Coming of Shadows has a warm copper-bronze colour-shifting shimmer, with a deep violet-purple base which comes alive as the light moves. Luminous and ominous in equal measure - the brightness right before everything changes.</p>\n<p>2 to 3 coats for opacity.</p>\n<p>vegan, cruelty-free and 10-f",
+      "variants": [
+        {
+          "id": 53598469914962,
+          "title": "Default Title",
+          "sku": "CP059",
+          "barcode": null,
+          "price": "14.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 70942343037266,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/45024.jpg?v=1780059535",
+          "width": 4330,
+          "height": 4330,
+          "position": 1
+        },
+        {
+          "id": 70942343070034,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/45026.jpg?v=1780059534",
+          "width": 3420,
+          "height": 3424,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10722959851858,
+      "title": "Cosmic Polish - Wildflower Nights (Thermal)",
+      "handle": "pre-order-cosmic-polish-wildflower-nights-thermal",
+      "vendor": "Cosmic Polish",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "Purple",
+        "| Shimmer",
+        "| Thermal"
+      ],
+      "created_at": "2026-04-14T21:02:22+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-06-04T19:59:14+03:00",
+      "body_html": "<p>Wildflower Nights is a thermal polish with a strong blue glow that transforms from a bright purple in the cold state to a saturated pink in the warm state.</p>\n<p>This thermal polish has a temperature changing point of 31°C and we recommend 2 - 3 coats for opacity.</p>\n<p>* Thermal pigments deter",
+      "variants": [
+        {
+          "id": 53200181690706,
+          "title": "Default Title",
+          "sku": "CP050",
+          "barcode": null,
+          "price": "14.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 70062087962962,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/thermal-trio-693725.jpg?v=1776189969",
+          "width": 1600,
+          "height": 1600,
+          "position": 1
+        },
+        {
+          "id": 70062087897426,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/48.png?v=1776189969",
+          "width": 2380,
+          "height": 2380,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11269812158802,
+      "title": "Cosmic Polish - Star Garnet (Magnetic)",
+      "handle": "cosmic-polish-star-garnet",
+      "vendor": "Cosmic Polish",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Purple",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-28T15:00:14+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-28T15:00:14+02:00",
+      "body_html": "<p>Who says stars can't be pink? Star Garnet is a black-based magnetic polish with a bright pink-magenta stripe that shifts to gold with hints of green at extreme angles. The real gem has a little star inside that moves when you turn it - with this polish you can have the same on your nails!</p>\n<p>",
+      "variants": [
+        {
+          "id": 55242109616466,
+          "title": "Default Title",
+          "sku": "CP074",
+          "barcode": null,
+          "price": "14.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74443387666770,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/20260920_154044.jpg?v=1793192682",
+          "width": 2257,
+          "height": 2257,
+          "position": 1
+        },
+        {
+          "id": 74443387699538,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/20260920_154059.jpg?v=1793192704",
+          "width": 2030,
+          "height": 2030,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10879793561938,
+      "title": "Bee's Knees Lacquer - What is Devotion Without Love? (Magnetic)",
+      "handle": "pre-order-bees-knees-lacquer-what-is-devotion-without-love-magnetic",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-06-18T15:18:47+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:21:16+03:00",
+      "body_html": "<p>a black raspberry with fuchsia magnetic shimmer.</p>\n<p>Part of This Blade of Ours collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cruelty free.</span></p>\n<p>Please note, due to polishes being hand mixed in small batches it is possible for slight variations to occur. Colors may a",
+      "variants": [
+        {
+          "id": 53786804978002,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "14.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 71360953188690,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/BMH09835.jpg?v=1781785229",
+          "width": 3146,
+          "height": 3146,
+          "position": 1
+        },
+        {
+          "id": 71360953155922,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/BMH09834.jpg?v=1781785254",
+          "width": 3087,
+          "height": 3087,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10879900647762,
+      "title": "Bee's Knees Lacquer - Every Accusation is Always a Confession",
+      "handle": "pre-order-bees-knees-lacquer-every-accusation-is-always-a-confession",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Shimmer"
+      ],
+      "created_at": "2026-06-18T16:13:31+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-08-21T16:32:48+03:00",
+      "body_html": "<p>a grungy brown base with blue to purple shimmer and loaded with holo flakes.</p>\n<p>Part of This Blade of Ours collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cruelty free.</span></p>\n<p>Please note, due to polishes being hand mixed in small batches it is possible for slight varia",
+      "variants": [
+        {
+          "id": 53787187937618,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "15.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 71361493008722,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/EveryAccusationisAlwaysaConfession2.jpg?v=1781788566",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 71361492943186,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/EveryAccusationisAlwaysaConfession1.jpg?v=1781788566",
+          "width": 1500,
+          "height": 1500,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10956997820754,
+      "title": "Bee's Knees Lacquer - Don't Clip my Wings (Magnetic)",
+      "handle": "pre-order-bees-knees-lacquer-dont-clip-my-wings-magnetic",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-07-18T09:54:07+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-18T15:36:51+03:00",
+      "body_html": "<p>a raspberry base with the doomicorn green shimmer and the bog dweller magnetic shimmer.</p>\n<p><br></p>\n<p>Part of Siren Songs collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cruelty free.</span></p>\n<p>Please note, due to polishes being hand mixed in small batches it is possible ",
+      "variants": [
+        {
+          "id": 54034659901778,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "15.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 72097721286994,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_7850.jpg?v=1784357947",
+          "width": 2135,
+          "height": 2135,
+          "position": 1
+        },
+        {
+          "id": 72097721319762,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_7852.jpg?v=1784357891",
+          "width": 2582,
+          "height": 2582,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11229715366226,
+      "title": "*PRE-ORDER* Bee's Knees Lacquer - The Pond Spirit (Magnetic)",
+      "handle": "pre-order-bees-knees-lacquer-the-pond-spirit-magnetic",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "Green",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-14T13:46:51+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:35+03:00",
+      "body_html": "<p>a green to blue multichrome with blue to purple multichrome magnetic shimmer.</p>\n<p><br></p>\n<p>Part of The East Palace inspired collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cruelty free.</span></p>\n<p>Please note, due to polishes being hand mixed in small batches it is possib",
+      "variants": [
+        {
+          "id": 55050611294546,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "15.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74126265745746,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_4854.jpg?v=1791974860",
+          "width": 1902,
+          "height": 1902,
+          "position": 1
+        },
+        {
+          "id": 74126265876818,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_7157_1.jpg?v=1791974860",
+          "width": 3719,
+          "height": 3719,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11155010355538,
+      "title": "Bee's Knees Lacquer - There is Nothing But Stone (Magnetic)",
+      "handle": "pre-order-bees-knees-lacquer-there-is-nothing-but-stone-magnetic",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "Green",
+        "| Flakie",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-09-17T15:18:46+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-18T15:36:56+03:00",
+      "body_html": "<p>a stony base with a limestone magnetic shimmer and blue to purple magnetic flakes that have a subtle holo effect.</p>\n<p>Part of The Knave and the Moon collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cruelty free.</span></p>\n<p>Please note, due to polishes being hand mixed in smal",
+      "variants": [
+        {
+          "id": 54756035133778,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "15.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 73484652806482,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_1291.jpg?v=1789731306",
+          "width": 1000,
+          "height": 1000,
+          "position": 1
+        },
+        {
+          "id": 73484652839250,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_1294.jpg?v=1789731306",
+          "width": 1000,
+          "height": 1000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11229694755154,
+      "title": "*PRE-ORDER* Bee's Knees Lacquer - Ggeomeoksali",
+      "handle": "pre-order-bees-knees-lacquer-ggeomeoksali",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Green",
+        "Purple",
+        "| Flakie",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-14T13:39:50+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:34+03:00",
+      "body_html": "<p>a dark, smoky sheer olive with large iridescent pink to gold microflakes.</p>\n<p><br></p>\n<p>Part of The East Palace inspired collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cruelty free.</span></p>\n<p>Please note, due to polishes being hand mixed in small batches it is possible f",
+      "variants": [
+        {
+          "id": 55050424779090,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "14.95",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74126097875282,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/DSC07080.jpg?v=1791974462",
+          "width": 724,
+          "height": 724,
+          "position": 1
+        },
+        {
+          "id": 74126097908050,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/DSC07091.jpg?v=1791974462",
+          "width": 724,
+          "height": 724,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10653798170962,
+      "title": "Emily de Molly - Sheer Tint Illusion",
+      "handle": "emily-de-molly-sheer-tint-illusion",
+      "vendor": "Emily de Molly",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "Rose",
+        "| Glitter"
+      ],
+      "created_at": "2026-03-16T14:17:14+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-01T18:00:45+03:00",
+      "body_html": "<p>A pale rosy brown jelly nail polish, with silver holographic micro glitters.</p>\n<p>January release 2026</p>\n<p>Size: 12 ml</p>\n<p>Big 5 Free</p>\n<p>Swatches courtesy normally of @thepolishedmage @lacquer_is_life @doseoflolade @polishedbookworm @_always_polished_ @dangerouslypolished @failnartist",
+      "variants": [
+        {
+          "id": 52951129915730,
+          "title": "Default Title",
+          "sku": "EM017",
+          "barcode": null,
+          "price": "11.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 69402327679314,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/illusion1.jpg?v=1773663567",
+          "width": 1000,
+          "height": 1000,
+          "position": 1
+        },
+        {
+          "id": 69402327712082,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/illusion2.jpg?v=1773663567",
+          "width": 1000,
+          "height": 1000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 6539175133249,
+      "title": "Emily de Molly - Peel Off Base Coat",
+      "handle": "emily-de-molly-peel-off-base-coat",
+      "vendor": "Emily de Molly",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "Peel off",
+        "|| Base Coat"
+      ],
+      "created_at": "2021-03-09T17:51:55+02:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-07-10T17:57:10+03:00",
+      "body_html": "<p><span style=\"color: #000000;\">A peel off base coat is perfect for those of you who love to change your nail colour frequently.</span></p>\n<p>A peel off base coat is different to a regular base coat. Its main feature is that it should easily peel off to make removal of nail polish super simple.</p",
+      "variants": [
+        {
+          "id": 39256855150657,
+          "title": "Default Title",
+          "sku": "EM061",
+          "barcode": null,
+          "price": "11.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 27975178911809,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/topcoatpeeloff.jpg?v=1615305226",
+          "width": 880,
+          "height": 880,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 11080813347154,
+      "title": "Emily de Molly - Still Right Here",
+      "handle": "pre-order-emily-de-molly-still-right-here",
+      "vendor": "Emily de Molly",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Purple",
+        "| Shimmer"
+      ],
+      "created_at": "2026-08-28T17:44:00+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-01T18:00:53+03:00",
+      "body_html": "<p>A light purple nail polish with a strong green / purple shifting shimmer.</p>\n<p>August release 2026</p>\n<p>Size: 12 ml</p>\n<p>Big 5 Free</p>\n<p>Swatches courtesy normally of @thepolishedmage @lacquer_is_life @doseoflolade @polishedbookworm @_always_polished_ @dangerouslypolished @failnartiste @c",
+      "variants": [
+        {
+          "id": 54427084587346,
+          "title": "Default Title",
+          "sku": "EM014",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 72913439293778,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/still-right-here2.jpg?v=1787928315",
+          "width": 1000,
+          "height": 1000,
+          "position": 1
+        },
+        {
+          "id": 72913439261010,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/still-right-here.jpg?v=1787928315",
+          "width": 1000,
+          "height": 1000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 6546327765057,
+      "title": "Emily de Molly - Just Like This (Thermal)",
+      "handle": "emily-de-molly-just-like-this",
+      "vendor": "Emily de Molly",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "Pink",
+        "| Shimmer"
+      ],
+      "created_at": "2021-04-07T13:50:33+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-01T18:00:26+03:00",
+      "body_html": "<br>\n<p><span style=\"color: #ff2a00;\"></span>A rosy nude ( warm ) to blue ( cold ) with a strong turquoise blue shimmer.<br></p>\n<p>April 2021 release.<br></p>\n<p>Size: 12 ml</p>\n<p>Big 5 Free</p>\n<p>Swatch courtesy of @oliviajadenails, @rachelaughs, @yyulia_m, @kobra88, @artofpolish<br></p>",
+      "variants": [
+        {
+          "id": 39285042348097,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 28081016995905,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/Just-Like-This2.jpg?v=1617792738",
+          "width": 1200,
+          "height": 1200,
+          "position": 1
+        },
+        {
+          "id": 28081017061441,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/Just-Like-This3.jpg?v=1617792738",
+          "width": 1200,
+          "height": 1200,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11080810168658,
+      "title": "Emily de Molly - The Romantics (Magnetic)",
+      "handle": "pre-order-emily-de-molly-the-romantics",
+      "vendor": "Emily de Molly",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-08-28T17:41:40+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-01T18:00:53+03:00",
+      "body_html": "<p>A pale pink nail polish with a strong pink / orange / gold shifting shimmer and a very light blue magnetic effect.</p>\n<p>August release 2026</p>\n<p>Size: 12 ml</p>\n<p>Big 5 Free</p>\n<p>Swatches courtesy normally of @thepolishedmage @lacquer_is_life @doseoflolade @polishedbookworm @_always_polish",
+      "variants": [
+        {
+          "id": 54427069907282,
+          "title": "Default Title",
+          "sku": "EM013",
+          "barcode": null,
+          "price": "13.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 72913423696210,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/20260701_234817.jpg?v=1787928199",
+          "width": 1000,
+          "height": 1000,
+          "position": 1
+        },
+        {
+          "id": 72913423728978,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/20260701_234827.jpg?v=1787928199",
+          "width": 1000,
+          "height": 1000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11234469052754,
+      "title": "Emily de Molly - Join The Club (Magnetic)",
+      "handle": "emily-de-molly-join-the-club",
+      "vendor": "Emily de Molly",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-15T13:41:32+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:21+03:00",
+      "body_html": "<p>A bright pink nail polish with a blue aurora shimmer and a pink / peach magnetic effect.</p>\n<p>October release 2026</p>\n<p>Size: 12 ml</p>\n<p>Big 5 Free</p>\n<p>Swatches courtesy normally of @thepolishedmage @lacquer_is_life @doseoflolade @polishedbookworm @_always_polished_ @dangerouslypolished ",
+      "variants": [
+        {
+          "id": 55087342813522,
+          "title": "Default Title",
+          "sku": "EM044",
+          "barcode": null,
+          "price": "13.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74158426849618,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/20260907_231719.jpg?v=1792060992",
+          "width": 1000,
+          "height": 1000,
+          "position": 1
+        },
+        {
+          "id": 74158426816850,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/20260907_231742.jpg?v=1792060992",
+          "width": 1000,
+          "height": 1000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11234338996562,
+      "title": "Lykke Lacquer - Hillside Sunset (Magnetic)",
+      "handle": "lykke-lacquer-hillside-sunset-magnetic",
+      "vendor": "Lykke Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Green",
+        "Purple",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-15T12:52:52+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:17+03:00",
+      "body_html": "<p>Hillside Sunset has a dark purple base with green aurora shimmer and pinkish red magnetic effect</p>\n<p><br>Part of Moments To Cherish trio</p>\n<p><br>Lykke Lacquer will donate 5% of net proceeds to Hundar Utan Hem (Dogs Without Home), a registered non-profit organisation in Sweden that works to ",
+      "variants": [
+        {
+          "id": 55086899069266,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74157592871250,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/CopyofLykkeLacquer-HillsideSunset1.jpg?v=1792058275",
+          "width": 2611,
+          "height": 2611,
+          "position": 1
+        },
+        {
+          "id": 74157592904018,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/CopyofLykkeLacquer-HillsideSunset4.jpg?v=1792058274",
+          "width": 1757,
+          "height": 1757,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11234356887890,
+      "title": "Lykke Lacquer - Dancing by the Campfire (Magnetic)",
+      "handle": "lykke-lacquer-dancing-by-the-campfire-magnetic",
+      "vendor": "Lykke Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Red",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-15T12:59:38+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:18+03:00",
+      "body_html": "<p>Dancing by the Campfire has a dark berry red base with copper magnetic pigment and small UCC flakes that shift gold/red/purple</p>\n<p><br>Part of Moments To Cherish trio</p>\n<p><br>Lykke Lacquer will donate 5% of net proceeds to Hundar Utan Hem (Dogs Without Home), a registered non-profit organis",
+      "variants": [
+        {
+          "id": 55086990721362,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74253580763474,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/unnamed_f3f48a7e-7242-4db8-a63f-29e28b28e1d4.jpg?v=1792435034",
+          "width": 2505,
+          "height": 2505,
+          "position": 1
+        },
+        {
+          "id": 74157714276690,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/LykkeLacquerDancingbytheCampfire8_1.jpg?v=1792058677",
+          "width": 1440,
+          "height": 1440,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10988759384402,
+      "title": "Lykke Lacquer - Angelic",
+      "handle": "lykke-lacquer-angelic",
+      "vendor": "Lykke Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "White",
+        "| Crelly",
+        "| Flakie",
+        "| Shimmer"
+      ],
+      "created_at": "2026-07-29T16:21:07+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-07-29T18:33:44+03:00",
+      "body_html": "<p><span style=\"color: rgb(0, 0, 0);\"><span lang=\"EN-GB\">Angelic</span><span lang=\"EN-GB\"> has a soft white crelly base, accented by golden holographic shimmer and orange/pink/red/purple shifting glass flecks</span></span></p>\n<p><span lang=\"EN-GB\" style=\"color: rgb(0, 0, 0);\">Part of And So It Begi",
+      "variants": [
+        {
+          "id": 54130007933266,
+          "title": "Default Title",
+          "sku": "LY001",
+          "barcode": null,
+          "price": "11.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 72340366819666,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_6397.jpg?v=1785435025",
+          "width": 1284,
+          "height": 1284,
+          "position": 1
+        },
+        {
+          "id": 72340366852434,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_6395.jpg?v=1785435048",
+          "width": 1284,
+          "height": 1284,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10988843467090,
+      "title": "Lykke Lacquer - Midsummer Night",
+      "handle": "lykke-lacquer-midsummer-night",
+      "vendor": "Lykke Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Flakie",
+        "| Holographic",
+        "| Jelly"
+      ],
+      "created_at": "2026-07-29T17:39:49+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-07-29T18:33:45+03:00",
+      "body_html": "<p><span style=\"color: rgb(0, 0, 0);\"><span lang=\"EN-GB\">Midsummer  </span><span lang=\"EN-GB\">Night  </span><span lang=\"EN-GB\">has a midnight blue with a hint of purple jelly base, dotted with champagne gold/gold shifting flakes and a sprinkling of holographic micro-flakes</span></span></p>\n<p><span",
+      "variants": [
+        {
+          "id": 54130324930898,
+          "title": "Default Title",
+          "sku": "LY003",
+          "barcode": null,
+          "price": "11.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 72340698956114,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_6435.jpg?v=1785434852",
+          "width": 1284,
+          "height": 1284,
+          "position": 1
+        },
+        {
+          "id": 72340698890578,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_6437.jpg?v=1785434870",
+          "width": 831,
+          "height": 831,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11234377761106,
+      "title": "Lykke Lacquer - Norrsken (Magnetic)",
+      "handle": "lykke-lacquer-norrsken-magnetic",
+      "vendor": "Lykke Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "Green",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-15T13:10:24+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:18+03:00",
+      "body_html": "<p>Norrsken has a dark blue base with purple/blue aurora shimmer and green magnetic effect</p>\n<p><br>Part of Moments To Cherish trio</p>\n<p><br>Lykke Lacquer will donate 5% of net proceeds to Hundar Utan Hem (Dogs Without Home), a registered non-profit organisation in Sweden that works to save and ",
+      "variants": [
+        {
+          "id": 55087079391570,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74157943619922,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/CopyofLykkeLacquerNorrskenB.jpg?v=1792059275",
+          "width": 2529,
+          "height": 2529,
+          "position": 1
+        },
+        {
+          "id": 74157943488850,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/LykkeLacquerNorrsken4.jpg?v=1792059333",
+          "width": 1440,
+          "height": 1440,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10988832948562,
+      "title": "Lykke Lacquer - Lucky Lilac",
+      "handle": "lykke-lacquer-lucky-lilac",
+      "vendor": "Lykke Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Lilac",
+        "| Crelly",
+        "| Flakie",
+        "| Shimmer"
+      ],
+      "created_at": "2026-07-29T17:30:16+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-07-29T18:33:44+03:00",
+      "body_html": "<p><span style=\"color: rgb(0, 0, 0);\"><span lang=\"EN-GB\">Lucky</span><span lang=\"EN-GB\"> Lilac has a lilac crelly base with pink/red aurora shimmer and gold/green/pink shifting flakes</span></span></p>\n<p><span lang=\"EN-GB\" style=\"color: rgb(0, 0, 0);\">Part of And So It Begins trio</span></p>\n<p><sp",
+      "variants": [
+        {
+          "id": 54130288329042,
+          "title": "Default Title",
+          "sku": "LY002",
+          "barcode": null,
+          "price": "11.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 72340603896146,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_6363.jpg?v=1785434940",
+          "width": 1284,
+          "height": 1284,
+          "position": 1
+        },
+        {
+          "id": 72340603994450,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_6362.jpg?v=1785434956",
+          "width": 1284,
+          "height": 1284,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11080338211154,
+      "title": "Cadillacquer - Halloween 2026 - I Found A Place (Magnetic)",
+      "handle": "pre-order-cadillacquer-halloween-2026-i-found-a-place-magnetic",
+      "vendor": "Cadillacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Green",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-08-28T15:08:50+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-01T18:00:20+03:00",
+      "body_html": "<p>a lime green magnetic in a sheer teal base, packed with red to orange aurora shimmer. </p>\n<p>Size: 15 ml</p>\n<p>Big 5 free</p>\n<p>Please note colours may vary slightly due to monitor settings.</p>\n<p>Swatches courtesy of IG @caitlinswatches, @rafinails, @doseoflolade, @heeymercedes</p>",
+      "variants": [
+        {
+          "id": 54425042026834,
+          "title": "Default Title",
+          "sku": "CD004",
+          "barcode": null,
+          "price": "13.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 72910607188306,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto_05.08.26_13_19_28_5.jpg?v=1787919182",
+          "width": 2500,
+          "height": 2500,
+          "position": 1
+        },
+        {
+          "id": 72910606074194,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto_05.08.26_13_19_28_4.jpg?v=1787919180",
+          "width": 2500,
+          "height": 2500,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10789795496274,
+      "title": "Cadillacquer - Take It Easy - Just Breathe",
+      "handle": "pre-order-cadillacquer-take-it-easy-just-breathe",
+      "vendor": "Cadillacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Flakie"
+      ],
+      "created_at": "2026-05-17T13:47:33+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-05-17T14:15:02+03:00",
+      "body_html": "<p>pastel blue crelly, with blue and pink/orange iridescent flakes and a dash of black to red flakes.</p>\n<p><br></p>\n<p>Size: 15 ml</p>\n<p>Big 5 free</p>\n<p>Please note colours may vary slightly due to monitor settings.</p>\n<p>Swatches courtesy of IG @polishwithrae, @rafinails, @doseoflolade</p>",
+      "variants": [
+        {
+          "id": 53467277590866,
+          "title": "Default Title",
+          "sku": "CD058",
+          "barcode": null,
+          "price": "13.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 70712545771858,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto14.03.26_192533.jpg?v=1779014934",
+          "width": 2500,
+          "height": 2500,
+          "position": 1
+        },
+        {
+          "id": 70712545706322,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto14.03.26_192533_4.jpg?v=1779014934",
+          "width": 2500,
+          "height": 2500,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 9994609328466,
+      "title": "Cadillacquer - Out Of This World - Solar Nebula (Magnetic)",
+      "handle": "cadillacquer-out-of-this-world-solar-nebula",
+      "vendor": "Cadillacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Purple",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2025-03-21T15:48:33+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-01T18:00:15+03:00",
+      "body_html": "<p>An orange to yellow magnetic in a purple to red shimmer base </p>\n<p><br></p>\n<p>Size: 15 ml</p>\n<p>Big 5 free</p>\n<p>Please note colours may vary slightly due to monitor settings.</p>\n<p>Swatches courtesy of IG @yyulia_m, @doseoflolade, @lacquerdiary3.14</p>",
+      "variants": [
+        {
+          "id": 50481437245778,
+          "title": "Default Title",
+          "sku": "CD035",
+          "barcode": null,
+          "price": "13.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 58664829878610,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto_08.03.25_12_16_34.jpg?v=1742565092",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 58664830075218,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto_08.03.25_12_18_25.jpg?v=1742565092",
+          "width": 1500,
+          "height": 1500,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11229772480850,
+      "title": "*PRE-ORDER* Cadillacquer - FB Trio - Spotted Glass Frog",
+      "handle": "pre-order-cadillacquer-fb-trio-spotted-glass-frog",
+      "vendor": "Cadillacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Glitter",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-14T14:16:59+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:11+03:00",
+      "body_html": "<p>pastel blue jelly base, with green to blue shimmer and matte white glitter.</p>\n<p>Size: 15 ml</p>\n<p>Big 5 free</p>\n<p>Please note colours may vary slightly due to monitor settings.</p>\n<p>Swatches courtesy of IG @caitlinswatches, @yyulia_m, @heeymercedes</p>",
+      "variants": [
+        {
+          "id": 55050995597650,
+          "title": "Default Title",
+          "sku": "CD012",
+          "barcode": null,
+          "price": "12.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74126680621394,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto12.10.26_213009_3.jpg?v=1791976824",
+          "width": 1080,
+          "height": 1080,
+          "position": 1
+        },
+        {
+          "id": 74126680654162,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto12.10.26_213009_4.jpg?v=1791976824",
+          "width": 1080,
+          "height": 1080,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11229815308626,
+      "title": "*PRE-ORDER* Cadillacquer - Prototypes - The Darkest Night (Magnetic)",
+      "handle": "pre-order-cadillacquer-prototypes-the-darkest-night-magnetic",
+      "vendor": "Cadillacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Black",
+        "Multicolour",
+        "| Flakie",
+        "| Magnetic"
+      ],
+      "created_at": "2026-10-14T14:36:26+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:14+03:00",
+      "body_html": "<p><span style=\"color: rgb(255, 42, 0);\"><strong>PLEASE NOTE, THIS IS A CAPPED PRE-ORDER!</strong></span></p>\n<p>black to red multichrome base, with teal to purple magnetic flakies</p>\n<p>*Please notice that the magnetic flakies won’t give a crisp cat eye effect, but more of a dispersed look. </p>\n<",
+      "variants": [
+        {
+          "id": 55051107008850,
+          "title": "Default Title",
+          "sku": "CD019",
+          "barcode": null,
+          "price": "12.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74126928740690,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/TheDarkestNight2.jpg?v=1791977835",
+          "width": 2500,
+          "height": 2500,
+          "position": 1
+        },
+        {
+          "id": 74126928773458,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/TheDarkestNight3.jpg?v=1791977835",
+          "width": 2500,
+          "height": 2500,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10540275335506,
+      "title": "Cadillacquer - Winter Melancholy - I‘ll Wait For You (Magnetic)",
+      "handle": "cadillacquer-winter-melancholy-i-ll-wait-for-you-magnetic",
+      "vendor": "Cadillacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "Multicolour",
+        "Pink",
+        "Purple",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-01-18T17:46:01+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-01T18:00:17+03:00",
+      "body_html": "<p>A pink/orange magnetic in a deep purple base, packed with blue shimmer.</p>\n<p>Size: 15 ml</p>\n<p>Big 5 free</p>\n<p>Please note colours may vary slightly due to monitor settings.</p>\n<p>Swatches courtesy of IG @_always_polished_, @rafinails, @doseoflolade</p>",
+      "variants": [
+        {
+          "id": 52507421770066,
+          "title": "Default Title",
+          "sku": "CD053",
+          "barcode": null,
+          "price": "13.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 67396147347794,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto_25.11.25_17_31_11_17_e7fcb2c8-e4f7-4da5-9719-63260171601a.jpg?v=1768751838",
+          "width": 2500,
+          "height": 2500,
+          "position": 1
+        },
+        {
+          "id": 67396147315026,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Foto_25.11.25_17_31_11_19.jpg?v=1768751838",
+          "width": 2500,
+          "height": 2500,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 8008946712855,
+      "title": "KBShimmer - Dual Ended Wave Zig Zag + Cat Eye Magnet",
+      "handle": "kbshimmer-dual-ended-wave-zig-zag-cat-eye-magnet",
+      "vendor": "KBShimmer",
+      "product_type": "Accessories",
+      "tags": [
+        "all",
+        "Magnets",
+        "Nail art supplies",
+        "| Magnetic"
+      ],
+      "created_at": "2022-11-18T17:28:55+02:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2024-01-03T14:30:29+02:00",
+      "body_html": "<br>\n<p>Magnetic polishes are an out-of-this-world invention! With the power of a magnet, color is shifted and relocated on the nail for a futuristic 3D effect. For best results, you need a strong magnet with the right magnetic pattern – and not all magnets will work.  The KBShimmer magnet is strong",
+      "variants": [
+        {
+          "id": 44069098881303,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "4.90",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 39874477785367,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/iluH_KVH.jpg?v=1668785442",
+          "width": 800,
+          "height": 800,
+          "position": 1
+        },
+        {
+          "id": 39874477752599,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/b0Y9YMQ5.jpg?v=1668785442",
+          "width": 800,
+          "height": 799,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 1466562936897,
+      "title": "KBShimmer - Leaf Of Faith",
+      "handle": "kbshimmer-leaf-of-faith",
+      "vendor": "KBShimmer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Red",
+        "| Glitter"
+      ],
+      "created_at": "2018-08-23T15:17:26+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-03-19T15:55:46+02:00",
+      "body_html": "<p>The crisp feel of the air, apple pies baking, trees showing off a kaleidoscope of reds, burgundies and gold, it is no wonder fall is my favorite season.  Leaf Of Faith my homage to the glorious Sweetgums and Sugar Maples, and all the others trees that star in natures fall show.  A deep Cabernet r",
+      "variants": [
+        {
+          "id": 13358020395073,
+          "title": "Default Title",
+          "sku": "KBS018",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 58617562628434,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/leaf-of-faith.jpg?v=1742392537",
+          "width": 540,
+          "height": 540,
+          "position": 1
+        },
+        {
+          "id": 4202209443905,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/leaf-of-faith-1.jpg?v=1742392537",
+          "width": 900,
+          "height": 900,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 9796880957778,
+      "title": "KBShimmer - In A Flurry",
+      "handle": "kbshimmer-in-a-flurry",
+      "vendor": "KBShimmer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "| Holographic",
+        "|| Top Coat",
+        "|| Topper"
+      ],
+      "created_at": "2024-11-22T16:07:31+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2024-11-22T16:56:34+02:00",
+      "body_html": "<p>In A Flurry is a silver prismatic nail polish topper. Holographic flakes catch the light, offering a glowy hint of rainbow. In low light, the silver color of the flakes shines through. One coat over your favorite crème shade adds sparkle to your manicure without obscuring the color, or layer two ",
+      "variants": [
+        {
+          "id": 49839394554194,
+          "title": "Default Title",
+          "sku": "KBS063",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 56078423228754,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/dQ1ciA2A.jpg?v=1732284645",
+          "width": 2044,
+          "height": 2044,
+          "position": 1
+        },
+        {
+          "id": 56078423261522,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/AScbU7pA.jpg?v=1732284645",
+          "width": 1248,
+          "height": 1248,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 1466809614401,
+      "title": "KBShimmer - Barely There Matte Cuticle Cream",
+      "handle": "kbshimmer-barely-there-matte-cuticle-cream",
+      "vendor": "KBShimmer",
+      "product_type": "Cuticle Treatment",
+      "tags": [
+        "all",
+        "Skincare"
+      ],
+      "created_at": "2018-08-23T17:39:32+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-02-06T17:36:15+02:00",
+      "body_html": "<p>Picture Perfect Cuticle Cream is the cuticle solution you have been looking for.  Enriched with jojoba oil, cocoa butter, shea butter, and olive oil, when applied, this cream soaks in, leaving a silky smooth, but matte finish for perfect showing off those freshly painted tips in pictures.  No mor",
+      "variants": [
+        {
+          "id": 13359169798209,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "5.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 4206121943105,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/barelythere-cuticle-cream.jpg?v=1535627891",
+          "width": 540,
+          "height": 540,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 6765663518785,
+      "title": "KBShimmer - Smooth Moves Glitter Smoothing Topcoat",
+      "handle": "kbshimmer-smooth-moves-glitter-smoothing-topcoat",
+      "vendor": "KBShimmer",
+      "product_type": "Top Coat",
+      "tags": [
+        "all",
+        "|| Top Coat"
+      ],
+      "created_at": "2022-03-15T17:05:04+02:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2024-03-29T11:39:06+02:00",
+      "body_html": "<br>\n<p data-mce-fragment=\"1\">There are a few things in life we may want rough, but our manicure is not one of them.  Glitters and flakes can leave polish lumpy and textured, and topcoats don’t always do the job of smoothing things out.  Smooth Moves can help even out those textured manicures for a ",
+      "variants": [
+        {
+          "id": 39807188467777,
+          "title": "Default Title",
+          "sku": "KBS101",
+          "barcode": null,
+          "price": "7.95",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 29219841081409,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/SmoothMoves1.jpg?v=1647356936",
+          "width": 3010,
+          "height": 3010,
+          "position": 1
+        },
+        {
+          "id": 29219841114177,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/SmoothMoves2.png?v=1647356936",
+          "width": 1536,
+          "height": 1536,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 1548368019521,
+      "title": "KBShimmer - Clearly On Top Quick Dry Top Coat 2oz (59ml) Refill",
+      "handle": "kbshimmer-clearly-on-top-quick-dry-top-coat-2-oz-refill",
+      "vendor": "KBShimmer",
+      "product_type": "Top Coat",
+      "tags": [
+        "all",
+        "|| Top Coat"
+      ],
+      "created_at": "2018-10-23T15:24:56+03:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2024-01-03T14:30:29+02:00",
+      "body_html": "<p>When searching for tops coats, we here at KBShimmer wanted one that dried quickly, was super shiny, did not cause  shrinkage with glitter nail polish, and did not yellow.  When we found  this top coat, it felt like finding the holy grail and we made the decision to offer it  here!<br><strong></st",
+      "variants": [
+        {
+          "id": 14115547643969,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "28.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 4432059465793,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/clearly-on-top-quick-dry-top-coat-2-oz-refill_262f3c15-45ea-4f4b-abfd-c95f3a6d108b.jpg?v=1540297535",
+          "width": 900,
+          "height": 900,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 9973493760338,
+      "title": "Cirque Colors - Pitaya Jelly",
+      "handle": "cirque-colors-pitaya-jelly",
+      "vendor": "Cirque Colors",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "| Jelly"
+      ],
+      "created_at": "2025-03-07T14:57:23+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-03-07T14:57:23+02:00",
+      "body_html": "<p>Pitaya Jelly is a magenta pink jelly nail polish with a shiny, transparent finish.</p>\n<p dir=\"ltr\" role=\"presentation\" style=\"line-height: 1.38; margin-top: 10pt; margin-bottom: 0pt;\"> </p>\n<p>Size: 11 ml</p>\n<p><br>- Jelly Finish<br>- Apply 2-3 coats for a sheer finish<br>- Non-Toxic, 10-Free F",
+      "variants": [
+        {
+          "id": 50396942139730,
+          "title": "Default Title",
+          "sku": "CIR011",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 59483283718482,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/product_-_pitaya_jelly_-_sq_high_res.jpg?v=1745856534",
+          "width": 3196,
+          "height": 3196,
+          "position": 1
+        },
+        {
+          "id": 59483284013394,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/swatch_-_pitaya_jelly_gaby_-_sq_high_res.jpg?v=1745856534",
+          "width": 1200,
+          "height": 1200,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 221952606226,
+      "title": "Cirque Colors - Golightly",
+      "handle": "cirque-colors-golightly",
+      "vendor": "Cirque Colors",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Creme"
+      ],
+      "created_at": "2018-05-09T12:26:51+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-04-28T19:29:10+03:00",
+      "body_html": "<p>Golightly is a robin egg blue creme nail polish. Our creme polishes feature a smooth, high quality formula for ease of use and long lasting wear.<br><br><br><br>Size: 11 ml<br><br><br>Please note colours may vary slightly due to monitor settings</p>",
+      "variants": [
+        {
+          "id": 2005586313234,
+          "title": "Default Title",
+          "sku": "CIR211",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": "0.00",
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 59479962845522,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/product-golightly-sqhighres.jpg?v=1745844915",
+          "width": 2400,
+          "height": 2400,
+          "position": 1
+        },
+        {
+          "id": 59479962747218,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/swatch-golightlyedina-sqhighres.jpg?v=1745844915",
+          "width": 1200,
+          "height": 1200,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 8818142085458,
+      "title": "Cirque Colors - Jammin' Out (LE)",
+      "handle": "cirque-colors-jammin-out-le",
+      "vendor": "Cirque Colors",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Purple",
+        "| Shimmer"
+      ],
+      "created_at": "2024-04-04T12:58:30+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-03-12T13:38:23+02:00",
+      "body_html": "a vivid grape purple nail polish with mouth watering blue-violet color-shifting aurora shimmer and intense scattered holographic effect.<br>\n<p style=\"line-height: 1.38; margin-top: 10pt; margin-bottom: 0pt;\" role=\"presentation\" dir=\"ltr\"> </p>\n<p>Size: 11 ml<br><br>- Opaque in 2-3 coats<br data-mce",
+      "variants": [
+        {
+          "id": 47929306087762,
+          "title": "Default Title",
+          "sku": "CIR067",
+          "barcode": null,
+          "price": "14.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 52593569038674,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/HIGHRES-bottle-jamminout.jpg?v=1712224777",
+          "width": 2000,
+          "height": 2000,
+          "position": 1
+        },
+        {
+          "id": 52593569202514,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/HIGHRES-swatch-pai-jamminout02.jpg?v=1712224801",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10569254142290,
+      "title": "Cirque Colors - Mushroom Kingdom (Thermal)",
+      "handle": "cirque-colors-mushroom-kingdom-thermal",
+      "vendor": "Cirque Colors",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "Red",
+        "| Thermal"
+      ],
+      "created_at": "2026-02-03T16:41:25+02:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-02-03T17:24:40+02:00",
+      "body_html": "<p>Mushroom Kingdom is a thermal nail polish that changes color based on temperature. This polish changes from deep red when cold to bright pink when warm. You may notice shades of  vibrant berry pink as the polish travels through the color spectrum and between cold and warm states.</p>\n<p>This temp",
+      "variants": [
+        {
+          "id": 52624643227986,
+          "title": "Default Title",
+          "sku": "CIR183",
+          "barcode": null,
+          "price": "15.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 29939528859713,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/HIGHRES-bottle-mushroomkingdom.jpg?v=1659519484",
+          "width": 1200,
+          "height": 1200,
+          "position": 1
+        },
+        {
+          "id": 29939529023553,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/HIGHRES-swatch-kenya-mushroomkingdom-transitionstate.jpg?v=1659519490",
+          "width": 1200,
+          "height": 1200,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 8639661244754,
+      "title": "Cirque Colors - Paint N' Peel Base Coat",
+      "handle": "cirque-colors-paint-n-peel-base-coat",
+      "vendor": "Cirque Colors",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "Nail art supplies",
+        "Peel off",
+        "|| Base Coat"
+      ],
+      "created_at": "2023-11-07T15:47:48+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-02-11T20:20:42+02:00",
+      "body_html": "<p role=\"presentation\" dir=\"ltr\"><span color=\"#9900ff\"></span>Paint N’ Peel is a peelable base coat that is compatible with all nail polishes.<br></p>\n<p role=\"presentation\" dir=\"ltr\">We love shimmery manicures, but we know removing them can be messy and time-consuming. No more! This water-based pee",
+      "variants": [
+        {
+          "id": 47244936839506,
+          "title": "Default Title",
+          "sku": "CIR035",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 59483256979794,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/HIGHRES-product-Paint_N_Peel.jpg?v=1745856465",
+          "width": 3201,
+          "height": 3201,
+          "position": 1
+        },
+        {
+          "id": 51030675194194,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/HIGHRES-stylized-PaintNPeelBaseCoat02.jpg?v=1745856465",
+          "width": 2100,
+          "height": 2100,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10569241952594,
+      "title": "Cirque Colors - Whimsy",
+      "handle": "cirque-colors-whimsy",
+      "vendor": "Cirque Colors",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Pink",
+        "| Crelly"
+      ],
+      "created_at": "2026-02-03T16:30:19+02:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-02-03T17:24:39+02:00",
+      "body_html": "<p>Whimsy is a neutral mauve-pink crelly nail polish with neutral undertones.</p>\n<p>Cirque's crelly polishes feature a unique, hybrid finish that is less opaque than a crème but has more coverage than a jelly or sheer. The buildable formula allows you to control the depth and opacity in 1-3 coats.<",
+      "variants": [
+        {
+          "id": 52624597025106,
+          "title": "Default Title",
+          "sku": "CIR151",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 68560664789330,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/HIGHRES-product-whimsy01.png?v=1770129115",
+          "width": 2000,
+          "height": 2000,
+          "position": 1
+        },
+        {
+          "id": 68560664887634,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/HIGHRES-swatch-lola-whimsy01.png?v=1770129127",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 6634108616769,
+      "title": "*PRE-ORDER* Cuticula Nail Lacquer - Limitless Quick Dry Top Coat (Unscented)",
+      "handle": "cuticula-nail-lacquer-limitless-scented-quick-dry-top-coat",
+      "vendor": "Cuticula Nail Lacquer",
+      "product_type": "Top Coat",
+      "tags": [
+        "all",
+        "|| Top Coat"
+      ],
+      "created_at": "2021-10-15T16:00:35+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-25T14:21:09+03:00",
+      "body_html": "<p><br></p>\n<p>Keeps your manis protected, long lasting, and super shiny with Limitless Top Coat.</p>\n<p>Benefits of Limitless Quick Dry Top Coat:</p>\n<p> - 5 free<br> - Quick dry<br> - The formula is not too thick, not too thin<br> - Glossy shine<br> - Non smearing<br> - Non shrinking<br> - Dries t",
+      "variants": [
+        {
+          "id": 39470500413505,
+          "title": "Default Title",
+          "sku": "CL053",
+          "barcode": null,
+          "price": "9.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 28597589966913,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/LimitlessTopCoat1.jpg?v=1634303226",
+          "width": 1280,
+          "height": 1280,
+          "position": 1
+        },
+        {
+          "id": 28597589934145,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/LimitlessTopCoat3.jpg?v=1634303226",
+          "width": 1280,
+          "height": 1280,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 6634112876609,
+      "title": "*PRE-ORDER* Cuticula Nail Lacquer - Flames Of A Phoenix",
+      "handle": "cuticula-nail-lacquer-flames-of-a-phoenix",
+      "vendor": "Cuticula Nail Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Red",
+        "| Flakie"
+      ],
+      "created_at": "2021-10-15T16:13:19+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-25T14:21:10+03:00",
+      "body_html": "<br>\n<p data-mce-fragment=\"1\">Jeweled toned oxblood base with orange/gold, purple/red, blue/purple, and blue/purple/green shifting glass like flakes.</p>\n<p data-mce-fragment=\"1\"> </p>\n<p data-mce-fragment=\"1\">Size: 15ml, 5-free</p>\n<br>",
+      "variants": [
+        {
+          "id": 39470519582785,
+          "title": "Default Title",
+          "sku": "CL035",
+          "barcode": null,
+          "price": "13.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 28597604614209,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/PhotoOct11_123414AM.jpg?v=1634303652",
+          "width": 3024,
+          "height": 3024,
+          "position": 1
+        },
+        {
+          "id": 28597604581441,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/PhotoOct11_123419AM.jpg?v=1634303651",
+          "width": 1501,
+          "height": 1501,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11168804700498,
+      "title": "*PRE-ORDER* Cuticula Nail Lacquer - Zombie Sludge (Magnetic)",
+      "handle": "pre-order-cuticula-nail-lacquer-zombie-sludge-magnetic",
+      "vendor": "Cuticula Nail Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Green",
+        "| Holographic",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-09-22T18:04:03+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-25T14:21:53+03:00",
+      "body_html": "<p>a deep green jelly base with shifting shimmer flakes in pink/orange/gold with a lime green/green magnetic effect and orange/gold/green crystal flakes.</p>\n<p>Size: 15ml, 5-free</p>\n<p><br></p>",
+      "variants": [
+        {
+          "id": 54803335119186,
+          "title": "Default Title",
+          "sku": "CL085",
+          "barcode": null,
+          "price": "14.95",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 73610012492114,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Cait_DSC_8144.jpg?v=1790158453",
+          "width": 3073,
+          "height": 3073,
+          "position": 1
+        },
+        {
+          "id": 73610012557650,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Cait_DSC_8145.jpg?v=1790158453",
+          "width": 3019,
+          "height": 3019,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 6754691842113,
+      "title": "*PRE-ORDER* Cuticula Nail Lacquer - By Its Glow",
+      "handle": "cuticula-nail-lacquer-by-its-glow",
+      "vendor": "Cuticula Nail Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Flakie",
+        "| Holographic"
+      ],
+      "created_at": "2022-02-25T14:17:08+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-25T14:21:15+03:00",
+      "body_html": "<br>\n<p data-mce-fragment=\"1\">A smokey blue violet holographic flake base with red/black/green chrome shifting flakes. <br><span style=\"caret-color: #000000; color: #000000; font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-caps: normal; font-weight: normal; letter-spacing: n",
+      "variants": [
+        {
+          "id": 39775242518593,
+          "title": "Default Title",
+          "sku": "CL015",
+          "barcode": null,
+          "price": "13.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 29156679024705,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/IMG_8229.jpg?v=1645791476",
+          "width": 1170,
+          "height": 1170,
+          "position": 1
+        },
+        {
+          "id": 29156678959169,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/IMG_8228-1_PNG.jpg?v=1645791476",
+          "width": 1170,
+          "height": 1170,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11168587415890,
+      "title": "*PRE-ORDER* Cuticula Nail Lacquer - Saguaro Sunset",
+      "handle": "pre-order-cuticula-nail-lacquer-saguaro-sunset",
+      "vendor": "Cuticula Nail Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Black",
+        "| Flakie"
+      ],
+      "created_at": "2026-09-22T16:44:07+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-25T14:21:40+03:00",
+      "body_html": "<p>a black jelly base with glowy green/orange/yellow/red shifting flakes.<span style=\"caret-color: #000000; color: #000000; font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-caps: normal; font-weight: normal; letter-spacing: normal; orphans: auto; text-align: start; text-inde",
+      "variants": [
+        {
+          "id": 54802857820498,
+          "title": "Default Title",
+          "sku": "CL069",
+          "barcode": null,
+          "price": "13.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 73581081002322,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Caitlin_DSC_5004_Large_871b56f3-1a6b-496b-8d9e-c3bd10164641.jpg?v=1790084720",
+          "width": 1280,
+          "height": 1280,
+          "position": 1
+        },
+        {
+          "id": 73581080936786,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Caitlin_DSC_5002_Large_8acc8c14-7098-4172-9019-4cde218b01a6.jpg?v=1790084721",
+          "width": 1280,
+          "height": 1280,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11168171589970,
+      "title": "*PRE-ORDER* Cuticula Nail Lacquer - Honeydew Milk Tea",
+      "handle": "pre-order-cuticula-nail-lacquer-honeydew-milk-tea",
+      "vendor": "Cuticula Nail Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Green",
+        "| Flakie"
+      ],
+      "created_at": "2026-09-22T15:16:45+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-25T14:21:29+03:00",
+      "body_html": "<p>a honeydew crelly base full of rainbow shifting glass flakes, and black flakes.<span style=\"caret-color: #000000; color: #000000; font-family: Helvetica; font-size: 12px; font-style: normal; font-variant-caps: normal; font-weight: normal; letter-spacing: normal; orphans: auto; text-align: start; ",
+      "variants": [
+        {
+          "id": 54801886118226,
+          "title": "Default Title",
+          "sku": "CL047",
+          "barcode": null,
+          "price": "13.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 73578598662482,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Lola_honeydew_milk_tea1__76940.jpg?v=1790079490",
+          "width": 1000,
+          "height": 1000,
+          "position": 1
+        },
+        {
+          "id": 73578598695250,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Lola_honeydew_milk_tea2__18086.jpg?v=1790079490",
+          "width": 1000,
+          "height": 1000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10694351454546,
+      "title": "Starrily - Speed of Light: Force | Quick Dry Top",
+      "handle": "starrily-speed-of-light-force-quick-dry-top",
+      "vendor": "Starrily",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "|| Top Coat",
+        "|| Topper"
+      ],
+      "created_at": "2026-04-02T17:24:42+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T17:24:42+03:00",
+      "body_html": "<p>Speed of Light is an ultra quick drying top coat that delivers a brilliant glossy shine.</p>\n<p>Protects with force. Dries in a flash. Plush and heavy formula. </p>\n<p>Featuring ultra fast drying technology for instant results.<br>High gloss shine with a salon quality finish.</p>\n<p>Size: 15 ml /",
+      "variants": [
+        {
+          "id": 53100187615570,
+          "title": "Default Title",
+          "sku": "ST043",
+          "barcode": null,
+          "price": "11.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 69833708568914,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Force.jpg?v=1775140377",
+          "width": 1251,
+          "height": 1251,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 9957568971090,
+      "title": "Starrily - Golden Starlight (Reflective)",
+      "handle": "starrily-golden-starlight",
+      "vendor": "Starrily",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Gold",
+        "|| Top Coat",
+        "|| Topper"
+      ],
+      "created_at": "2025-02-24T17:30:37+02:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T14:44:45+03:00",
+      "body_html": "<p>Overview:<br>• Golden reflective top coat<br>• Wear over other colors for a magical starlit touch<br>• Reflective pigment activates under a direct flash of light, similar to reflective gear<br></p>\n<p>Description: Golden Starlight nail polish captures this breathtaking moment in a gold reflective",
+      "variants": [
+        {
+          "id": 50343301775698,
+          "title": "Default Title",
+          "sku": "ST020",
+          "barcode": null,
+          "price": "14.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 57997987938642,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/GoldenStarlight12.jpg?v=1740411341",
+          "width": 1984,
+          "height": 1984,
+          "position": 1
+        },
+        {
+          "id": 57997988102482,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/GoldenStarlight9.jpg?v=1740411341",
+          "width": 4640,
+          "height": 4640,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 9957551014226,
+      "title": "Starrily - Polar Lights (Magnetic)",
+      "handle": "starrily-polar-lights-magnetic",
+      "vendor": "Starrily",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2025-02-24T17:07:22+02:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T14:44:44+03:00",
+      "body_html": "<p>Overview:<br>• Blue-teal-green color shifting shimmer with silver magnetic effect<br>• Best applied in 2-3 coats<br>• Use with a magnetic tool for best results<br></p>\n<p>Description: This polish features a mesmerizing blue/green/teal color shifting shimmer, reflecting the ethereal movement of th",
+      "variants": [
+        {
+          "id": 50343222378834,
+          "title": "Default Title",
+          "sku": "ST035",
+          "barcode": null,
+          "price": "14.95",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 57997595017554,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/PolarLights4.jpg?v=1740409841",
+          "width": 4640,
+          "height": 4640,
+          "position": 1
+        },
+        {
+          "id": 57997594984786,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/PolarLights2.jpg?v=1740409841",
+          "width": 4640,
+          "height": 4640,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 5891588485,
+      "title": "Starrily - Magic Rainbow",
+      "handle": "starrily-magic-rainbow",
+      "vendor": "Starrily",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Silver",
+        "| Holographic"
+      ],
+      "created_at": "2016-07-08T22:43:10+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T14:44:22+03:00",
+      "body_html": "<p><span>Extremely intense and strong holo nail polish. Becomes easily opaque and meant to be used alone. Finished effect is an amazing silver linear colorful hologram party on your nails.   </span></p>\n<p>5-free, vegan &amp; cruelty Free </p>\n<p><span>Size: 15ml</span></p>\n<p><span>Swatches courtes",
+      "variants": [
+        {
+          "id": 18849012741,
+          "title": "Default Title",
+          "sku": "ST025",
+          "barcode": null,
+          "price": "14.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 20501347602,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/mr.jpeg?v=1497609618",
+          "width": 428,
+          "height": 428,
+          "position": 1
+        },
+        {
+          "id": 12064825925,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/magic_rainbow.jpg?v=1620218706",
+          "width": 1080,
+          "height": 1080,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 4621961560129,
+      "title": "Starrily - Neptune (Magnetic)",
+      "handle": "starrily-neptune-magnetic",
+      "vendor": "Starrily",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2020-11-28T16:40:01+02:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T14:44:31+03:00",
+      "body_html": "<p data-mce-fragment=\"1\">﻿<span style=\"color: #ff2a00;\" data-mce-fragment=\"1\" data-mce-style=\"color: #ff2a00;\"></span></p>\n<p data-mce-fragment=\"1\"><strong data-mce-fragment=\"1\">Description:<span data-mce-fragment=\"1\"> </span></strong><span data-mce-fragment=\"1\">Neptune is a dark blue sapphire magne",
+      "variants": [
+        {
+          "id": 32301249036353,
+          "title": "Default Title",
+          "sku": "ST030",
+          "barcode": null,
+          "price": "14.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 15353206800449,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/starrilyneptune2.jpg?v=1606574502",
+          "width": 2892,
+          "height": 2892,
+          "position": 1
+        },
+        {
+          "id": 15353206865985,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/starrilyneptune3.jpg?v=1606574502",
+          "width": 3070,
+          "height": 3070,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 1482635378753,
+      "title": "Starrily - Pulsar",
+      "handle": "starrily-pulsar",
+      "vendor": "Starrily",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Holographic"
+      ],
+      "created_at": "2018-09-03T17:07:45+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T14:44:25+03:00",
+      "body_html": "<p><span>Pulsar is a Holodescent nail polish blended with copious amounts of holographic and iridescent shimmers. It's fully opaque in 3-4 coats and the finished look appears to almost glow when the light hits it.</span></p>\n<p><span><strong>Tip: </strong>Always start off with a base coat and finish",
+      "variants": [
+        {
+          "id": 13512978202689,
+          "title": "Default Title",
+          "sku": "ST036",
+          "barcode": null,
+          "price": "14.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 4226350579777,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/starrily-pulsar-holo-swatches-1_1600x_ebfc9591-7daa-467c-b942-25e55e64b149.jpg?v=1775130907",
+          "width": 1023,
+          "height": 1023,
+          "position": 1
+        },
+        {
+          "id": 4226350743617,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/starrily-pulsar-swatches-1_1600x_6624a08b-c6ce-4ad6-b3cb-1643bd293fde.jpg?v=1775130907",
+          "width": 1023,
+          "height": 1023,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 9962114580818,
+      "title": "Mooncat - Hall of Mirrors",
+      "handle": "mooncat-hall-of-mirrors",
+      "vendor": "Mooncat",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "| Flakie",
+        "|| Top Coat",
+        "|| Topper"
+      ],
+      "created_at": "2025-02-27T19:01:07+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-02-27T19:48:35+02:00",
+      "body_html": "<p>HALL OF MIRRORS ​​is a glossy topper featuring silver flakies in a clear base.</p>\n<p> </p>\n<p>Vegan, cruelty free<br></p>\n<p>Size : 12 ml</p>\n<p> </p>",
+      "variants": [
+        {
+          "id": 50357565784402,
+          "title": "Default Title",
+          "sku": "MCT141",
+          "barcode": null,
+          "price": "15.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 58072441815378,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/mooncat_pdp_BAROQUEN_HALLOFMIRRORS_2_labeled.jpg?v=1740675872",
+          "width": 1100,
+          "height": 1100,
+          "position": 1
+        },
+        {
+          "id": 58072441291090,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/mooncat_pdp_BAROQUEN_HALLOFMIRRORS_1_Labeled.jpg?v=1740675902",
+          "width": 1100,
+          "height": 1100,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 8649031909714,
+      "title": "Mooncat - Bootlegger",
+      "handle": "mooncat-bootlegger",
+      "vendor": "Mooncat",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Brown",
+        "| Shimmer"
+      ],
+      "created_at": "2023-11-16T20:35:30+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-06-12T12:47:09+03:00",
+      "body_html": "<br>\n<p>BOOTLEGGER is a whiskey brown lacquer filled with red-orange shimmer.<br> </p>\n<p data-mce-fragment=\"1\">Vegan, cruelty free<br></p>\n<p data-mce-fragment=\"1\">Size : 12 ml</p>\n<p data-mce-fragment=\"1\"> </p>",
+      "variants": [
+        {
+          "id": 47287994057042,
+          "title": "Default Title",
+          "sku": "MCT021",
+          "barcode": null,
+          "price": "16.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 51129625477458,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/mooncat_pdp_MR_Bootlegger_2.jpg?v=1700161057",
+          "width": 1078,
+          "height": 1078,
+          "position": 1
+        },
+        {
+          "id": 51129625870674,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/mooncat_pdp_MR_Bootlegger_14.jpg?v=1700161094",
+          "width": 1078,
+          "height": 1078,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 9962116383058,
+      "title": "Mooncat - Fleur Sauvage",
+      "handle": "mooncat-fleur-sauvage",
+      "vendor": "Mooncat",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Orange",
+        "Pink",
+        "| Shimmer"
+      ],
+      "created_at": "2025-02-27T19:05:48+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-02-27T19:48:36+02:00",
+      "body_html": "<p>FLEUR SAUVAGE is a light orange lacquer filled with chromey pink shimmer.</p>\n<p> </p>\n<p>Vegan, cruelty free<br></p>\n<p>Size : 12 ml</p>\n<p> </p>",
+      "variants": [
+        {
+          "id": 50357582102866,
+          "title": "Default Title",
+          "sku": "MCT142",
+          "barcode": null,
+          "price": "16.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 58072503746898,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/mooncat_pdp_BAROQUEN_FLEURSAUVAGE_4.jpg?v=1742827455",
+          "width": 1100,
+          "height": 1100,
+          "position": 1
+        },
+        {
+          "id": 58072503943506,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/mooncat_pdp_BAROQUEN_FLEURSAUVAGE_1.jpg?v=1742827426",
+          "width": 1100,
+          "height": 1100,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 8630188474706,
+      "title": "Wildflower Lacquer - Dancing in the Leaves",
+      "handle": "wildflower-lacquer-dancing-in-the-leaves",
+      "vendor": "Wildflower Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Red",
+        "| Holographic",
+        "| Shimmer"
+      ],
+      "created_at": "2023-10-31T19:50:58+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-02-05T13:07:53+02:00",
+      "body_html": "<br>\n<p><span class=\"x193iq5w xeuugli x13faqbe x1vvkbs xlh3980 xvmahel x1n0sxbx x1lliihq x1s928wv xhkezso x1gmr53x x1cpjm7i x1fgarty x1943h6x xudqn12 x3x7a5m x6prxxf xvq8zen xo1l8bm xzsf02u\" dir=\"auto\"><span class=\"x193iq5w xeuugli x13faqbe x1vvkbs xlh3980 xvmahel x1n0sxbx x6prxxf xvq8zen xo1l8bm xz",
+      "variants": [
+        {
+          "id": 47212174049618,
+          "title": "Default Title",
+          "sku": "WF019",
+          "barcode": null,
+          "price": "13.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 50936294932818,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/dancing-in-the-leaves_7.jpg?v=1698774768",
+          "width": 2048,
+          "height": 2048,
+          "position": 1
+        },
+        {
+          "id": 50936295162194,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/dancing-in-the-leaves_3.jpg?v=1698774768",
+          "width": 1024,
+          "height": 1024,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 305115261,
+      "title": "Glisten & Glow - Top Coat 15 ml",
+      "handle": "glisten-glow-top-coat-15-ml",
+      "vendor": "Glisten & Glow",
+      "product_type": "Top Coat",
+      "tags": [
+        "all",
+        "|| Top Coat"
+      ],
+      "created_at": "2014-05-05T21:07:25+03:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2014-05-05T21:59:00+03:00",
+      "body_html": "<p>Glisten &amp; Glow Top Coat</p>\n<p>What does it do: it's clear, shiny and fast drying!</p>\n<p>Tips &amp; Tricks</p>\n<p>Achieve intense shine with this crystal clear formula, by allowing all layers of polish to dry below the top coat.</p>\n<p>2-4 minutes or less and your nails will be dry, durable,",
+      "variants": [
+        {
+          "id": 727165229,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "9.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 25393472658,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/1502672012787.jpeg?v=1507927434",
+          "width": 1000,
+          "height": 1000,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 310117265,
+      "title": "Glisten & Glow - Refill Top Coat bottle 60 ml (2 oz)",
+      "handle": "glisten-glow-top-coat-refill-bottle-60-ml-2-oz",
+      "vendor": "Glisten & Glow",
+      "product_type": "Top Coat",
+      "tags": [
+        "all",
+        "|| Top Coat"
+      ],
+      "created_at": "2014-05-12T16:49:24+03:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2016-01-25T17:37:00+02:00",
+      "body_html": "<span lang=\"EN-US\">Glisten &amp; Glow Top Coat (2 oz. Refill) (clear, shiny and fast drying) </span>\n<p><span lang=\"EN-US\">What do you get: A clear plastic 2 oz refill bottle of Glisten &amp; Glow Top Coat with a twist pour top. </span></p>\n<p><span lang=\"EN-US\">What does it do: it's clear, shiny an",
+      "variants": [
+        {
+          "id": 739842169,
+          "title": "Default",
+          "sku": "GLI 02",
+          "barcode": null,
+          "price": "35.00",
+          "compare_at_price": "0.00",
+          "available": true,
+          "option1": "Default",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 25393396946,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/Glisten___Glow___3.jpg?v=1507927024",
+          "width": 768,
+          "height": 768,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 305147509,
+      "title": "Glisten & Glow - Base Coat 15 ml",
+      "handle": "glisten-glow-base-coat",
+      "vendor": "Glisten & Glow",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "|| Base Coat"
+      ],
+      "created_at": "2014-05-05T21:45:32+03:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2016-10-06T18:03:00+03:00",
+      "body_html": "<p><span lang=\"EN-US\">Glisten &amp; Glow Base Coat (sticky, long lasting and stain preventing) </span></p>\n<p><span lang=\"EN-US\">What does it do: it's sticky, long lasting and stain preventing! </span></p>\n<p><span lang=\"EN-US\">Tips &amp; Tricks </span></p>\n<p style=\"line-height: 11.5pt; background:",
+      "variants": [
+        {
+          "id": 727246253,
+          "title": "Default",
+          "sku": "GLG003",
+          "barcode": null,
+          "price": "9.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 25393440914,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/DSC_0129b.jpg?v=1579704764",
+          "width": 768,
+          "height": 768,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 9779937149266,
+      "title": "Glisten & Glow - Ridge Filling Base Coat 15 ml",
+      "handle": "glisten-glow-ridge-filling-base-coat-15-ml",
+      "vendor": "Glisten & Glow",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "|| Base Coat"
+      ],
+      "created_at": "2024-11-12T14:50:33+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2024-11-12T14:50:33+02:00",
+      "body_html": "<p>Glisten &amp; Glow Ridge Filling Base Coat<br>(Ridge Relief from uneven nail surfaces)</p>\n<p>What does this product do?<br>It evens out the surface of the nail plate, making a smooth surface to apply any polish over. Any ridges or bumps in our nails are filled in and even.</p>\n<p>Ridge Filling B",
+      "variants": [
+        {
+          "id": 49789843308882,
+          "title": "Default",
+          "sku": null,
+          "barcode": null,
+          "price": "9.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 55897511002450,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/DSC_0130a.jpg?v=1731415861",
+          "width": 768,
+          "height": 768,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 201467822098,
+      "title": "Glisten & Glow - Ctrl-Alt-Del (liquid latex)",
+      "handle": "glisten-glow-ctrl-alt-del-liquid-latex",
+      "vendor": "Glisten & Glow",
+      "product_type": "Cuticle Treatment",
+      "tags": [
+        "all",
+        "Nail art supplies",
+        "Peel off"
+      ],
+      "created_at": "2018-03-15T11:47:33+02:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2018-03-15T12:43:08+02:00",
+      "body_html": "CTRL-ALT-DEL latex barrier for your cuticles and skin. Provides skin and cuticle protection from polish and paint during stamping, gradients and water marbling nail design.\n<p>Moisturizing and scented in our most popular scent - Sangria White Peach.</p>\n<p>Size: 15 ml</p>\n<p>To use: apply around the",
+      "variants": [
+        {
+          "id": 1797714509842,
+          "title": "Default Title",
+          "sku": "GLG004",
+          "barcode": null,
+          "price": "9.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 843431182354,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/CtrlAltDel.jpg?v=1521107493",
+          "width": 550,
+          "height": 548,
+          "position": 1
+        },
+        {
+          "id": 843431215122,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/CtrlAltDel1.JPG?v=1521107493",
+          "width": 400,
+          "height": 400,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10817337682,
+      "title": "Glisten & Glow - Refill Base Coat bottle 60 ml (2 oz)",
+      "handle": "glisten-glow-base-coat-refill-bottle-60-ml-2-oz",
+      "vendor": "Glisten & Glow",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "|| Base Coat"
+      ],
+      "created_at": "2017-10-13T23:37:43+03:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2017-10-14T00:47:40+03:00",
+      "body_html": "<p><span lang=\"EN-US\">Glisten &amp; Glow Base Coat (sticky, long lasting and stain preventing)</span></p>\n<p><span lang=\"EN-US\">What do you get: A clear plastic 60ml refill bottle of Glisten &amp; Glow Base Coat with a twist pour top.</span></p>\n<p><span lang=\"EN-US\">What does it do: its sticky, lon",
+      "variants": [
+        {
+          "id": 46011076114,
+          "title": "Default Title",
+          "sku": "GLI 03",
+          "barcode": null,
+          "price": "35.00",
+          "compare_at_price": "0.00",
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 25393479442,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/Glisten___Glow___1.jpg?v=1507927486",
+          "width": 768,
+          "height": 768,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 8708672782674,
+      "title": "LCLVernis - Flocons",
+      "handle": "lclvernis-flocons",
+      "vendor": "LCLVernis",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "| Glitter",
+        "| Holographic",
+        "|| Top Coat",
+        "|| Topper"
+      ],
+      "created_at": "2024-01-12T19:15:09+02:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2024-01-15T12:00:20+02:00",
+      "body_html": "<p data-mce-fragment=\"1\">Topper filled with scatter holo particles and white glitters</p>\n<p data-mce-fragment=\"1\"> </p>\n<p data-mce-fragment=\"1\">10 free and cruelty free</p>\n<p data-mce-fragment=\"1\">Size : 12 ml</p>\n<p data-mce-fragment=\"1\"> </p>",
+      "variants": [
+        {
+          "id": 47550541005138,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "11.90",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 51749693981010,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Flocons_onyx.jpg?v=1705079811",
+          "width": 3916,
+          "height": 3916,
+          "position": 1
+        },
+        {
+          "id": 51749694177618,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Flocons_onyx_2.jpg?v=1705079849",
+          "width": 3916,
+          "height": 3916,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 6764974637121,
+      "title": "Picture Polish - Always (Discontinued, last chance)",
+      "handle": "picture-polish-always",
+      "vendor": "Picture Polish",
+      "product_type": "Nail Polish",
+      "tags": [
+        "Beige",
+        "Sale",
+        "| Holographic"
+      ],
+      "created_at": "2022-03-14T15:02:37+02:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2022-03-14T16:51:36+02:00",
+      "body_html": "<br>\n<p>Picture Polish Always is an ivory holographic nail polish.</p>\n<p> </p>\n<p><strong>Igredients Listing:</strong></p>\n<p>Plant-based 'sustainable' nail polish does <u>not </u>contain Toluene, Dibutyl Phthalate (DBP), Formaldehyde, Formaldehyde Resin &amp; Ethyl Tosylamide, Camphor, Xylene, Tri",
+      "variants": [
+        {
+          "id": 39805524213825,
+          "title": "Default Title",
+          "sku": "PIC039",
+          "barcode": null,
+          "price": "11.05",
+          "compare_at_price": "13.00",
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 29215414452289,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/picture-polish-always.png?v=1647263149",
+          "width": 1000,
+          "height": 1000,
+          "position": 1
+        },
+        {
+          "id": 29215414255681,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/always-nail-polish-dark-complexion.png?v=1647263149",
+          "width": 1000,
+          "height": 1000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 5553321669,
+      "title": "Masura - Precious Stones - 904-113 Magnet",
+      "handle": "masura-precious-stones-904-113-magnet",
+      "vendor": "Masura",
+      "product_type": "Accessories",
+      "tags": [
+        "all",
+        "Magnets",
+        "Nail art supplies",
+        "| Magnetic"
+      ],
+      "created_at": "2016-04-30T21:13:05+03:00",
+      "updated_at": "2026-11-08T08:30:55+02:00",
+      "published_at": "2016-04-30T21:23:00+03:00",
+      "body_html": "<p>Magnet for use with Masura Precious Stones, Bow Polish Magnetic, Dance Legend Golden Eye and other magnetic polishes</p>\n<p>Quantity: 1 piece</p>\n<p>How to use: hold an edge of the magnet 3-5mm away from nail for 5-10 seconds while the magnetic polish is still wet. Some magnetic polishes may work",
+      "variants": [
+        {
+          "id": 17501234757,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "4.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 10511179653,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/904-113.jpg?v=1491941861",
+          "width": 499,
+          "height": 514,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 10143469142354,
+      "title": "Emily de Molly - Water Based Smear Free Top Coat",
+      "handle": "emily-de-molly-water-based-smear-free-top-coat",
+      "vendor": "Emily de Molly",
+      "product_type": "Top Coat",
+      "tags": [
+        "all",
+        "|| Top Coat",
+        "|| Topper"
+      ],
+      "created_at": "2025-06-30T15:29:43+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-01T18:00:37+03:00",
+      "body_html": "<p>This water based topcoat ( smudge free top coat ) is specially formulated to protect nail art.</p>\n<p>Its lightweight formula creates a durable, non-sticky seal that can enhance colour vibrancy while preventing streaks and smears on your designs.</p>\n<p>Formulated to be used on all types of nail ",
+      "variants": [
+        {
+          "id": 51038626939218,
+          "title": "Default Title",
+          "sku": "EM021",
+          "barcode": null,
+          "price": "11.95",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 61310792958290,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/water-based-topcoat-1.jpg?v=1751286789",
+          "width": 1200,
+          "height": 1200,
+          "position": 1
+        },
+        {
+          "id": 61310793220434,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Water-based-comp-1.jpg?v=1751286789",
+          "width": 1200,
+          "height": 1200,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10010108658002,
+      "title": "Emily de Molly - Sticky Base Coat",
+      "handle": "emily-de-molly-sticky-base-coat",
+      "vendor": "Emily de Molly",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "|| Base Coat"
+      ],
+      "created_at": "2025-04-01T14:15:33+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-09-01T18:00:36+03:00",
+      "body_html": "<p>The key to any great manicure, is to start with the right base.<br>A base coat protects the natural nail from staining and acts as a bond to your nail polish. A sticky base coat offers exceptional adhesion to the natural nail to prolong the wear time of nail polish.<br>This has a light purple tin",
+      "variants": [
+        {
+          "id": 50537327264082,
+          "title": "Default Title",
+          "sku": "EM026",
+          "barcode": null,
+          "price": "10.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 58862190100818,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/new-base-coat-bottle.jpg?v=1743506182",
+          "width": 1200,
+          "height": 1200,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 10715491762514,
+      "title": "Cosmic Polish - Lift Off - Peel Off Base Coat",
+      "handle": "pre-order-cosmic-polish-lift-off-peel-off-base-coat",
+      "vendor": "Cosmic Polish",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "Peel off"
+      ],
+      "created_at": "2026-04-12T16:37:40+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-17T16:10:03+03:00",
+      "body_html": "<p>Lift Off is not intended to be a long-wearing base coat and depending on application and body chemistry, your mani could last to 3 - 4 days. It needs to be applied directly on the natural nail to peel properly and cannot be used over any other base coat.</p>\n<p>Tips for a longer lasting applicati",
+      "variants": [
+        {
+          "id": 53183824953682,
+          "title": "Default Title",
+          "sku": "CP030",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 70017184891218,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/lift-off-798489.jpg?v=1776001462",
+          "width": 1600,
+          "height": 1600,
+          "position": 1
+        },
+        {
+          "id": 70017184858450,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/lift-off-463864.jpg?v=1776001462",
+          "width": 1600,
+          "height": 1600,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 8815851471186,
+      "title": "Starrily - Pylon",
+      "handle": "starrily-pylon",
+      "vendor": "Starrily",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "|| Base Coat"
+      ],
+      "created_at": "2024-04-02T18:21:19+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T14:44:39+03:00",
+      "body_html": "Description: Pylon is a high quality base coat that works by adhering your nail polish shade to your nail, resulting in a longer lasting manicure. <br><br>As a base coat: Apply before painting your nails to help your nail polish last and stay chip resistant longer. Dries clear. <br><br>Application: ",
+      "variants": [
+        {
+          "id": 47919511634258,
+          "title": "Default Title",
+          "sku": "ST037",
+          "barcode": null,
+          "price": "11.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 52573487726930,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/PylonStarrilyBaseCoatLongLastingManicureNailsGreen.jpg?v=1712071373",
+          "width": 978,
+          "height": 978,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 8815835316562,
+      "title": "Starrily - Guardian",
+      "handle": "starrily-guardian-1",
+      "vendor": "Starrily",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "|| Base Coat"
+      ],
+      "created_at": "2024-04-02T17:45:16+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T14:44:39+03:00",
+      "body_html": "Description: Guardian is a high quality, sheer white, base coat which helps guard against stains and chips. Stain prevention base coat is specially formulated with stain reducing properties. It works by absorbing stains before they leak onto your nails.<br data-mce-fragment=\"1\"><br data-mce-fragment",
+      "variants": [
+        {
+          "id": 47919408021842,
+          "title": "Default Title",
+          "sku": "ST021",
+          "barcode": null,
+          "price": "11.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 52573296918866,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/nail_polish_base_coat_stain_prevention_stain_blocking_Guardian_starrily.jpg?v=1712069669",
+          "width": 978,
+          "height": 978,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 211365101586,
+      "title": "Starrily - Matter",
+      "handle": "starrily-matter",
+      "vendor": "Starrily",
+      "product_type": "Top Coat",
+      "tags": [
+        "all",
+        "| Matte",
+        "|| Top Coat"
+      ],
+      "created_at": "2018-03-29T17:40:45+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T14:44:24+03:00",
+      "body_html": "<p><span>Matter is a clear matte top coat that turns any color beneath it completely matte. Matter is a must have in any collection! </span></p>\n<p><strong>Application: </strong><span>Apply 1 coat and let fully dry.</span></p>\n<p><span>Swatch photos show 1 coat over black.</span></p>\n<p>5-free, vega",
+      "variants": [
+        {
+          "id": 1829364334610,
+          "title": "Default Title",
+          "sku": "ST027",
+          "barcode": null,
+          "price": "11.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 881143906322,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/matte1_1600x_c0e4b51d-73a1-4a2d-9986-1f842803bd20.jpg?v=1522334529",
+          "width": 1023,
+          "height": 1023,
+          "position": 1
+        },
+        {
+          "id": 881143971858,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/matte2_1600x_ce776a49-f9c7-4f14-8439-c573634d6223.jpg?v=1522334562",
+          "width": 1023,
+          "height": 1023,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 5857261189,
+      "title": "Starrily - Eclipse",
+      "handle": "starrily-eclipse",
+      "vendor": "Starrily",
+      "product_type": "Top Coat",
+      "tags": [
+        "all",
+        "| Holographic",
+        "|| Top Coat"
+      ],
+      "created_at": "2016-06-30T21:48:52+03:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2026-04-02T14:44:21+03:00",
+      "body_html": "<p><span>• Holographic top coat with sparse amounts of holographic pigment to help reduce graying.<br>• Versatile holographic top coat instantly turns any color holographic!<br>• Can be layered to increase the holographic effect and achieve your desired look.<br>• Photo shows 2 coats of Eclipse pain",
+      "variants": [
+        {
+          "id": 18686257605,
+          "title": "Default Title",
+          "sku": "ST017",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 20500987730,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/eclipse.jpeg?v=1497609547",
+          "width": 428,
+          "height": 428,
+          "position": 1
+        },
+        {
+          "id": 20500988370,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/eclipse1.jpeg?v=1497609547",
+          "width": 428,
+          "height": 428,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10411809145170,
+      "title": "KBShimmer - Christmas Cocktails 5 mL Cuticle Oil Roller Ball",
+      "handle": "kbshimmer-christmas-cocktails-5-ml-cuticle-oil-roller-ball",
+      "vendor": "KBShimmer",
+      "product_type": "Cuticle Treatment",
+      "tags": [
+        "all",
+        "Skincare"
+      ],
+      "created_at": "2025-11-19T15:51:00+02:00",
+      "updated_at": "2026-11-08T08:30:50+02:00",
+      "published_at": "2025-11-19T15:51:00+02:00",
+      "body_html": "<p>A crisp cotton t-shirt, fresh fruit from the farm stand, tomatoes ripe from the vine: sometimes you just want good quality products without all the extras. Pure, simple, and oh so good, KBShimmer Barely There is just that. A way to make your skin feel good without the extra fragrances and colors ",
+      "variants": [
+        {
+          "id": 52071908802898,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "8.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 57468979937618,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/barely_there_roller_ball_cuticle_oil.jpg?v=1744985495",
+          "width": 540,
+          "height": 540,
+          "position": 1
+        },
+        {
+          "id": 57468980461906,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/barely_there_roller_ball_cuticle_oil-2.jpg?v=1744985495",
+          "width": 3000,
+          "height": 3000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 6649671090241,
+      "title": "Cirque Colors - Magnetic Wand",
+      "handle": "cirque-colors-magnetic-wand",
+      "vendor": "Cirque Colors",
+      "product_type": "Accessories",
+      "tags": [
+        "all",
+        "Magnets",
+        "Nail art supplies",
+        "| Magnetic"
+      ],
+      "created_at": "2021-11-03T16:26:16+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-10-10T15:44:13+03:00",
+      "body_html": "<div class=\"product_description\">\n<br>\n<p>Create captivating 3D designs with Cirque Colors magnetic wand. Hover this dual-ended nail art tool over wet polish to activate the magnetic pigment particles and set the design by holding it for 30-60 seconds until the polish dries. For use with magnetic po",
+      "variants": [
+        {
+          "id": 39499553210433,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "5.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 28663243374657,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/Wand-2-Low-Res_0a06007a-ca79-4360-80c8-5e40d60ed77b.jpg?v=1635949582",
+          "width": 1208,
+          "height": 1208,
+          "position": 1
+        },
+        {
+          "id": 28663243407425,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/Wand-Low-Res_b4000e83-27cf-4028-adc0-72583ef0cfa6.jpg?v=1635949582",
+          "width": 1208,
+          "height": 1208,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 6560756826177,
+      "title": "Cirque Colors - Clean Up Brush",
+      "handle": "cirque-colors-clean-up-brush",
+      "vendor": "Cirque Colors",
+      "product_type": "Accessories",
+      "tags": [
+        "all",
+        "Brushes",
+        "Nail art supplies"
+      ],
+      "created_at": "2021-05-25T18:43:14+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-08-20T22:40:19+03:00",
+      "body_html": "<p>Get picture perfect manicures with our easy-to-use clean up brush.</p>\n<p>This brush features angled nylon bristles to create a sharp edge that makes cleanup a breeze. The durable aluminum handle and metal barrel holds up strong to repeated acetone use.</p>\n<p>Vegan, Cruelty free.</p>\n<p>- Nylon ",
+      "variants": [
+        {
+          "id": 39327850659905,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 28221412835393,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/Clean-Up-Brush-White-Low-Res.jpg?v=1679396824",
+          "width": 1200,
+          "height": 1200,
+          "position": 1
+        },
+        {
+          "id": 28221412900929,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/CleanUpBrush-Creme2-Low-Res.jpg?v=1679396824",
+          "width": 1208,
+          "height": 1208,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 4603615903809,
+      "title": "KBShimmer - Replacement Nail Polish Brush (Fan/Paddle Brush)",
+      "handle": "kbshimmer-replacement-nail-polish-brush",
+      "vendor": "KBShimmer",
+      "product_type": "Accessories",
+      "tags": [
+        "Brushes"
+      ],
+      "created_at": "2020-10-21T12:27:37+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-06-27T22:03:15+03:00",
+      "body_html": "<p>This listing is for a replacement brush for KBShimmer nail polish bottles. You are purchasing a single brush.</p>\n<p>To replace brush only:  Open polish bottle and wipe excess polish from the brush.  With a paper towel, firmly grasp the brush in one hand and cap in the other, then pull until brus",
+      "variants": [
+        {
+          "id": 32256560562241,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "0.45",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 15189678587969,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/replacement_nail_polish_brush.jpg?v=1603272675",
+          "width": 3600,
+          "height": 3600,
+          "position": 1
+        },
+        {
+          "id": 15189678555201,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/replacement_nail_polish_brush-2.jpg?v=1603272675",
+          "width": 3600,
+          "height": 3600,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10141253075282,
+      "title": "ILNP - Paddle Brush Set",
+      "handle": "ilnp-paddle-brush-set",
+      "vendor": "ILNP",
+      "product_type": "Accessories",
+      "tags": [
+        "Brushes"
+      ],
+      "created_at": "2025-06-27T21:53:09+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-06-27T21:55:49+03:00",
+      "body_html": "<p>Been wishing for paddle brushes? We've heard you!</p>\n<p>Featuring the same flat, rounded shape found in the Studio Color line, this 10-pack makes it easy to personalize your polishing experience. Whether you’re refreshing your favorites or keeping extras on hand, this set gives you the flexibili",
+      "variants": [
+        {
+          "id": 51027409797458,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "8.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 61249283326290,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/ILNP-Paddle-Brush-Set.jpg?v=1751051123",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 61249283293522,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/ILNP-Paddle-Brush-scaled.jpg?v=1751051123",
+          "width": 2560,
+          "height": 2560,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 8032498745623,
+      "title": "ILNP - Glass Candy",
+      "handle": "ilnp-glass-candy",
+      "vendor": "ILNP",
+      "product_type": "Top Coat",
+      "tags": [
+        "all",
+        "|| Top Coat"
+      ],
+      "created_at": "2022-12-09T16:32:38+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-06-10T19:59:34+03:00",
+      "body_html": "<p><br></p>\n<p>Glass Candy™ is a crystal-clear top coat with an incredible glass-like shine.<br><br></p>\n<p>Carefully formulated to the highest standards, Glass Candy™ provides an incredible shine, extends the life of your manicure, and protects your polish with a hardened glass-like coating that la",
+      "variants": [
+        {
+          "id": 44151906533655,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "11.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 39989567127831,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/ILNP-Glass-Candy.jpg?v=1670596495",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 39989566996759,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/Glass-Candy-Packaging.jpg?v=1670596495",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 8032494387479,
+      "title": "ILNP - Lockup",
+      "handle": "ilnp-lockup",
+      "vendor": "ILNP",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "|| Base Coat"
+      ],
+      "created_at": "2022-12-09T16:28:53+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-06-10T19:58:27+03:00",
+      "body_html": "<br>\n<p>Lockup is a gripping base coat with a rubberized finish.<br><br></p>\n<p>Lockup’s rubberized finish provides for a smoother nail polish application and strongly bonds to both your nail and any polish applied on top of it. Use our Lockup base coat as the first step in your manicure for a long-",
+      "variants": [
+        {
+          "id": 44151897522455,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "11.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 39989545337111,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/ILNP-Lockup.jpg?v=1670596304",
+          "width": 1500,
+          "height": 1500,
+          "position": 1
+        },
+        {
+          "id": 39989545402647,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/Lockup-Spill.jpg?v=1670596304",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 6850109440065,
+      "title": "ILNP - Magnetic Wand",
+      "handle": "ilnp-magnetic-wand",
+      "vendor": "ILNP",
+      "product_type": "Accessories",
+      "tags": [
+        "all",
+        "Magnets",
+        "Nail art supplies",
+        "| Magnetic"
+      ],
+      "created_at": "2022-07-29T16:12:01+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-06-10T19:51:28+03:00",
+      "body_html": "<br>\n<p>Add a multi-dimensional effect to any magnetic nail polish, the possibilities are endless with this dual-ended wand. While the rectangular side of the wand attracts the magnetic metal shavings in nail polish, the opposite rounded end repels!<br></p>\n<p>Size: 12 ml</p>\n<p>7 free, vegan, cruel",
+      "variants": [
+        {
+          "id": 40065570340929,
+          "title": "Default Title",
+          "sku": "",
+          "barcode": null,
+          "price": "5.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 29910939107393,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/ILNP-Magnetic-Wand-1-of-2.jpg?v=1659100486",
+          "width": 2000,
+          "height": 2000,
+          "position": 1
+        },
+        {
+          "id": 29910939009089,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/products/ILNP-Magnetic-Wand-2-of-2.jpg?v=1659100485",
+          "width": 2000,
+          "height": 2000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 221952770066,
+      "title": "Cirque Colors - Get Ready Base Coat",
+      "handle": "cirque-colors-holdfast-base-coat",
+      "vendor": "Cirque Colors",
+      "product_type": "Base Coat",
+      "tags": [
+        "all",
+        "|| Base Coat"
+      ],
+      "created_at": "2018-05-09T12:26:52+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-04-28T19:25:56+03:00",
+      "body_html": "<p>Get Ready™ is an anchoring base coat that bonds polish to the nail for a longer lasting manicure.<br><br>Directions<br>Before color application, apply 1 coat to clean, dry nails and allow 5 minutes to dry. <br><br>Size: 11 ml<br><br><br>Please note colours may vary slightly due to monitor setting",
+      "variants": [
+        {
+          "id": 2005586477074,
+          "title": "Default Title",
+          "sku": "CIR210",
+          "barcode": null,
+          "price": "12.50",
+          "compare_at_price": "0.00",
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 59483480883538,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/Bottle-GetReadyBaseCoat-CreamCap-HighResolution-SQ.png?v=1745857683",
+          "width": 2000,
+          "height": 1997,
+          "position": 1
+        }
+      ]
+    },
+    {
+      "id": 9926802735442,
+      "title": "KBShimmer - Barely There 5 mL Cuticle Oil Roller Ball",
+      "handle": "kbshimmer-barely-there-5-ml-cuticle-oil-roller-ball",
+      "vendor": "KBShimmer",
+      "product_type": "Cuticle Treatment",
+      "tags": [
+        "all",
+        "Skincare"
+      ],
+      "created_at": "2025-02-06T17:21:15+02:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-04-18T17:12:14+03:00",
+      "body_html": "<p>A crisp cotton t-shirt, fresh fruit from the farm stand, tomatoes ripe from the vine: sometimes you just want good quality products without all the extras. Pure, simple, and oh so good, KBShimmer Barely There is just that. A way to make your skin feel good without the extra fragrances and colors ",
+      "variants": [
+        {
+          "id": 50225874305362,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "8.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 57468979937618,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/barely_there_roller_ball_cuticle_oil.jpg?v=1744985495",
+          "width": 540,
+          "height": 540,
+          "position": 1
+        },
+        {
+          "id": 57468980461906,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/barely_there_roller_ball_cuticle_oil-2.jpg?v=1744985495",
+          "width": 3000,
+          "height": 3000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 10036613874002,
+      "title": "KBShimmer - Raspberry Vanilla 5 mL Cuticle Oil Roller Ball",
+      "handle": "kbshimmer-raspberry-vanilla-5-ml-cuticle-oil-roller-ball",
+      "vendor": "KBShimmer",
+      "product_type": "Cuticle Treatment",
+      "tags": [
+        "all",
+        "Skincare"
+      ],
+      "created_at": "2025-04-18T15:33:34+03:00",
+      "updated_at": "2026-11-08T08:30:53+02:00",
+      "published_at": "2025-04-18T15:33:34+03:00",
+      "body_html": "<p>As any polish fan knows, keeping your cuticles clean and moisturized is one of the most important steps in creating quality manicures.  We at KBShimmer have created an oil blend in a cuticle oil pen that we find, over time, makes our cuticles lush and perfectly smooth. We started with a base of a",
+      "variants": [
+        {
+          "id": 50619090665810,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "8.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 59265795359058,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/raspberry_vanilla_roller_ball_cuticle_oil.png?v=1744979782",
+          "width": 250,
+          "height": 250,
+          "position": 1
+        },
+        {
+          "id": 59265745912146,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/barely_there_roller_ball_cuticle_oil-2_b0e709e7-db15-4063-8298-fa523f3cdcd8.jpg?v=1744979782",
+          "width": 3000,
+          "height": 3000,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11293315301714,
+      "title": "*PRE-ORDER* ILNP - Molten",
+      "handle": "pre-order-ilnp-molten",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Orange",
+        "| Metallic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-11-04T15:07:51+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-11-06T16:53:30+02:00",
+      "body_html": "<p>Molten is a burnt copper-orange Ultra Metallic® with an intensely reflective finish. Loaded with fine silver pigment, its rich orange base builds to opaque coverage, lighting up with brilliant copper-toned shine. Like a glowing ribbon of freshly poured metal, Molten brings warmth and luminous col",
+      "variants": [
+        {
+          "id": 55332353278290,
+          "title": "Default Title",
+          "sku": "IL367",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74612448690514,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/molten-warm-copper-orange-ultra-metallic-nail-polish-1536x1536.jpg?v=1793797722",
+          "width": 1536,
+          "height": 1536,
+          "position": 1
+        },
+        {
+          "id": 74612448657746,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/molten-warm-copper-orange-ultra-metallic-nail-polish-3-1536x1536.jpg?v=1793797721",
+          "width": 1536,
+          "height": 1536,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11293305471314,
+      "title": "*PRE-ORDER* ILNP - Mercury",
+      "handle": "pre-order-ilnp-mercury",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Silver",
+        "| Metallic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-11-04T15:05:39+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-11-06T16:53:29+02:00",
+      "body_html": "<p>Mercury is a charcoal silver Ultra Metallic® with a rich, cool-toned finish. A dense concentration of fine silver pigment illuminates its base, building opaque coverage with an intensely reflective metallic shine. Bright silver gleams against deep charcoal, giving Mercury a polished, fluid appear",
+      "variants": [
+        {
+          "id": 55332338368850,
+          "title": "Default Title",
+          "sku": "IL366",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74612436566354,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/mercury-charcoal-silver-ultra-metallic-nail-polish-1536x1536.jpg?v=1793797635",
+          "width": 1536,
+          "height": 1536,
+          "position": 1
+        },
+        {
+          "id": 74612436599122,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/mercury-charcoal-silver-ultra-metallic-nail-polish-3-1536x1536.jpg?v=1793797636",
+          "width": 1536,
+          "height": 1536,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11293293052242,
+      "title": "*PRE-ORDER* ILNP - Cold Pressed",
+      "handle": "pre-order-ilnp-cold-pressed",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Bronze",
+        "Copper",
+        "| Metallic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-11-04T15:02:37+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-11-06T16:53:29+02:00",
+      "body_html": "<p>Cold Pressed is a warm pewter Ultra Metallic® with a subtle golden undertone. Densely packed with fine silver pigment, its uniquely tinted base builds to an opaque metallic finish filled with brilliant reflections. A delicate balance of silver shine and golden warmth gives Cold Pressed an underst",
+      "variants": [
+        {
+          "id": 55332317725010,
+          "title": "Default Title",
+          "sku": "IL365",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74612359233874,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/cold-pressed-warm-pewter-ultra-metallic-nail-polish-1536x1536.jpg?v=1793797419",
+          "width": 1536,
+          "height": 1536,
+          "position": 1
+        },
+        {
+          "id": 74612359201106,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/cold-pressed-warm-pewter-ultra-metallic-nail-polish-3-1536x1536.jpg?v=1793797419",
+          "width": 1536,
+          "height": 1536,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11293198713170,
+      "title": "*PRE-ORDER* ILNP - Meltdown",
+      "handle": "pre-order-ilnp-meltdown",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Red",
+        "| Metallic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-11-04T14:42:04+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-11-06T16:53:29+02:00",
+      "body_html": "<p>Meltdown is a deep wine Ultra Metallic® illuminated by highly reflective silver pigment. Its berry-toned base builds to an opaque metallic finish, balancing saturated color with a bright, icy gleam. Finish with top coat to reveal Meltdown’s full richness, deepening the rich hue beneath a glossy v",
+      "variants": [
+        {
+          "id": 55332136485202,
+          "title": "Default Title",
+          "sku": "IL364",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74612125892946,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/meltdown-deep-wine-ultra-metallic-nail-polish-1536x1536.jpg?v=1793796196",
+          "width": 1536,
+          "height": 1536,
+          "position": 1
+        },
+        {
+          "id": 74612125860178,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/meltdown-deep-wine-ultra-metallic-nail-polish-3-1536x1536.jpg?v=1793796196",
+          "width": 1536,
+          "height": 1536,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11293191799122,
+      "title": "*PRE-ORDER* ILNP - Foundry",
+      "handle": "pre-order-ilnp-foundry",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Gold",
+        "| Metallic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-11-04T14:39:39+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-11-06T16:53:28+02:00",
+      "body_html": "<p>Foundry is a golden bronze Ultra Metallic® with a subtle green undertone. Fine silver pigment fills its richly tinted base, creating an opaque metallic finish that gleams with warm golden light. Somewhere between antique gold and burnished bronze, Foundry offers an intriguing richness that makes ",
+      "variants": [
+        {
+          "id": 55332125180242,
+          "title": "Default Title",
+          "sku": "IL363",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74612063797586,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/foundry-golden-bronze-ultra-metallic-nail-polish-1536x1536.jpg?v=1793796081",
+          "width": 1536,
+          "height": 1536,
+          "position": 1
+        },
+        {
+          "id": 74612063764818,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/foundry-golden-bronze-ultra-metallic-nail-polish-3-1536x1536.jpg?v=1793796081",
+          "width": 1536,
+          "height": 1536,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11293083828562,
+      "title": "*PRE-ORDER* ILNP - Undercurrent",
+      "handle": "pre-order-ilnp-undercurrent",
+      "vendor": "ILNP",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Blue",
+        "| Metallic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-11-04T14:12:46+02:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-11-06T16:53:28+02:00",
+      "body_html": "<p>Undercurrent is a sapphire blue Ultra Metallic® with a cool, steel-blue gleam. Packed with fine silver pigment, its rich blue base catches the light in countless bright reflections, creating an opaque metallic finish with striking depth. Deep sapphire flows beneath the silvery shine, giving Under",
+      "variants": [
+        {
+          "id": 55331809722706,
+          "title": "Default Title",
+          "sku": "IL362",
+          "barcode": null,
+          "price": "13.00",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74611755876690,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/undercurrent-sapphire-blue-ultra-metallic-nail-polish-1536x1536.jpg?v=1793794632",
+          "width": 1536,
+          "height": 1536,
+          "position": 1
+        },
+        {
+          "id": 74611755942226,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/undercurrent-sapphire-blue-ultra-metallic-nail-polish-3-1536x1536.jpg?v=1793794633",
+          "width": 1536,
+          "height": 1536,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11229743382866,
+      "title": "*PRE-ORDER* Bee's Knees Lacquer - The Dragon's Child (Magnetic)",
+      "handle": "pre-order-bees-knees-lacquer-the-dragons-child-magnetic",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Gold",
+        "Red",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-14T13:59:48+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:39+03:00",
+      "body_html": "<p>a red to gold multichrome with orange to gold magnetic shimmer. </p>\n<p><br></p>\n<p>Part of The East Palace inspired collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cruelty free.</span></p>\n<p>Please note, due to polishes being hand mixed in small batches it is possible for slight",
+      "variants": [
+        {
+          "id": 55050854170962,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "15.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74159730295122,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/12.dragon_schild-3.webp?v=1792068466",
+          "width": 2200,
+          "height": 2200,
+          "position": 1
+        },
+        {
+          "id": 74159730327890,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/12.dragon_schild-5.webp?v=1792068467",
+          "width": 2200,
+          "height": 2200,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11229736501586,
+      "title": "*PRE-ORDER* Bee's Knees Lacquer - The Serpent's Shed Skin (Magnetic)",
+      "handle": "pre-order-bees-knees-lacquer-the-serpents-shed-skin-magnetic",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Black",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-14T13:58:03+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:38+03:00",
+      "body_html": "<p>a black cherry polish with a combo of mosaic magnetics that upon first glance look like a silvery green shimmer, but when magnetized shifts from dark green to silver to purple. </p>\n<p><br></p>\n<p>Part of The East Palace inspired collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cru",
+      "variants": [
+        {
+          "id": 55050823827794,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "15.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74159712469330,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/WuJawmYg.jpg?v=1792068394",
+          "width": 800,
+          "height": 800,
+          "position": 1
+        },
+        {
+          "id": 74159712403794,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/8Yzj4pWQ.jpg?v=1792068393",
+          "width": 800,
+          "height": 800,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11229732798802,
+      "title": "*PRE-ORDER* Bee's Knees Lacquer - That Goes Without Saying (Magnetic)",
+      "handle": "pre-order-bees-knees-lacquer-that-goes-without-saying-magnetic",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Green",
+        "Red",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-14T13:55:14+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:37+03:00",
+      "body_html": "<p>a red to green multichrome with blue to purple multichrome magnetic shimmer.</p>\n<p><br></p>\n<p>Part of The East Palace inspired collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cruelty free.</span></p>\n<p>Please note, due to polishes being hand mixed in small batches it is possibl",
+      "variants": [
+        {
+          "id": 55050792370514,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "15.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74126370439506,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_4892_65c4df7f-a611-49e7-b923-dc617424eb47.jpg?v=1791975366",
+          "width": 1902,
+          "height": 1902,
+          "position": 1
+        },
+        {
+          "id": 74126385414482,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/IMG_4893.jpg?v=1791975435",
+          "width": 1583,
+          "height": 1583,
+          "position": 2
+        }
+      ]
+    },
+    {
+      "id": 11229730505042,
+      "title": "*PRE-ORDER* Bee's Knees Lacquer - Don't Throw Your Life Away For Me (Magnetic)",
+      "handle": "pre-order-bees-knees-lacquer-dont-throw-your-life-away-for-me-magnetic",
+      "vendor": "Bee's Knees Lacquer",
+      "product_type": "Nail Polish",
+      "tags": [
+        "all",
+        "Green",
+        "Purple",
+        "| Magnetic",
+        "| Shimmer"
+      ],
+      "created_at": "2026-10-14T13:53:28+03:00",
+      "updated_at": "2026-11-08T08:30:48+02:00",
+      "published_at": "2026-10-16T16:20:37+03:00",
+      "body_html": "<p>an emerald green to purple multichrome with a peachy copper to green multichrome magnetic shimmer. </p>\n<p><br></p>\n<p>Part of The East Palace inspired collection.</p>\n<p><span>Size: 15ml</span></p>\n<p><span>5 free, cruelty free.</span></p>\n<p>Please note, due to polishes being hand mixed in smal",
+      "variants": [
+        {
+          "id": 55050767040850,
+          "title": "Default Title",
+          "sku": null,
+          "barcode": null,
+          "price": "15.50",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null
+        }
+      ],
+      "images": [
+        {
+          "id": 74126351565138,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/DSC07033.jpg?v=1791975253",
+          "width": 724,
+          "height": 724,
+          "position": 1
+        },
+        {
+          "id": 74126351597906,
+          "src": "https://cdn.shopify.com/s/files/1/0397/9933/files/DSC07057.jpg?v=1791975253",
+          "width": 724,
+          "height": 724,
+          "position": 2
+        }
+      ]
+    }
+  ]
+}

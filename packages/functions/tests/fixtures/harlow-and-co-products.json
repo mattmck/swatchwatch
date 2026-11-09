@@ -1,0 +1,4982 @@
+{
+ "_note": "harlowandco.org/products.json fetched 2026-11-08 (1,537 products over 7 pages), trimmed: the first 60 non-\"Nail Polish\" products, 40 polishes across the six polish vendors, and set/collection-titled polishes; body_html cut to 300 chars, at most 2 variants and 2 images",
+ "products": [
+  {
+   "id": 9930017800512,
+   "title": "Boo Crew Nail Stickers",
+   "handle": "boo-crew-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Glow In The Dark",
+    "Halloween",
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-10-03T11:43:38-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-02T10:45:07-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Your nostalgic Halloween in sticker form — but make it glow in the dark. Pumpkins, ghosts, and other cuties bring a sweet (and spooky) vibe to your nails. 🎃👻</span></p>\n<p><span><strong>Instructions: </strong></span>To remove nail art stickers from the film, we recomme",
+   "variants": [
+    {
+     "id": 51135160582464,
+     "title": "Default Title",
+     "sku": "S095",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 51065388171584,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyBooCrewNailStickershero.jpg?v=1759506160",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 51065388106048,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyBooCrewNailStickers3.webp?v=1759506243",
+     "width": 1016,
+     "height": 1016,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15406292762944,
+   "title": "PEANUTS® Pucker Up Nail Stickers",
+   "handle": "peanuts-pucker-up-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Limited Edition",
+    "Nail Art",
+    "Nail Art Supplies",
+    "PEANUTS®",
+    "Stickers"
+   ],
+   "created_at": "2026-10-02T10:43:20-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-02T10:43:22-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Snoopy should be everywhere, so naturally, we put him on your nails! These tiny nail art stickers make it ridiculously easy to add Snoopy and the PEANUTS® gang to your mani—just pick, stick, and seal. No tiny brushes required. © 2026 PEANUTS</span><br><meta charset=\"ut",
+   "variants": [
+    {
+     "id": 67687785398592,
+     "title": "Default Title",
+     "sku": "SP04",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57605716181312,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyPeanutsPuckerUpNailStickershero.jpg?v=1790952118",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 57605716246848,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyPeanutsPuckerUpNailStickers2.webp?v=1790952141",
+     "width": 1016,
+     "height": 1016,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15406291910976,
+   "title": "PEANUTS® Snow Day Nail Stickers",
+   "handle": "peanuts-snow-day-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Limited Edition",
+    "Nail Art",
+    "Nail Art Supplies",
+    "PEANUTS®",
+    "Stickers"
+   ],
+   "created_at": "2026-10-02T10:40:25-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-02T10:40:26-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Snoopy should be everywhere, so naturally, we put him on your nails! These tiny nail art stickers make it ridiculously easy to add Snoopy and the PEANUTS® gang to your mani—just pick, stick, and seal. No tiny brushes required. © 2026 PEANUTS</span><br><meta charset=\"ut",
+   "variants": [
+    {
+     "id": 67687778419008,
+     "title": "Default Title",
+     "sku": "SP02",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57605665653056,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyPeanutsSnowDayNailStickershero.jpg?v=1790951951",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 57605665718592,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyPeanutsSnowDayNailStickers1.webp?v=1790951972",
+     "width": 1018,
+     "height": 1018,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15406290895168,
+   "title": "PEANUTS® Holiday Cheer Nail Stickers",
+   "handle": "peanuts-holiday-cheer-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Limited Edition",
+    "Nail Art",
+    "Nail Art Supplies",
+    "PEANUTS®",
+    "Stickers"
+   ],
+   "created_at": "2026-10-02T10:36:52-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-02T10:36:54-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Snoopy should be everywhere, so naturally, we put him on your nails! These tiny nail art stickers make it ridiculously easy to add Snoopy and the PEANUTS® gang to your mani—just pick, stick, and seal. No tiny brushes required. © 2026 PEANUTS</span><br><meta charset=\"ut",
+   "variants": [
+    {
+     "id": 67687771504960,
+     "title": "Default Title",
+     "sku": "SP01",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57605620105536,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyPeanutsHolidayCheerNailStickershero.jpg?v=1790951704",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 57605620171072,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyPeanutsHolidayCheerNailStickers1.webp?v=1790951739",
+     "width": 1018,
+     "height": 1018,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15406286405952,
+   "title": "Critters Nail Stickers",
+   "handle": "critters-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "Stickers"
+   ],
+   "created_at": "2026-10-02T10:32:14-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-02T10:32:16-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Bug nails, but make it </span><em>Deco</em><span>. 🐛🩷 This sheet of nail stickers features all of our critter friends, from the land to the sea.</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instructions: </strong></span>To remove nail art stickers from the fil",
+   "variants": [
+    {
+     "id": 67687759446336,
+     "title": "Default Title",
+     "sku": "S060",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57605598150976,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyCrittersNailStickershero.jpg?v=1790951480",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 57605598249280,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyCrittersNailStickers3.webp?v=1790951480",
+     "width": 1356,
+     "height": 1356,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15406284538176,
+   "title": "Toadstool Nail Stickers",
+   "handle": "toadstool-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "Stickers"
+   ],
+   "created_at": "2026-10-02T10:28:28-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-02T10:28:30-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Toadstool is filled with enchanted fall details like mushrooms, frogs, spiders, snails, and more, all in a mossy green palette with plenty of forest magic. </span><span>🍄✨🐸</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instructions: </strong></span>To remove na",
+   "variants": [
+    {
+     "id": 67687751549248,
+     "title": "Default Title",
+     "sku": "S145",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57605509316928,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyToadstoolNailStickershero.jpg?v=1790951248",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 57605509415232,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyToadstoolNailStickers3.webp?v=1790951338",
+     "width": 1018,
+     "height": 1018,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15406283751744,
+   "title": "Vamp Nail Stickers",
+   "handle": "vamp-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Halloween",
+    "Nail Art",
+    "Nail Art Supplies",
+    "Stickers"
+   ],
+   "created_at": "2026-10-02T10:25:19-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-02T10:25:21-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Dark, romantic, and a little dangerous. Vamp is packed with black cats, deep red roses and hearts, silver crosses, daggers, and more for a mani with a gothic little twist. 🖤🥀🗡️</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instructions: </strong></span>To remov",
+   "variants": [
+    {
+     "id": 67687740440896,
+     "title": "Default Title",
+     "sku": "S149",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57605435031872,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyVampNailStickershero.jpg?v=1790950977",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 57605435097408,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyVampNailStickers1.webp?v=1790950976",
+     "width": 1018,
+     "height": 1356,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10263580279104,
+   "title": "Green Apple Candy Sugar Scrub",
+   "handle": "green-apple-candy-sugar-scrub",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Polish & Beauty Expo Exclusive",
+    "Sugar Scrub"
+   ],
+   "created_at": "2026-09-14T11:36:10-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-09-14T11:36:13-04:00",
+   "body_html": "<div class=\"html-div xdj266r x14z9mp xat24cr x1lziwak xexx8yu xyri2b x18d9i69 x1c1uobl\">\n<div class=\"html-div xdj266r x14z9mp x1lziwak xexx8yu xyri2b x18d9i69 x1c1uobl x1e56ztr\"><span class=\"x193iq5w xeuugli x13faqbe x1vvkbs x1xmvt09 x6prxxf xvq8zen xo1l8bm xzsf02u\">Green Apple Candy has the aroma o",
+   "variants": [
+    {
+     "id": 53152094388544,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57406170202432,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/754097408_10240630753919348_1250700620363835082_n.jpg?v=1789400115",
+     "width": 2048,
+     "height": 2048,
+     "position": 1
+    }
+   ]
+  },
+  {
+   "id": 10232504746304,
+   "title": "When Pigs Fly Sugar Scrub",
+   "handle": "when-pigs-fly-sugar-scrub",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Polish Pickup Rewind",
+    "Sugar Scrub"
+   ],
+   "created_at": "2026-08-13T12:19:42-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-08-13T12:19:43-04:00",
+   "body_html": "<div class=\"html-div xdj266r x14z9mp xat24cr x1lziwak xexx8yu xyri2b x18d9i69 x1c1uobl\" tabindex=\"-1\">\n<div class=\"html-div xdj266r x14z9mp x1lziwak xexx8yu xyri2b x18d9i69 x1c1uobl x1e56ztr\"><span class=\"x193iq5w xeuugli x13faqbe x1vvkbs xlh3980 xvmahel x1n0sxbx x6prxxf xvq8zen xo1l8bm xzsf02u\">“Wh",
+   "variants": [
+    {
+     "id": 53020841247040,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57118268064064,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/649564747_10238661847057907_602305484142418698_n.jpg?v=1786637953",
+     "width": 2048,
+     "height": 2048,
+     "position": 1
+    },
+    {
+     "id": 57118268096832,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/649669811_10238661823577320_7670485019208565149_n.jpg?v=1786637953",
+     "width": 700,
+     "height": 700,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10232504058176,
+   "title": "Yummy Gummies Sugar Scrub",
+   "handle": "yummy-gummies-sugar-scrub",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Polish Pickup Rewind",
+    "Sugar Scrub"
+   ],
+   "created_at": "2026-08-13T12:14:27-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-08-13T12:14:29-04:00",
+   "body_html": "<div class=\"html-div xdj266r x14z9mp xat24cr x1lziwak xexx8yu xyri2b x18d9i69 x1c1uobl\" tabindex=\"-1\">\n<div class=\"html-div xdj266r x14z9mp x1lziwak xexx8yu xyri2b x18d9i69 x1c1uobl x1e56ztr\"><span class=\"x193iq5w xeuugli x13faqbe x1vvkbs xlh3980 xvmahel x1n0sxbx x6prxxf xvq8zen xo1l8bm xzsf02u\">Whe",
+   "variants": [
+    {
+     "id": 53020839379264,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57118248370496,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/682249774_10239450720979262_2637003825144909552_n.jpg?v=1786637631",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 57118248403264,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/682636551_10239450722299295_1894834517477940606_n.jpg?v=1786637631",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10232497832256,
+   "title": "Feeling A Little Salty Sugar Scrub",
+   "handle": "feeling-a-little-salty-sugar-scrub-1",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Polish Pickup Rewind",
+    "Sugar Scrub"
+   ],
+   "created_at": "2026-08-13T12:10:41-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-08-13T12:10:43-04:00",
+   "body_html": "<div class=\"x14z9mp xat24cr x1lziwak x1vvkbs xtlvy1s x126k92a\">\n<div dir=\"auto\">Walking along the beach with ocean waves crashing on the shore, the air is filled with the scent of salty sea spray. Saltshakers decorate our tables and enhance the flavors of our favorite dishes. Come winter, salt litte",
+   "variants": [
+    {
+     "id": 53020792848704,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57118158291264,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/709246298_10239925228121644_1674009491257271769_n.jpg?v=1786637362",
+     "width": 2047,
+     "height": 2048,
+     "position": 1
+    },
+    {
+     "id": 57118158356800,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/710078517_10239925118438902_7341080913197933704_n.jpg?v=1786637362",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9476910252352,
+   "title": "Cherry Almond Sugar Scrub",
+   "handle": "cherry-almond-sugar-scrub",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Sugar Scrub"
+   ],
+   "created_at": "2024-07-04T17:29:40-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-06-17T17:15:55-04:00",
+   "body_html": "<p>Watching murder mysteries, listening to true crime podcasts, and reading whodunit novels are guilty pleasures that many of us have. Personally, I feel smart when there is a clue given and I know exactly where it's leading. Being told the detective caught a hint of bitter almond or cherries have m",
+   "variants": [
+    {
+     "id": 49364603339072,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 56483452420416,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/KBShimmer_Cherry_Almond_2026_1.jpg?v=1781730843",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 56483452780864,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/KBShimmer_Cherry_Almond_2026_5.jpg?v=1781730865",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 453918720029,
+   "title": "Barely There Sugar Scrub",
+   "handle": "barely-there-sugar-scrub",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "spo-default",
+    "spo-disabled",
+    "Sugar Scrub"
+   ],
+   "created_at": "2018-03-27T13:50:56-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-04-09T11:37:54-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>Skin is in a constant state of motion, renewing itself daily by growing new layers. But that renewal can cause dead, flaky skin to build up and cling to the fresh appearing youthful skin underneath.  The first step for beautiful glowy skin, KBShimmer's sugar scrubs help slo",
+   "variants": [
+    {
+     "id": 6007083892765,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 4125852139622,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/KBShimmer_Barely_There_Sugar_Scrub_2b572d37-1c15-4922-bb95-d1bc53818c1e.jpg?v=1538397866",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 1856596049949,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/barelythere-sugar-scrub-1.jpg?v=1538397866",
+     "width": 1500,
+     "height": 1500,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 4689669029990,
+   "title": "Lime Margarita Sugar Scrub",
+   "handle": "lime-margarita-sugar-scrub",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Beach Break",
+    "spo-default",
+    "spo-disabled",
+    "Sugar Scrub"
+   ],
+   "created_at": "2020-03-26T15:13:47-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-04-09T11:36:49-04:00",
+   "body_html": "<meta charset=\"utf-8\"><span>Summer can be the perfect time for hanging out and enjoying a cool drink with friends.  When it is not summer, or when ever you want a pick me up, try our Lime Margarita Sugar scrub instead!  This juicy, drink-inspired scent starts with notes of salty lime blended with su",
+   "variants": [
+    {
+     "id": 31524296392806,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 14309759778918,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/lime_margarita_sugar_scrub.png?v=1585250054",
+     "width": 540,
+     "height": 540,
+     "position": 1
+    },
+    {
+     "id": 14309759582310,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/lime_margarita_sugar_scrub-1.jpg?v=1585250062",
+     "width": 2399,
+     "height": 2399,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10095006712128,
+   "title": "Freesia Sugar Scrub",
+   "handle": "freesia-sugar-scrub",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Sugar Scrub"
+   ],
+   "created_at": "2026-04-09T11:35:56-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-04-09T11:35:58-04:00",
+   "body_html": "<p>There is something about freesia that just makes me smile. Seeing that array of happy hues in any arrangement sparks pure joy, while the bright scent brings to mind the spring season - and one of my favorite body sprays from the 90’s! KBShimmer Freesia sugar scrub starts with that distinctly brig",
+   "variants": [
+    {
+     "id": 51756662128960,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 55173497717056,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/freesia_sugar_scrub_ppu-3.png?v=1775748910",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 55173497651520,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/freesia_sugar_scrub_ppu-1.png?v=1775748910",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10095004844352,
+   "title": "Breezy Juniper Sugar Scrub",
+   "handle": "breezy-juniper-sugar-scrub",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Sugar Scrub"
+   ],
+   "created_at": "2026-04-09T11:32:02-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-04-09T11:32:03-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Crisp and clean, fresh and herbal, Breezy Juniper will take you back in time to the days when you only had to worry about catching the school bus or meeting your friends at the mall, not catching your morning Zoom meeting. Prepare to have your senses invigorated with t",
+   "variants": [
+    {
+     "id": 51756639322432,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 55173308514624,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/breezy_juniper_scrub_ppu_august_2025.png?v=1775748621",
+     "width": 540,
+     "height": 540,
+     "position": 1
+    },
+    {
+     "id": 55173308481856,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/breezy_juniper_scrub_ppu_august_2025-1.jpg?v=1775748620",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6635739938918,
+   "title": "Enchanted",
+   "handle": "enchanted",
+   "vendor": "Cirque",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "Bewitched",
+    "Limited Edition",
+    "Old Flames",
+    "spo-default",
+    "spo-disabled",
+    "Thermal Polish"
+   ],
+   "created_at": "2021-09-22T20:01:58-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-02-03T10:16:32-05:00",
+   "body_html": "<p dir=\"ltr\"><span>Enchanted is a thermal nail polish that changes colour based on temperature. This polish changes to a vivid purple when cold and to a lilac when warm. You may notice shades of light lavender as the polish travels through the colour spectrum and between the cold and warm states. </",
+   "variants": [
+    {
+     "id": 39439098380390,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "21.49",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28425126838374,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/CirqueColorsEnchanted.jpg?v=1632355321",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 28425126903910,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Lauren_ENCHANTED_Transition_LOW-RES_02_SQ.jpg?v=1632355321",
+     "width": 1243,
+     "height": 1243,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9110557196608,
+   "title": "Nail & Cuticle Oil",
+   "handle": "nail-cuticle-oil",
+   "vendor": "Cirque",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Cuticle Oil",
+    "Gift Ideas",
+    "Legend of the Fire Horse",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-12T18:54:20-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-01-28T10:06:32-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Our nourishing nail and cuticle oil is a quick-absorbing treatment combining Vitamin E with apricot, argan, and avocado oils to hydrate and condition cuticles. Packaged in an easy-to-use 2ML twist pen with brush applicator. The scent is gently sweet and fresh, making i",
+   "variants": [
+    {
+     "id": 48018519753024,
+     "title": "Birthday",
+     "sku": "",
+     "barcode": null,
+     "price": "18.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Birthday",
+     "option2": null,
+     "option3": null
+    },
+    {
+     "id": 51488402997568,
+     "title": "Lychee Jelly",
+     "sku": null,
+     "barcode": null,
+     "price": "18.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Lychee Jelly",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44092277883200,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/HIGHRES-BirthdayOil.jpg?v=1710284063",
+     "width": 2000,
+     "height": 2000,
+     "position": 1
+    },
+    {
+     "id": 53502726340928,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/HIGHRES_-_Nail_Cuticle_Infographic_01.png?v=1769612654",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9993117237568,
+   "title": "ILNP U-Magnet",
+   "handle": "ilnp-u-magnet",
+   "vendor": "ILNP",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Magnet",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Tools"
+   ],
+   "created_at": "2025-12-11T11:05:01-05:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2025-12-11T11:05:05-05:00",
+   "body_html": "<p>Create mesmerizing magnetic effects! Ready to take your magnetic manicures to the next level? Our custom ILNP U Magnet, also known as a horseshoe magnet, features a powerful 30-pound magnetic pull force specifically designed to create stunning velvet effects with magnetic polishes. The precision ",
+   "variants": [
+    {
+     "id": 51344420667712,
+     "title": "Black",
+     "sku": null,
+     "barcode": null,
+     "price": "34.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Black",
+     "option2": null,
+     "option3": null
+    },
+    {
+     "id": 51344420700480,
+     "title": "Pink",
+     "sku": null,
+     "barcode": null,
+     "price": "34.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Pink",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 52611542253888,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Horseshoe-Magnet-Black.webp?v=1765468876",
+     "width": 2000,
+     "height": 2000,
+     "position": 1
+    },
+    {
+     "id": 52611543597376,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Horseshoe-Magnet-Pink.webp?v=1765468914",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6746281869414,
+   "title": "Vanilla Bean Sugar Scrub",
+   "handle": "vanilla-bean-sugar-scrub",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Limited Edition",
+    "Polish Pickup Rewind",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Sugar Scrub"
+   ],
+   "created_at": "2022-06-30T10:48:21-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2025-11-18T15:54:54-05:00",
+   "body_html": "<p data-mce-fragment=\"1\">Rich, smooth cream combined with the fruity and fragrant vanilla bean form many favorite desserts: ice cream, crème brulee, pudding and pastry creams. My favorite way to enjoy a scoop of vanilla is with a drizzle of thick, dark caramel sauce.  The toasted notes of the near b",
+   "variants": [
+    {
+     "id": 39701960425574,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28960904446054,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/vanilla-bean-sugar-scrub-ppu_march-2022-6.jpg?v=1656600522",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 28960904511590,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/vanilla-bean-sugar-scrub-ppu_march-2022-5.jpg?v=1656600522",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9976245846336,
+   "title": "Baubles Nail Stickers",
+   "handle": "baubles-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Christmas",
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-11-13T11:12:33-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-11-13T11:12:36-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>The theme this holiday season is </span><em>nostalgia</em><span>. Baubles is a sheet filled with metallic holiday ornaments inspired by all of Jules' vintage Christmas tree memories of tinsel and colored lights.</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Ins",
+   "variants": [
+    {
+     "id": 51269447319872,
+     "title": "Default Title",
+     "sku": "S065",
+     "barcode": null,
+     "price": "14.99",
+     "compare_at_price": "16.99",
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 51969811317056,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyBaublesNailStickershero.jpg?v=1763050290",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 51969811284288,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyBaublesNailStickers3.webp?v=1763050290",
+     "width": 1348,
+     "height": 1348,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9976241357120,
+   "title": "Wonderland Nail Stickers",
+   "handle": "wonderland-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Christmas",
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-11-13T11:01:47-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-11-13T11:01:50-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>What would a deconstructed gingerbread house look like if it it was a nail art sticker sheet? </span><span>Wonderland</span><span>, obviously! 🍬</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instructions: </strong></span>To remove nail art stickers from the fil",
+   "variants": [
+    {
+     "id": 51269419401536,
+     "title": "Default Title",
+     "sku": "S038",
+     "barcode": null,
+     "price": "14.99",
+     "compare_at_price": "16.99",
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 51969772749120,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyWonderlandNailStickershero.jpg?v=1763049590",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 51969772683584,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyWonderlandNailStickers1.webp?v=1763049621",
+     "width": 1098,
+     "height": 1098,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9930031464768,
+   "title": "Charcuterie Nail Stickers",
+   "handle": "charcuterie-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-10-03T12:12:47-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-10-03T12:12:50-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Cheese, pretzels, olives, and wooden boards — </span><em>everything</em><span> you need for a perfect grazing table, but in miniature. Charcuterie turns your nails into a deliciously whimsical spread. 🧀🥨</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instruction",
+   "variants": [
+    {
+     "id": 51135298535744,
+     "title": "Default Title",
+     "sku": "S087",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 51065905873216,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyCharcuterieNailStickershero.jpg?v=1759507928",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 51065905971520,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyCharcuterieNailStickers3.webp?v=1759508011",
+     "width": 1084,
+     "height": 1084,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9930029465920,
+   "title": "See No Evil Nail Stickers",
+   "handle": "see-no-evil-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-10-03T12:08:36-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-10-03T12:08:38-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Protect your energy with shimmering gold evil eyes and winding snakes. This mystical sticker sheet is equal parts glam and good vibes. ✨🐍</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instructions: </strong></span>To remove nail art stickers from the film, we r",
+   "variants": [
+    {
+     "id": 51135256363328,
+     "title": "Default Title",
+     "sku": "S085",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 51065607029056,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautySeeNoEvilNailStickershero.jpg?v=1759507650",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 51065607061824,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautySeeNoEvilNailStickers1.webp?v=1759507741",
+     "width": 955,
+     "height": 955,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9930028122432,
+   "title": "Cozy Nail Stickers",
+   "handle": "cozy-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-10-03T12:06:23-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-10-03T12:06:25-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>We embrace our fall \"basic-ness\" over here, cinnamon buns and all! Finally a sheet that screams </span><em>fall</em><span> that you can keep using throughout PSL season. Featuring tiny gold metallic details throughout.</span><br><meta charset=\"utf-8\"></p>\n<p><span><str",
+   "variants": [
+    {
+     "id": 51135242338624,
+     "title": "Default Title",
+     "sku": "S063",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 51065563676992,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyCozyNailStickershero.jpg?v=1759507544",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 51065563742528,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyCozyNailStickers1.webp?v=1759507544",
+     "width": 1354,
+     "height": 1354,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9930022682944,
+   "title": "Honeycrisp Nail Stickers",
+   "handle": "honeycrisp-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-10-03T11:58:18-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-10-03T11:58:20-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Autumn’s harvest, with gold-kissed apples, pumpkins, leaves, and cozy farm vibes. Honeycrisp is like a perfect fall day, right at your fingertips. 🍎🍂</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instructions: </strong></span>To remove nail art stickers from th",
+   "variants": [
+    {
+     "id": 51135186436416,
+     "title": "Default Title",
+     "sku": "S101",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 51065522127168,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyHoneycrispNailStickershero.jpg?v=1759507065",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 51065522192704,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DecoBeautyHoneycrispNailStickers2.webp?v=1759507121",
+     "width": 1016,
+     "height": 1016,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9850098811200,
+   "title": "ILNP Paddle Brush Set",
+   "handle": "ilnp-paddle-brush-set",
+   "vendor": "ILNP",
+   "product_type": "Apparel & Accessories",
+   "tags": [
+    "Accessories",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2025-07-04T15:05:33-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-07-04T15:05:34-04:00",
+   "body_html": "<p>Been wishing for paddle brushes? We've heard you!</p>\n<p>Featuring the same flat, rounded shape found in our Studio Color line, this 10-pack makes it easy to personalize your polishing experience. Whether you’re refreshing your favorites or keeping extras on hand, this set gives you the flexibili",
+   "variants": [
+    {
+     "id": 50846857855296,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 49621390262592,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Paddle-Brush-Set.jpg?v=1751655869",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 49621390131520,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Paddle-Brush-scaled.jpg?v=1751655869",
+     "width": 2560,
+     "height": 2560,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9849658573120,
+   "title": "Dew Drops - Nail & Cuticle Oil",
+   "handle": "dew-drops-nail-cuticle-oil",
+   "vendor": "Polished for Days",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Cuticle Oil",
+    "Essentials",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2025-07-03T17:51:29-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-07-03T17:51:30-04:00",
+   "body_html": "<p>Meet your nails and cuticles new bestie! Dew Drops are formulated with a mix of 5 responsibly sourced oils that will strengthen your nails and hydrate the surrounding skin. The perfect companion for at home nail care. The soft doe foot applicator applies the perfect amount of oil to the cuticle a",
+   "variants": [
+    {
+     "id": 67778779480384,
+     "title": "Energy Vampire",
+     "sku": null,
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Energy Vampire",
+     "option2": null,
+     "option3": null
+    },
+    {
+     "id": 67778758377792,
+     "title": "Gingerdread House",
+     "sku": null,
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Gingerdread House",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 49612579602752,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/515167054_10233275461060031_2239327986952587117_n.jpg?v=1751579289",
+     "width": 2048,
+     "height": 2048,
+     "position": 1
+    },
+    {
+     "id": 49612579569984,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/514434930_10233275462020055_2593213988255269525_n.jpg?v=1751579289",
+     "width": 2048,
+     "height": 2048,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9726911316288,
+   "title": "Wildflower Nail Stickers",
+   "handle": "wildflower-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-02-19T14:58:04-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-02-19T14:58:04-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Woodland creatures and fae look right at home on your nails. Don't forget to add ladybugs and vines. 🐞 </span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instructions: </strong></span>To remove nail art stickers from the film, we recommend bending the sheet and gen",
+   "variants": [
+    {
+     "id": 50302989893952,
+     "title": "Default Title",
+     "sku": "S023",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 47670434267456,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WILDFLOWER_W_1.webp?v=1740065097",
+     "width": 1029,
+     "height": 1029,
+     "position": 1
+    },
+    {
+     "id": 47670434365760,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Facetune_17-09-2023-16-22-27.webp?v=1740065097",
+     "width": 1683,
+     "height": 1683,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9726910824768,
+   "title": "Sunny Side Up Nail Stickers",
+   "handle": "sunny-side-up-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-02-19T14:55:35-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-02-19T14:55:35-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Because why wouldn't you want to wear fried eggs and junk food on your nails?! 🍳</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instructions: </strong></span>To remove nail art stickers from the film, we recommend bending the sheet and gently removing the sticke",
+   "variants": [
+    {
+     "id": 50302986387776,
+     "title": "Default Title",
+     "sku": "S002",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 47670430138688,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/SUNNY_SIDE_UP_NEW_W.webp?v=1740065208",
+     "width": 984,
+     "height": 984,
+     "position": 1
+    },
+    {
+     "id": 47670430105920,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/nailartstickers-1.webp?v=1740065208",
+     "width": 1754,
+     "height": 1754,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9726910300480,
+   "title": "Stay Groovy Nail Stickers",
+   "handle": "stay-groovy-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-02-19T14:52:59-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-02-19T14:52:59-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><em>Groovy, darling</em><span><em>.</em> We love all things peace signs and Y2K. </span><span>TIP</span><span>: Cut the long swoop stickers across multiple nails for a continuous line.</span><br><meta charset=\"utf-8\"></p>\n<p><span><strong>Instructions: </strong></span>To rem",
+   "variants": [
+    {
+     "id": 50302985797952,
+     "title": "Default Title",
+     "sku": "S007",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 47670427418944,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/StayGroovyNEW_white.webp?v=1740065291",
+     "width": 1907,
+     "height": 1907,
+     "position": 1
+    },
+    {
+     "id": 47670427451712,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/wildflower_katie-04.webp?v=1740065291",
+     "width": 1318,
+     "height": 1318,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9726908367168,
+   "title": "Fruit Salad Nail Stickers",
+   "handle": "fruit-salad-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-02-19T14:38:02-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-02-19T14:38:02-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Tiny hand-drawn fruit stickers are a </span><em>must-have </em><span>for any nail art lover. 🍉</span></p>\n<p><span><strong>Instructions: </strong></span>To remove nail art stickers from the film, we recommend bending the sheet and gently removing the stickers with twee",
+   "variants": [
+    {
+     "id": 50302971707712,
+     "title": "Default Title",
+     "sku": "S057",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 47670400188736,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/FRUITSALAD_W.webp?v=1740065591",
+     "width": 981,
+     "height": 981,
+     "position": 1
+    },
+    {
+     "id": 47670400319808,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Screenshot_2024-11-10_at_8.48.04_PM.webp?v=1740065591",
+     "width": 1438,
+     "height": 1438,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9726906892608,
+   "title": "Farmer's Market Nail Stickers",
+   "handle": "farmers-market-nail-stickers",
+   "vendor": "Deco Beauty",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2025-02-19T14:30:57-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-02-19T14:30:57-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Wearing tiny fruits and veggies on your nails </span><span>never</span><span> gets old. Farmer's Market features the tiniest foods with little gold accents. Don't sleep on the jam jars and honey bottles.</span></p>\n<p><span><strong>Instructions: </strong><meta charset=",
+   "variants": [
+    {
+     "id": 50302963548480,
+     "title": "Default Title",
+     "sku": "S034",
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 47670289662272,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/FARMERS_MARKET_NAIL_STICKERS_1.webp?v=1740065665",
+     "width": 969,
+     "height": 969,
+     "position": 1
+    },
+    {
+     "id": 47670289629504,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/DECO_BEAUTY_FARMERS_MARKET_NAIL_STICKERS_1.webp?v=1740065665",
+     "width": 1038,
+     "height": 1038,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9655554081088,
+   "title": "KBShimmer Cuticle Oil Roller Ball",
+   "handle": "kbshimmer-cuticle-oil-roller-ball",
+   "vendor": "KBShimmer",
+   "product_type": "Lotion",
+   "tags": [
+    "Cuticle Oil",
+    "Gift Ideas",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-11-21T16:19:05-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2024-11-21T16:19:05-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>As any polish fan knows, keeping your cuticles clean and moisturized is one of the most important steps in creating quality manicures.  We at KBShimmer have created an oil blend in a cuticle oil pen that we find, over time, makes our cuticles lush and perfectly smooth.",
+   "variants": [
+    {
+     "id": 49972125106496,
+     "title": "Berry Sweet",
+     "sku": "",
+     "barcode": null,
+     "price": "11.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Berry Sweet",
+     "option2": null,
+     "option3": null
+    },
+    {
+     "id": 50323809501504,
+     "title": "Cherry Almond",
+     "sku": null,
+     "barcode": null,
+     "price": "11.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Cherry Almond",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 46765659554112,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/berry_sweet_roller_ball_cuticle_oil-2.jpg?v=1732223753",
+     "width": 3000,
+     "height": 3000,
+     "position": 1
+    },
+    {
+     "id": 46765659586880,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/berry_sweet_roller_ball_cuticle_oil-1.jpg?v=1732223753",
+     "width": 3000,
+     "height": 3000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9655547232576,
+   "title": "KBShimmer Flat Bar Neodymium Magnet",
+   "handle": "kbshimmer-flat-bar-neodymium-magnet",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Magnet",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Tools"
+   ],
+   "created_at": "2024-11-21T16:06:35-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2024-11-21T16:06:35-05:00",
+   "body_html": "<p>Magnetic polishes are an out-of-this-world invention! With the power of a magnet, colour is shifted and relocated on the nail for a futuristic effect. For best results, you need a strong magnet with the right magnetic pattern – and not all magnets will work.  The KBShimmer Neodymium Flat Bar Magn",
+   "variants": [
+    {
+     "id": 49972069892416,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "7.49",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 46765566361920,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/flat_bar_magnet.jpg?v=1732223180",
+     "width": 3600,
+     "height": 3600,
+     "position": 1
+    },
+    {
+     "id": 46765566394688,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/flat_bar_magnet-2.jpg?v=1732223180",
+     "width": 3300,
+     "height": 3300,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9354838442304,
+   "title": "Me Time Hand Rescue",
+   "handle": "me-time-hand-rescue",
+   "vendor": "Walton Wood Farm",
+   "product_type": "Lotion",
+   "tags": [
+    "Gift Ideas",
+    "Hand Cream",
+    "Hand Rescue",
+    "lotion",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-05-28T13:42:45-04:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-05-28T13:42:45-04:00",
+   "body_html": "<p>Indulge in our super hydrating Mojito Magic scented hand cream in a handy purse or pocket-sized tube, made with a moisturizing blend of Cocoa Butter, Shea Butter and Green Tea.</p>\n<p data-mce-fragment=\"1\">• Vegan, Cruelty-Free, Gluten-Free<br data-mce-fragment=\"1\">• SLS, Paraben, Phthalate, and ",
+   "variants": [
+    {
+     "id": 48753608655168,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44800428147008,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmsMeTimeHandCream.jpg?v=1716918141",
+     "width": 689,
+     "height": 689,
+     "position": 1
+    }
+   ]
+  },
+  {
+   "id": 9354836083008,
+   "title": "Good Juju Hand Rescue",
+   "handle": "good-juju-hand-rescue",
+   "vendor": "Walton Wood Farm",
+   "product_type": "Lotion",
+   "tags": [
+    "Gift Ideas",
+    "Hand Cream",
+    "Hand Rescue",
+    "lotion",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-05-28T13:40:48-04:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-05-28T13:40:48-04:00",
+   "body_html": "<p data-mce-fragment=\"1\">We're not taking any chances this year. Rescue someone today with this thick and rich Shea and Cocoa Butter formula in an uplifting Satsuma Mandarin scent, now in a handy purse or pocket-sized 2 oz tube!</p>\n<p><span>• Vegan, Cruelty-Free, Gluten-Free</span><br><span>• SLS, ",
+   "variants": [
+    {
+     "id": 48753586176320,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44800418971968,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmsGoodJujuHandCream.jpg?v=1716918012",
+     "width": 689,
+     "height": 689,
+     "position": 1
+    }
+   ]
+  },
+  {
+   "id": 9123661316416,
+   "title": "Cutie Oil - Unscented",
+   "handle": "cutie-oil-unscented",
+   "vendor": "Cutie Oils",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Cuticle Oil",
+    "Gift Ideas",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-20T10:16:02-04:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-03-20T10:16:02-04:00",
+   "body_html": "<p><span data-mce-fragment=\"1\">For the scent sensitive. All the same benefits, without the fragrance! Whatever your reasoning, we've got you covered. </span></p>\n<p><span data-mce-fragment=\"1\">6ml.  </span></p>\n<p><span data-mce-fragment=\"1\"><strong>Ingredients:</strong> <em>coconut oil, macadamia n",
+   "variants": [
+    {
+     "id": 48071117209920,
+     "title": "Default Title",
+     "sku": "CO-UNSCENTED",
+     "barcode": null,
+     "price": "22.00",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44146664866112,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CutieOilsstylized2_712cd5e6-65d6-43da-bd1d-5c9a4a60ec72.jpg?v=1710944169",
+     "width": 800,
+     "height": 800,
+     "position": 1
+    },
+    {
+     "id": 44146664964416,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CutieOils_5cacb2ba-2c63-4bf1-98c2-b991f8996361.jpg?v=1710944169",
+     "width": 800,
+     "height": 800,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9123657548096,
+   "title": "Cutie Oil - Olivine",
+   "handle": "cutie-oil-olivine",
+   "vendor": "Cutie Oils",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Cuticle Oil",
+    "Gift Ideas",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-20T10:12:19-04:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-03-20T10:12:19-04:00",
+   "body_html": "<p><span data-mce-fragment=\"1\">Olivine - sweet vanilla, warm amber, with a hint of sandalwood and blackberry. Olivine typically arrives just on time with outlandish tea to spill. Often chooses pink or glitter. </span></p>\n<p><span data-mce-fragment=\"1\">6ml.  </span></p>\n<p><span data-mce-fragment=\"1",
+   "variants": [
+    {
+     "id": 48071093059904,
+     "title": "Default Title",
+     "sku": "CO-OLIVINE",
+     "barcode": null,
+     "price": "22.00",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44146641633600,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CutieOilsOlivine.jpg?v=1710943941",
+     "width": 800,
+     "height": 800,
+     "position": 1
+    },
+    {
+     "id": 44146641764672,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CutieOilsstylized2_015a2c52-b345-4bc6-b7db-b149b41bf3b9.jpg?v=1710943942",
+     "width": 800,
+     "height": 800,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9123652796736,
+   "title": "Cutie Oil - Mia",
+   "handle": "cutie-oil-mia",
+   "vendor": "Cutie Oils",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Cuticle Oil",
+    "Gift Ideas",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-20T10:07:51-04:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-03-20T10:07:51-04:00",
+   "body_html": "<p><span data-mce-fragment=\"1\">Mia - a mix of passionfruit and tangerine, with mid notes of pink peony and jasmine. Mia has a standing two-week appointment that never gets moved or canceled. Can be very indecisive over the 5 neutrals in her rotation (including red, the other neutral). </span></p>\n<p",
+   "variants": [
+    {
+     "id": 48071064650048,
+     "title": "Default Title",
+     "sku": "CO-MIA",
+     "barcode": null,
+     "price": "22.00",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44146608701760,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CutieOils.jpg?v=1710943674",
+     "width": 800,
+     "height": 800,
+     "position": 1
+    },
+    {
+     "id": 44146608800064,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CutieOilsstylized2.jpg?v=1710943675",
+     "width": 800,
+     "height": 800,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9102584054080,
+   "title": "Winter's A B*tch Hand Rescue",
+   "handle": "winters-a-b-tch-hand-rescue",
+   "vendor": "Walton Wood Farm",
+   "product_type": "Lotion",
+   "tags": [
+    "Gift Ideas",
+    "Hand Cream",
+    "Hand Rescue",
+    "lotion",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-08T11:32:44-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-03-08T11:32:44-05:00",
+   "body_html": "<p data-mce-fragment=\"1\"><span data-mce-fragment=\"1\">Soft hands make better snowballs with this delightful light and fluffy Shea butter, Cocoa Butter, and Green Tea hand whip. Irresistible peppermint buttercream scent will perk you up and get you excited about sparkly snowflakes and all things fluff",
+   "variants": [
+    {
+     "id": 47991196320064,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44063931040064,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmWinter_saBitchHandRescue.jpg?v=1709915566",
+     "width": 689,
+     "height": 689,
+     "position": 1
+    },
+    {
+     "id": 44064015810880,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmWinter_saBitchHandRescuestylized.jpg?v=1709916093",
+     "width": 689,
+     "height": 689,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9102578876736,
+   "title": "Beach Babe Hand Rescue",
+   "handle": "beach-babe-hand-rescue",
+   "vendor": "Walton Wood Farm",
+   "product_type": "Lotion",
+   "tags": [
+    "Gift Ideas",
+    "Hand Cream",
+    "Hand Rescue",
+    "lotion",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-08T11:28:54-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-03-08T11:28:54-05:00",
+   "body_html": "<p data-mce-fragment=\"1\">The delicious fresh pineapple scent of our Beach Babe hand cream makes you feel like you're at the beach already! It comes in a handy purse or pocket-sized tube, and is made with a moisturizing blend of Cocoa Butter, Shea Butter and Green Tea.</p>\n<p data-mce-fragment=\"1\">• ",
+   "variants": [
+    {
+     "id": 47991176397120,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "10.49",
+     "compare_at_price": "11.99",
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44063890047296,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmBeachBabeHandRescue.jpg?v=1709915337",
+     "width": 689,
+     "height": 689,
+     "position": 1
+    },
+    {
+     "id": 44064010174784,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmBeachBabeHandRescuestylized.jpg?v=1709916067",
+     "width": 689,
+     "height": 689,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9102574158144,
+   "title": "Nurse's Rescue Hand Rescue",
+   "handle": "nurses-rescue-hand-rescue",
+   "vendor": "Walton Wood Farm",
+   "product_type": "Lotion",
+   "tags": [
+    "Gift Ideas",
+    "Hand Cream",
+    "Hand Rescue",
+    "lotion",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-08T11:25:09-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-03-08T11:25:09-05:00",
+   "body_html": "<p>This thick, protective hand cream is the perfect little indulgence during a tough 12-hour shift. The handy purse-sized tube fits in your bag or in your scrubs pocket. This moisturizing blend of Cocoa Butter, Shea Butter and Green Tea is the right antidote to rough, dry hands stressed from strict ",
+   "variants": [
+    {
+     "id": 47991154770240,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "10.49",
+     "compare_at_price": "11.99",
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44063845482816,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmNurse_sRescueHandRescuecopy.jpg?v=1709915112",
+     "width": 689,
+     "height": 689,
+     "position": 1
+    },
+    {
+     "id": 44064026198336,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmNurse_sRescueHandRescuestylized.jpg?v=1709916194",
+     "width": 689,
+     "height": 689,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9102537556288,
+   "title": "Week From Hell Hand Rescue",
+   "handle": "week-from-hell-hand-rescue",
+   "vendor": "Walton Wood Farm",
+   "product_type": "Lotion",
+   "tags": [
+    "Gift Ideas",
+    "Hand Cream",
+    "Hand Rescue",
+    "lotion",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-08T11:03:04-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-03-08T11:03:04-05:00",
+   "body_html": "<p data-mce-fragment=\"1\">Indulge in our fancy-schmancy Grapefruit and Brown Sugar hand cream in a handy purse or pocket-sized tube, made with a moisturizing blend of Cocoa Butter, Shea Butter and Green Tea.</p>\n<p data-mce-fragment=\"1\">• Vegan, Cruelty-Free, Gluten-Free<br data-mce-fragment=\"1\">• SL",
+   "variants": [
+    {
+     "id": 47991025336640,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44063596085568,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmWeekfromHellHandRescue.jpg?v=1709913788",
+     "width": 689,
+     "height": 689,
+     "position": 1
+    }
+   ]
+  },
+  {
+   "id": 9102519959872,
+   "title": "Birthday Girl Hand Rescue",
+   "handle": "birthday-girl-hand-rescue",
+   "vendor": "Walton Wood Farm",
+   "product_type": "Lotion",
+   "tags": [
+    "Gift Ideas",
+    "Hand Cream",
+    "Hand Rescue",
+    "lotion",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-08T10:51:52-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-03-08T10:51:52-05:00",
+   "body_html": "<p>Treat yourself like it's your Birthday with our rejuvenating vanilla buttercream hand rescue. Remember, soft hands take the cake!</p>\n<p><span>• Vegan, Cruelty-Free, Gluten-Free</span><br><span>• SLS, Paraben, Phthalate, and Dye-Free</span><br><span>• Moisturizing blend of Cocoa Butter, Shea Butt",
+   "variants": [
+    {
+     "id": 47990960062784,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44063502860608,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/WaltonWoodFarmsBirthdayGirlHandCream.jpg?v=1709913117",
+     "width": 689,
+     "height": 689,
+     "position": 1
+    }
+   ]
+  },
+  {
+   "id": 8584143077696,
+   "title": "Kelli Marissa Nail Art Stickers",
+   "handle": "kelli-marissa-nail-art-stickers",
+   "vendor": "Cirque",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Gift Ideas",
+    "Kelli Marissa",
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stickers"
+   ],
+   "created_at": "2023-08-17T15:34:44-04:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2023-08-17T15:34:44-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\"><span data-mce-fragment=\"1\">Our Kelli Marissa Collection Ready-to-Wear Nail Art Stickers contains a sheet of individual nail stickers.</span></p>\n<p data-mce-fragment=\"1\"><span data-mce-fragment=\"1\">These nail stickers are the life of the party, the ca",
+   "variants": [
+    {
+     "id": 46245348213056,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "9.99",
+     "compare_at_price": "13.99",
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 42286722875712,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CirqueColorsxKelliMarissaNailArtStickers.jpg?v=1692300888",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 42286722711872,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/HIGHRES-swatch-kenya-kellimarissanailartstickers.jpg?v=1692300887",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 8186908442944,
+   "title": "What the Pluck Tweezers",
+   "handle": "what-the-pluck-tweezers",
+   "vendor": "Cirque",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Gourmand",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Tools"
+   ],
+   "created_at": "2023-03-08T10:23:27-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2023-03-08T10:23:27-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p><span data-mce-fragment=\"1\">Our What the Pluck Tweezers is a pointed tip nail art tool with a rubber stopper, designed to lift, place, and adjust nail art stickers.</span></p>\n<p><span data-mce-fragment=\"1\">You love nail stickers but don’t love messing around with the stick",
+   "variants": [
+    {
+     "id": 44599566631232,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "16.49",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 40741224808768,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/CirqueColorsWhatthePluckTweezers.jpg?v=1678289010",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 40741224776000,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/HIGHRES-WhatthePluckTweezersStylized01.jpg?v=1678289010",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 8139781538112,
+   "title": "Sticky Crystal Clear Stamper",
+   "handle": "sticky-crystal-clear-stamper",
+   "vendor": "Simply Polished",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stamping"
+   ],
+   "created_at": "2023-02-08T15:59:44-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2023-02-08T15:59:44-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>Our sticky crystal nail stamper for nail art.</p>\n<p>Comes with 2 sticky silicone stamping heads.</p>\n<p>The silicone heads stickiness is not overpowering but does help with application of the stamp.</p>\n<p>Picks up first time out the box no need for prep!</p>",
+   "variants": [
+    {
+     "id": 44413710565696,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 40492297060672,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/SimplyPolishedUKCrystalClearStamper.jpg?v=1675889987",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    }
+   ]
+  },
+  {
+   "id": 8139725275456,
+   "title": "Classics Stamping Plate",
+   "handle": "classics-stamping-plate",
+   "vendor": "Simply Polished",
+   "product_type": "Stamping Plate",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stamping"
+   ],
+   "created_at": "2023-02-08T15:27:16-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2023-02-08T15:27:16-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>Classics nail stamping plate.</p>\n<p>Bespoke designs and patterns.</p>\n<p>Size : 9.5x14.5 cm</p>\n<p>Made from high grade mirror stainless steel.</p>",
+   "variants": [
+    {
+     "id": 44413555966272,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": "19.99",
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 40492043403584,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/SimplyPolishedUK-ClassicsStampingPlate.jpg?v=1675888040",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 40492073779520,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Classicsnailartswatch2.jpg?v=1675888268",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 8139714265408,
+   "title": "Christmas Stamping Plate",
+   "handle": "christmas-stamping-plate",
+   "vendor": "Simply Polished",
+   "product_type": "Stamping Plate",
+   "tags": [
+    "Christmas",
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stamping"
+   ],
+   "created_at": "2023-02-08T15:21:48-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2023-02-08T15:21:47-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>Christmas nail stamping plate. </p>\n<p>Bespoke designs and patterns.</p>\n<p>Layered designs, build your own snowman on your nail make it unique.</p>\n<p>Size : 9.5x14.5 cm</p>\n<p>Made from high grade mirror stainless steel.</p>",
+   "variants": [
+    {
+     "id": 44413532602688,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "19.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 40491999985984,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/SimplyPolishedUK-ChristmasStampingPlate.jpg?v=1675887711",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 40492145049920,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Christmasnailartswatch.jpg?v=1675888767",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 8139700404544,
+   "title": "Mystic Stamping Plate",
+   "handle": "mystic-stamping-plate",
+   "vendor": "Simply Polished",
+   "product_type": "Stamping Plate",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stamping"
+   ],
+   "created_at": "2023-02-08T15:12:54-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2023-02-08T15:12:54-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>Mystic nail stamping plate.</p>\n<p>Bespoke designs and patterns.</p>\n<p>Layered designs.</p>\n<p>Size : 9.5x14.5 cm</p>\n<p>Made from high grade mirror stainless steel.</p>",
+   "variants": [
+    {
+     "id": 44413501276480,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "19.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 40491940806976,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/SimplyPolishedUK-MysticStampingPlate.jpg?v=1675887180",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 40491940151616,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/328682027_946738450069830_8944003911329270789_n.jpg?v=1675887204",
+     "width": 695,
+     "height": 695,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 8013720879424,
+   "title": "KBShimmer Magnet Stand + Magnet",
+   "handle": "kbshimmer-magnet-stand-magnet",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Magnet",
+    "Magnetic Nail Polish",
+    "Northern Exposure",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Tools"
+   ],
+   "created_at": "2022-11-16T10:42:02-05:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2022-11-16T10:42:03-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\">Magnetic polishes are an out-of-this-world invention! With the power of a magnet, color is shifted and relocated on the nail for a futuristic 3D effect. For best results, you need a strong magnet with the right magnetic pattern – and not all magnets wi",
+   "variants": [
+    {
+     "id": 43957269102912,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "8.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 39864925323584,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Stand_Magnet_2.jpg?v=1668613324",
+     "width": 3900,
+     "height": 3900,
+     "position": 1
+    },
+    {
+     "id": 39864925421888,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Stand_Magnet_3.jpg?v=1668613325",
+     "width": 3900,
+     "height": 3900,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 8013709115712,
+   "title": "KBShimmer Dual Ended Wave Zig Zag + Cat Eye Magnet",
+   "handle": "kbshimmer-dual-ended-wave-zig-zag-cat-eye-magnet",
+   "vendor": "KBShimmer",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Magnet",
+    "Magnetic Nail Polish",
+    "Northern Exposure",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Tools"
+   ],
+   "created_at": "2022-11-16T10:35:08-05:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2022-11-16T10:35:09-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span data-mce-fragment=\"1\">Magnetic polishes are an out-of-this-world invention! With the power of a magnet, color is shifted and relocated on the nail for a futuristic 3D effect. For best results, you need a strong magnet with the right magnetic pattern – and not all magne",
+   "variants": [
+    {
+     "id": 43957239775552,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "6.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 39864855200064,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/ZigZag_Magnet.jpg?v=1668612911",
+     "width": 3600,
+     "height": 3600,
+     "position": 1
+    },
+    {
+     "id": 39864854643008,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/PhotoNov032022_33416PM_1_1.jpg?v=1668612910",
+     "width": 800,
+     "height": 800,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6762996957286,
+   "title": "ILNP Magnetic Wand",
+   "handle": "ilnp-magnetic-wand",
+   "vendor": "ILNP",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Golden Hour",
+    "Magnet",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Tools"
+   ],
+   "created_at": "2022-07-28T17:41:14-04:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2022-07-28T17:41:15-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\">Add a multi-dimensional effect to any magnetic nail polish, the possibilities are endless with this dual-ended wand. While the rectangular side of the wand attracts the magnetic metal shavings in nail polish, the opposite rounded end repels!</p>\n<p dat",
+   "variants": [
+    {
+     "id": 39744834601062,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "10.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 29043705970790,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/ILNP-Magnetic-Wand-1-of-2.jpg?v=1659044476",
+     "width": 2000,
+     "height": 2000,
+     "position": 1
+    },
+    {
+     "id": 29043706134630,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/ILNP-Magnetic-Wand-2-of-2.jpg?v=1659044477",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6737785225318,
+   "title": "Boardwalk Stamping Plate",
+   "handle": "boardwalk-stamping-plate",
+   "vendor": "Maniology",
+   "product_type": "Stamping Plate",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stamping",
+    "Sunkissed"
+   ],
+   "created_at": "2022-06-14T14:23:00-04:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2022-06-14T14:23:01-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\"><span style=\"font-weight: 400;\" data-mce-style=\"font-weight: 400;\" data-mce-fragment=\"1\">If you're in need of a little vitamin sea, we've got just the stamping plate for you! Soak up the sun with these hot designs from our original<span data-mce-fragme",
+   "variants": [
+    {
+     "id": 39680465666150,
+     "title": "Default Title",
+     "sku": "M215",
+     "barcode": null,
+     "price": "9.99",
+     "compare_at_price": "12.99",
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28913050746982,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/maniologysunkissedboardwalkm215stampingplate.jpg?v=1655230982",
+     "width": 900,
+     "height": 900,
+     "position": 1
+    },
+    {
+     "id": 28913050714214,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/maniologysunkissedboardwalkm2151.jpg?v=1655230982",
+     "width": 900,
+     "height": 900,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6737731092582,
+   "title": "SFAC: Coral Reef Alliance Stamping Plate",
+   "handle": "sfac-coral-reef-alliance-stamping-plate",
+   "vendor": "Maniology",
+   "product_type": "Stamping Plate",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "Stamp for a Cause",
+    "Stamping"
+   ],
+   "created_at": "2022-06-14T11:04:07-04:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2022-06-14T11:04:08-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\"><span data-mce-fragment=\"1\">The Coral Reef Alliance is a non-profit organization that works at local, regional, and global levels to keep coral reefs healthy so that they can adapt to climate change. </span><br data-mce-fragment=\"1\"><span data-mce-frag",
+   "variants": [
+    {
+     "id": 39680323747942,
+     "title": "Default Title",
+     "sku": "M293",
+     "barcode": null,
+     "price": "9.99",
+     "compare_at_price": "11.99",
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28912718774374,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/sfaccoralreefm293stampingplate.jpg?v=1655219050",
+     "width": 900,
+     "height": 900,
+     "position": 1
+    },
+    {
+     "id": 28912718741606,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/sfaccoralreefm2931.jpg?v=1655219050",
+     "width": 900,
+     "height": 900,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6700170281062,
+   "title": "Citron Jelly",
+   "handle": "citron-jelly",
+   "vendor": "Cirque",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "Glazed",
+    "Jelly",
+    "Sheer",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2022-03-01T20:23:50-05:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2022-03-08T14:11:46-05:00",
+   "body_html": "<br><br><meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\"><span data-mce-fragment=\"1\"><strong data-mce-fragment=\"1\">Good to know:</strong><br data-mce-fragment=\"1\"></span></p>\n<ul data-mce-fragment=\"1\">\n<li data-mce-fragment=\"1\">New &amp; Improved Formula</li>\n<li data-mce-fragment=\"1\">Apply 2-3 coats",
+   "variants": [
+    {
+     "id": 39568725344358,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "16.49",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28741899944038,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/CirqueColorsCitronJelly.jpg?v=1646184233",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 28741899911270,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/kenya-swatch-citronjelly01.jpg?v=1646184232",
+     "width": 1500,
+     "height": 1500,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6655985156198,
+   "title": "F240 Water Slide Decal",
+   "handle": "f240-water-slide-decal",
+   "vendor": "MILV",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-default",
+    "spo-disabled",
+    "Water Decals"
+   ],
+   "created_at": "2021-11-05T16:18:17-04:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2021-11-16T13:59:11-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\"><strong data-mce-fragment=\"1\">How to use water-slide decals with regular nail polish:</strong></p>\n<ol class=\"ol1\" data-mce-fragment=\"1\">\n<ol class=\"ol1\" data-mce-fragment=\"1\">\n<li class=\"li1\" data-mce-fragment=\"1\">Apply nail polish to the nail and let",
+   "variants": [
+    {
+     "id": 39481572425830,
+     "title": "Silver",
+     "sku": "F240 - Silver",
+     "barcode": null,
+     "price": "2.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Silver",
+     "option2": null,
+     "option3": null
+    },
+    {
+     "id": 39481572458598,
+     "title": "Gold",
+     "sku": "F240 - Gold",
+     "barcode": null,
+     "price": "2.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Gold",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28527734095974,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/MILVF240GOLD.jpg?v=1636143499",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 28527734063206,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/MILVF240GOLD1.jpg?v=1636143499",
+     "width": 600,
+     "height": 600,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6655984009318,
+   "title": "F230 Water Slide Decal",
+   "handle": "f230-water-slide-decal",
+   "vendor": "MILV",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-default",
+    "spo-disabled",
+    "Water Decals"
+   ],
+   "created_at": "2021-11-05T16:14:21-04:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2021-11-16T13:59:08-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\"><strong data-mce-fragment=\"1\">How to use water-slide decals with regular nail polish:</strong></p>\n<ol class=\"ol1\" data-mce-fragment=\"1\">\n<ol class=\"ol1\" data-mce-fragment=\"1\">\n<li class=\"li1\" data-mce-fragment=\"1\">Apply nail polish to the nail and let",
+   "variants": [
+    {
+     "id": 39481571147878,
+     "title": "Silver",
+     "sku": "F230 - Silver",
+     "barcode": null,
+     "price": "2.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Silver",
+     "option2": null,
+     "option3": null
+    },
+    {
+     "id": 39481571180646,
+     "title": "Gold",
+     "sku": "F230 - Gold",
+     "barcode": null,
+     "price": "2.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Gold",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28527727116390,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/MILVF230SILVER.jpg?v=1636143264",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 28527727018086,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/MILVF230SILVER1.jpg?v=1636143263",
+     "width": 600,
+     "height": 600,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6655973752934,
+   "title": "F166 Water Slide Decal",
+   "handle": "f166-water-slide-decal",
+   "vendor": "MILV",
+   "product_type": "Manicure Accessories",
+   "tags": [
+    "Holographic",
+    "Nail Art",
+    "Nail Art Supplies",
+    "spo-default",
+    "spo-disabled",
+    "Water Decals"
+   ],
+   "created_at": "2021-11-05T15:41:32-04:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2021-11-16T13:59:06-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\"><strong data-mce-fragment=\"1\">NOTE:<span> </span></strong>The holographic water slide decals work best with gel nail polish/top coat - the use of regular top coats may dull the holographic effect.</p>\n<p data-mce-fragment=\"1\"><strong data-mce-fragment=",
+   "variants": [
+    {
+     "id": 39481544212582,
+     "title": "Default Title",
+     "sku": "F166",
+     "barcode": null,
+     "price": "2.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28527675048038,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/MILVF166holo15.jpg?v=1636141294",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 28527675015270,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/MILVF166swatch.jpg?v=1636141294",
+     "width": 600,
+     "height": 600,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6569814261862,
+   "title": "Save The Date",
+   "handle": "save-the-date",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Ever After",
+    "Holographic",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2021-04-29T17:23:25-04:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2021-04-29T17:23:26-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\">Save the Date is a soft and muted lavender holographic nail polish.</p>\n<p data-mce-fragment=\"1\">Save the Date’s blue-leaning light purple base is thoughtfully accented with a precise ratio of oversized holographic flakes and linear pigment. A subdued ",
+   "variants": [
+    {
+     "id": 39313581834342,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28894761353318,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/ILNP-Save20The20Date.jpg?v=1654289488",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 28080736927846,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Save-The-Date-1.jpg?v=1654289488",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9390581481792,
+   "title": "Cherry",
+   "handle": "cherry",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Creme",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Stars and Stripes",
+    "Studio Color"
+   ],
+   "created_at": "2024-06-13T11:29:55-04:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-06-13T11:29:55-04:00",
+   "body_html": "<p>Cherry is a deliciously juicy cherry red Studio Color nail polish.</p>\n<p>A bold and rich red, Cherry offers a smooth, vibrant color in a semi-cushioned base. In indoor lighting, Cherry's red hue deepens to a refined, darker tone. However, step into direct sunlight and watch as the red hue ripens",
+   "variants": [
+    {
+     "id": 49005264699712,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "14.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44937710567744,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Cherry.jpg?v=1718292529",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 44937710600512,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Cherry-M1.jpg?v=1718292530",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 3952429891686,
+   "title": "Overcoat",
+   "handle": "overcoat",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Holographic",
+    "Nine to Five",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2019-08-29T13:51:13-04:00",
+   "updated_at": "2026-11-08T01:31:06-05:00",
+   "published_at": "2019-08-29T13:50:08-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Overcoat may just be your next favorite nude!</span><br><br><span>Overcoat brings to the table a perfectly neutral and sleek creamy beige and burnishes it with small holographic flakes that take this nude to another level.</span><br><br><span>The Nine to Five Collectio",
+   "variants": [
+    {
+     "id": 29525860188262,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 52251837169984,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Overcoat.jpg?v=1764280982",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 12118638755942,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/overcoat_-_full_1.jpg?v=1764280982",
+     "width": 700,
+     "height": 700,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10057695560000,
+   "title": "Building Blocks",
+   "handle": "building-blocks",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Crelly",
+    "Playground",
+    "Speckled",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2026-02-26T11:12:51-05:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-02-26T11:12:52-05:00",
+   "body_html": "<p>Building Blocks lays down a creamy beige base, smooth and softly cushioned with a playful twist. Red, yellow, green, and blue metallic flakes scatter throughout like colorful pieces tossed across the floor mid-build. Cheerful yet polished, Building Blocks captures the creativity and imagination t",
+   "variants": [
+    {
+     "id": 51570603753792,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54145483276608,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/building-blocks-creamy-beige-speckled-nail-polish.jpg?v=1772122309",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 54145483309376,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/building-blocks-creamy-beige-speckled-nail-polish-4.jpg?v=1772122309",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9922721841472,
+   "title": "Overload",
+   "handle": "overload",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Magnetic Nail Polish",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Twisted"
+   ],
+   "created_at": "2025-09-25T09:20:01-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-09-25T09:20:04-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Overload detonates in a blackened base, split wide by silver magnetic flashes. Multicolored shimmer ignites in every direction, scattering pink, green, orange, blue, and red in constant flux. A kaleidoscopic overload, each glance unveils a finish sparking with unruly e",
+   "variants": [
+    {
+     "id": 51087166636352,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 50921846538560,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Overload.jpg?v=1759872438",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 50921846374720,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Overload-M1-Velvet.jpg?v=1758807012",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 5868964039,
+   "title": "Summer Stargazing",
+   "handle": "summer-stargazing",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Holographic",
+    "spo-default",
+    "spo-disabled",
+    "Summer 2014"
+   ],
+   "created_at": "2016-03-31T16:23:22-04:00",
+   "updated_at": "2026-11-08T01:31:08-05:00",
+   "published_at": "2016-03-31T20:26:41-04:00",
+   "body_html": "<p><span>Summer Stargazing is a wonderfully juiced up royal blue holo that’s so electrically vibrant you’ll think it glows!</span><br><br><span>If blue is your colour, you HAVE to give Summer Stargazing a try. You will absolutely love it!</span><br></p>\n<p><span>ILNP absolutely does not test our pro",
+   "variants": [
+    {
+     "id": 18536828423,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 52252410544448,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Summer20Stargazing.jpg?v=1764284906",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 52252411560256,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Summer-Stargazing.jpg?v=1764284906",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9850002342208,
+   "title": "Cream Pop",
+   "handle": "cream-pop",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Creme",
+    "Heat Wave",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Studio Color"
+   ],
+   "created_at": "2025-07-04T09:50:33-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-07-04T09:50:34-04:00",
+   "body_html": "<p>Cream Pop blends creamy orange with the glow of a desert sky at golden hour. Smooth and opaque, Cream Pop captures that fleeting moment when the heat softens, and everything feels dipped in light.</p>\n<p>Cream Pop is part of the <a href=\"https://www.harlowandco.org/collections/ilnp/heat-wave\" tar",
+   "variants": [
+    {
+     "id": 50846062149952,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 49619097321792,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Cream-Pop.jpg?v=1751636997",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 49619097452864,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Cream-Pop-M2.jpg?v=1751637735",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 4867259564134,
+   "title": "Compass",
+   "handle": "compass",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "At Sea",
+    "Flakies",
+    "spo-default",
+    "spo-disabled",
+    "Toppers"
+   ],
+   "created_at": "2020-06-24T10:48:56-04:00",
+   "updated_at": "2026-11-08T01:31:06-05:00",
+   "published_at": "2020-06-24T10:48:57-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>Compass is a stellar copper metallic flakie topper!</p>\n<p>Compass is an elegant metallic flakie topper seated in a clear base. We’re all about the dainty details and you will be, too, with these dazzling copper metallic flakes illuminating across your fingertips. Compass i",
+   "variants": [
+    {
+     "id": 31922711396454,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 43265256325440,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Compass.jpg?v=1700619535",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 15010363900006,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/ILNPCompassswatch.jpg?v=1700619535",
+     "width": 1400,
+     "height": 1400,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 5829628103,
+   "title": "Black Orchid",
+   "handle": "black-orchid",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Fall 2014",
+    "Holographic",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2016-03-29T17:21:36-04:00",
+   "updated_at": "2026-11-08T01:31:08-05:00",
+   "published_at": "2016-03-31T20:25:47-04:00",
+   "body_html": "<p>12ml</p>\n<p><span>Words aren't enough to express how pleased I am with this polish. I've been daydreaming about this color for almost 2 years now and every time I tried to make it, the end result was never quite as I pictured... until now!</span><br><br><span>Black Orchid is an absolutely gorgeou",
+   "variants": [
+    {
+     "id": 18409657991,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28879231647846,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/ILNP-Black20Orchid.jpg?v=1653500169",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 10817575751,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/BlackOrchid1.png?v=1653500169",
+     "width": 525,
+     "height": 525,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9993111470400,
+   "title": "Woven",
+   "handle": "woven",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Creme",
+    "Snow Day",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Studio Color"
+   ],
+   "created_at": "2025-12-11T10:46:57-05:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2025-12-11T10:47:00-05:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>Woven threads together warmth in a tawny brown, warm and steady like a blanket pulled close on a frosty morning. Layering with ease, each coat wraps your nails in softness that feels grounded yet indulgent. A snug kind of comfort, you’re sure to get a cozy reminder of ",
+   "variants": [
+    {
+     "id": 51344316465472,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.79",
+     "compare_at_price": "14.99",
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 52611374055744,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Woven.jpg?v=1765468000",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 52611374186816,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Woven-M3.jpg?v=1765468047",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 111181907,
+   "title": "Candy Cane Crush",
+   "handle": "candy-cane-crush",
+   "vendor": "KBShimmer",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Galentine's Day",
+    "spo-default",
+    "spo-disabled",
+    "winter"
+   ],
+   "created_at": "2012-11-14T12:48:21-05:00",
+   "updated_at": "2026-11-08T01:31:10-05:00",
+   "published_at": "2013-01-22T12:01:00-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p><span>This top coat is loaded with red and white  hex glitters in many different sizes.  Layer over  pink for a romantic Valentine's Day polish, or over blue for a rocking mani for  the 4th. This polish is scented with peppermint, for a classic sweet mint scent. Softly scen",
+   "variants": [
+    {
+     "id": 12456737505382,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 3872418562150,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/KBShimmer_Candy_Cane_Crush_red_white_glitter_topper_nail_polish.jpg?v=1537726346",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 3872418529382,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/candy-cane-crush-nail-polish-1.jpg?v=1537726346",
+     "width": 900,
+     "height": 900,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9094661407040,
+   "title": "Shell We?",
+   "handle": "shell-we",
+   "vendor": "KBShimmer",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Reflective",
+    "Sea-ing Is Believing",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-03-05T10:46:25-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2024-03-05T10:46:25-05:00",
+   "body_html": "<p>While walking along the sandy shore, one can’t help but scan the sand hoping to find perfectly intact shells.  Conch shells with their coral and copper tones are a favorite of many, while others look for the white and tan colors of the cockle shell.  While not quite a shell, finding whole sand do",
+   "variants": [
+    {
+     "id": 47973441864000,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 44037490278720,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/KBShimmerShellWe.jpg?v=1709653596",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 44037490082112,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Shell_We_3.jpg?v=1709653593",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10158694695232,
+   "title": "Comet At Me Bro",
+   "handle": "comet-at-me-bro",
+   "vendor": "KBShimmer",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Magnetic Nail Polish",
+    "Out Of This World"
+   ],
+   "created_at": "2026-06-17T16:41:34-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-06-17T16:41:36-04:00",
+   "body_html": "<p>There are few events I consider worth staying up late for – watching comets shoot through the sky with colourful tails trailing behind is one of them! These fast-moving balls of ice, dirt, and dust are known for their glowing halos and gas tails, some glowing blue, purple, green, or yellow. It’s ",
+   "variants": [
+    {
+     "id": 52183075815744,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "16.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 56483351986496,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/KBShimmerCometAtMeBro.jpg?v=1781728770",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 56483352805696,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Comet_At_Me_Bro_6.jpg?v=1781728812",
+     "width": 1500,
+     "height": 1500,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9871242133824,
+   "title": "Give It A Whirl",
+   "handle": "give-it-a-whirl",
+   "vendor": "KBShimmer",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Magnetic Nail Polish",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "The Midway"
+   ],
+   "created_at": "2025-07-24T10:24:49-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-07-24T10:24:52-04:00",
+   "body_html": "<p>As the sun gleams off the metallic surface of the spinning ride, your heart flutters with nervous excitement. You inch forward in line, and finally, it’s your turn. The ride whirls and spins as you master the art of turning the wheel to go faster. Sliding from side to side, your cart picks up spe",
+   "variants": [
+    {
+     "id": 50908183331136,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 49851227570496,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/KBShimmerGiveItAWhirl.jpg?v=1753367063",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 49851227504960,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Give_It_A_Whirl_11.jpg?v=1753367063",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 3504235577446,
+   "title": "Grow With The Flow",
+   "handle": "grow-with-the-flow",
+   "vendor": "KBShimmer",
+   "product_type": "Nail Polish",
+   "tags": [
+    "spo-default",
+    "spo-disabled",
+    "Summer 2019",
+    "Sun's Out",
+    "Thermal Polish"
+   ],
+   "created_at": "2019-05-06T11:16:44-04:00",
+   "updated_at": "2026-11-08T01:31:06-05:00",
+   "published_at": "2019-08-20T16:51:25-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p><span>As temperatures climb, Irises, Purple Clovers, and Violets offer an array of purple and blue hues, signaling the turn of the season. Grow With The Flow is a tri-thermal polish that starts as a deep grape purple accented with a soft pink to golden green aurora shimmer.",
+   "variants": [
+    {
+     "id": 27949091356774,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 11017202991206,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/kbshimmer-grow-with-the-flow-1.jpg?v=1557494957",
+     "width": 2020,
+     "height": 2020,
+     "position": 1
+    },
+    {
+     "id": 11004175941734,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/grow_with_the_flow.jpg?v=1557494937",
+     "width": 540,
+     "height": 540,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10510980874,
+   "title": "Race Against Slime",
+   "handle": "race-against-slime",
+   "vendor": "KBShimmer",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All The Bright Moves",
+    "Creme",
+    "Neon",
+    "spo-default",
+    "spo-disabled",
+    "Summer 2017"
+   ],
+   "created_at": "2017-05-04T15:34:30-04:00",
+   "updated_at": "2026-11-08T01:31:06-05:00",
+   "published_at": "2019-08-20T16:54:52-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>Slime was everywhere as a kid, from kids getting slimed on game shows, to glowing green ghosts in movies. Race Against Slime, a neon green cream with its crelly like finish, would have looked awesome holding your Ecto Cooler drink box. This shade glows under black light.<br",
+   "variants": [
+    {
+     "id": 41249670218,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 4123182694502,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/KBShimmer_Race_Against_Slime_neon_green_nail_polish.jpg?v=1538340856",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 4123182792806,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/race_against_slime-1_f0a824bc-7523-46f7-8cc7-c4688e5b52cd.jpg?v=1538340856",
+     "width": 900,
+     "height": 900,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9941350940992,
+   "title": "Constellation Prize",
+   "handle": "constellation-prize",
+   "vendor": "KBShimmer",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Glitter",
+    "I Keep On Falling",
+    "Shimmer",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2025-10-16T16:49:20-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-10-16T16:49:23-04:00",
+   "body_html": "<p>It is mind-boggling to think about how many stars there are in the sky. As kids, lying on the grass and looking up, we knew we couldn’t count them all, but it was fun to try as we waited to see a shooting star. On the nights we didn’t manage to see that comet, I have to say, the experience itself",
+   "variants": [
+    {
+     "id": 51171952951616,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 51356825354560,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/KBShimmer_Constellation_Prize.jpg?v=1760647715",
+     "width": 600,
+     "height": 600,
+     "position": 1
+    },
+    {
+     "id": 51356817490240,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/KBShimmer_Constellation_Prize_3.jpg?v=1760647685",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 8920105517376,
+   "title": "Ice and Easy",
+   "handle": "ice-and-easy",
+   "vendor": "KBShimmer",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Best in Snow",
+    "Flakies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Toppers"
+   ],
+   "created_at": "2023-11-21T15:45:22-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2023-11-21T15:45:22-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\"><span data-mce-fragment=\"1\">Swooshing across the ice, freshly sharpened skates glide easily across the rink, tempting brave skaters to skate backwards or to spin. In colder areas, outdoor rinks are perfect for a pickup game of hockey, with banks of pri",
+   "variants": [
+    {
+     "id": 47365018386752,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "15.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 43263417090368,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Ice_And_Easy_Editorial.jpg?v=1700599524",
+     "width": 3900,
+     "height": 3900,
+     "position": 1
+    },
+    {
+     "id": 43264739311936,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Ice_And_Easy_3.jpg?v=1700613908",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 11305991626,
+   "title": "Socialite",
+   "handle": "socialite-le",
+   "vendor": "Cirque",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Creme",
+    "Limited Edition",
+    "Neon",
+    "spo-default",
+    "spo-disabled",
+    "Vice 2017",
+    "Vice 2022",
+    "Vice 2026"
+   ],
+   "created_at": "2017-07-21T17:33:46-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-05-25T15:25:42-04:00",
+   "body_html": "<p>Socialite is a neon pink-lilac crème nail polish. Our neon polishes are custom-formulated to be worn without a white base color and its UV reactive properties means it glows under black light. As always, our crème polishes feature a smooth, high quality formula for ease of use and long lasting we",
+   "variants": [
+    {
+     "id": 45113636618,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "16.49",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28868138664038,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/CirqueColorsSocialite.jpg?v=1652816655",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 28868138500198,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/HIGHRES-Lauren-socialite02.jpg?v=1652816655",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9702452986176,
+   "title": "Trinket",
+   "handle": "trinket",
+   "vendor": "Cirque",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Curio",
+    "Glitter",
+    "Reflective",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Spotlight Shimmers™"
+   ],
+   "created_at": "2025-01-15T11:00:05-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-01-15T11:00:05-05:00",
+   "body_html": "<p>Trinket is a sheer pink nail polish with a pink to orange color-shifting shimmer and dazzling reflective sparks. Our <a href=\"https://www.harlowandco.org/collections/cirque/spotlight-shimmers\" target=\"_blank\" rel=\"noopener\">Spotlight Shimmers™</a> combine glimmering shimmer pigments and flash ref",
+   "variants": [
+    {
+     "id": 50162482774336,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "18.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 47263985795392,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Cirque_Colors_Trinket.jpg?v=1736956714",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 47263984910656,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/swatch-trinketdirectlighthannah-sqhighres.jpg?v=1736956700",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9832085258560,
+   "title": "Showgirl",
+   "handle": "showgirl-1",
+   "vendor": "Cirque",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Cirque-Us",
+    "Holographic",
+    "Shimmer",
+    "Shimmergraphic™",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2025-06-13T11:59:34-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-06-13T11:59:35-04:00",
+   "body_html": "<p>Showgirl is a periwinkle nail polish with pink-green-gold color-shifting shimmer and intense scattered holographic effect. Our Shimmergraphics™ combine glimmering shimmer pigments and prismatic holographic glitter which give off an intense sparkle effect.</p>\n<p>Showgirls know how to ruffle peopl",
+   "variants": [
+    {
+     "id": 50770638766400,
+     "title": "Default Title",
+     "sku": "Cirque Colors",
+     "barcode": null,
+     "price": "18.99",
+     "compare_at_price": "19.99",
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 49446497288512,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CirqueColorsShowgirl.jpg?v=1749830320",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 49446500106560,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/swatch_-_showgirl_gaby_-_sq_high_res.jpg?v=1749830339",
+     "width": 1200,
+     "height": 1200,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10232482660672,
+   "title": "Grape Jelly",
+   "handle": "grape-jelly",
+   "vendor": "Cirque",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Dayglow",
+    "Jelly",
+    "Neon",
+    "Sheer"
+   ],
+   "created_at": "2026-08-13T11:26:38-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-08-13T11:26:40-04:00",
+   "body_html": "<p dir=\"ltr\"><span>Grape Jelly is a limited edition neon purple jelly nail polish with a transparent finish. Our jelly polishes feature a sheer, buildable formula giving the color depth and allowing your natural nail line to peek through.</span></p>\n<p dir=\"ltr\"><span>Bursting with vibrant color. Gr",
+   "variants": [
+    {
+     "id": 53020748677440,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "16.49",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57117939958080,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CirqueColorsGrapeJelly.jpg?v=1786634744",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 57117941498176,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/swatch_-_grape_jelly_gaby_-_rect_low_res.jpg?v=1786634764",
+     "width": 800,
+     "height": 1200,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6617639387238,
+   "title": "Pony Up",
+   "handle": "pony-up",
+   "vendor": "Cirque",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Cowboy",
+    "Holographic",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2021-08-04T11:32:01-04:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2021-08-04T11:32:02-04:00",
+   "body_html": "<p class=\"p1\" data-mce-fragment=\"1\"><b data-mce-fragment=\"1\">ABOUT:<br></b>Pony Up is a deep chocolate brown linear holographic nail polish. This polish is packed with pure holographic pigments that gives it a blinding prismatic finish.<b data-mce-fragment=\"1\"><br data-mce-fragment=\"1\"> </b></p>\n<p ",
+   "variants": [
+    {
+     "id": 39399719207014,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "18.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 28327586529382,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/CirqueColorsPonyUp.jpg?v=1628091123",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 28327586594918,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Toni_PONYUP_SQ.jpg?v=1628091123",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9644719571264,
+   "title": "Wishful Thinking",
+   "handle": "wishful-thinking",
+   "vendor": "Cirque",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Delusion",
+    "Magnetic Nail Polish",
+    "Multichrome",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2024-11-06T09:17:43-05:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2024-11-06T09:17:43-05:00",
+   "body_html": "<p>Wishful Thinking is a smoke-gray nail polish with aqua-blue-violet multichrome magnetic pigment. Use our Magnetic Wand while the polish is wet to activate the magnetic particles creating captivating 3D nail art designs. Magnetic wand sold separately.</p>\n<p>Most of your plans are based on winning",
+   "variants": [
+    {
+     "id": 49910333079872,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "18.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 46628373889344,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CirqueColorsWishfulThinking.jpg?v=1730902626",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 46628373922112,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/HIGHRES-swatch-brittney-wishful_thinking_01.jpg?v=1730902640",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10099843301696,
+   "title": "Thunderbolt",
+   "handle": "thunderbolt",
+   "vendor": "Cirque",
+   "product_type": "Nail Polish",
+   "tags": [
+    "April Showers",
+    "Holographic",
+    "Shimmer",
+    "Shimmergraphic™",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2026-04-15T11:23:32-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-04-15T11:23:33-04:00",
+   "body_html": "<p dir=\"ltr\">Thunderbolt is a bright yellow nail polish with a flashy gold-green-blue color-shifting aurora shimmer and intense scattered holographic effect. Our <a href=\"https://www.harlowandco.org/collections/cirque/shimmergraphic\" target=\"_blank\" rel=\"noopener\">Shimmergraphics™</a> combine glimme",
+   "variants": [
+    {
+     "id": 51782679363904,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "19.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 55344873013568,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Cirque_Colors_Thunderbolt.jpg?v=1776266499",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 55344835592512,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/swatch-thunderboltjellylola-sqhighres.jpg?v=1776266479",
+     "width": 1200,
+     "height": 1200,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9984982876480,
+   "title": "La Rougeanne",
+   "handle": "la-rougeanne",
+   "vendor": "Cirque",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Dream Polish Collab 2025",
+    "Holographic",
+    "Reflective",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled",
+    "Spotlight Shimmers™"
+   ],
+   "created_at": "2025-11-26T15:03:05-05:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2025-12-12T11:58:57-05:00",
+   "body_html": "<p>La Rougeanne is a deep black cherry red nail polish packed with a pink-gold-green color-shifting aurora shimmer, dazzling reflective silver sparks, and an additional scattered holographic sparkle. The result is sultry, rich, and endlessly eye-catching.  Our Spotlight Shimmers™ combine glimmering ",
+   "variants": [
+    {
+     "id": 51308951077184,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "21.49",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 52633325437248,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/CirqueColorsLaRougeanne.jpg?v=1765555552",
+     "width": 1246,
+     "height": 1248,
+     "position": 1
+    },
+    {
+     "id": 52633358303552,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Untitled_17.png?v=1765555955",
+     "width": 1080,
+     "height": 1080,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 3731344711,
+   "title": "What's Your Sign?",
+   "handle": "whats-your-sign",
+   "vendor": "Color Club",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Halo Hues",
+    "Halo Hues 2015",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2015-12-15T11:12:54-05:00",
+   "updated_at": "2026-11-08T01:31:08-05:00",
+   "published_at": "2015-12-15T11:11:00-05:00",
+   "body_html": "<p>0.5 oz.</p>\n<p><span>Color Club What's Your Sign is a lighty dusty pink linear holographic polish.</span></p>\n<p>A favorite among celebrity manicurists and <b>nail color </b>fans worldwide, <b>Color Club </b>is renowned for its high performance, rich shades and exceptionally safe products. Formul",
+   "variants": [
+    {
+     "id": 11810447623,
+     "title": "Default Title",
+     "sku": "1096",
+     "barcode": null,
+     "price": "12.29",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 4198432800870,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Color_Club_What_s_Your_Sign_holographic_nail_polish_Halo_Hues_Collection.jpg?v=1540664192",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 7783064007,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Color_club_What_s_your_sign_4.jpg?v=1540664192",
+     "width": 640,
+     "height": 508,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 109149498,
+   "title": "Blue Heaven",
+   "handle": "blue-heaven",
+   "vendor": "Color Club",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Halo Hues",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2012-10-26T14:09:49-04:00",
+   "updated_at": "2026-11-08T01:31:10-05:00",
+   "published_at": "2012-10-27T10:00:00-04:00",
+   "body_html": "<p>0.5 oz.</p>\n<p>Bring a touch of heaven to everything you do with the Blue Heaven <strong>nail lacquer </strong>from the NEW Halo Hues <b>nail polish collection</b>. Color Club has searched the galaxy for these six heavenly shades. Halo Hues is beyond color, it's a <b>holographic nail polish</b> t",
+   "variants": [
+    {
+     "id": 13825074954342,
+     "title": "Default Title",
+     "sku": "979",
+     "barcode": null,
+     "price": "12.29",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 4198456819814,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Color_Club_Blue_Heaven_holographic_nail_polish_Halo_Hues_Collection.jpg?v=1540666054",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 4198452265062,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/color-club-halo-hues-blue-heaven.png?v=1540666054",
+     "width": 1000,
+     "height": 1020,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 1301528707174,
+   "title": "Shattered",
+   "handle": "shattered",
+   "vendor": "Color Club",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Halo Crush",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2018-06-19T14:21:12-04:00",
+   "updated_at": "2026-11-08T01:31:06-05:00",
+   "published_at": "2018-06-19T14:19:57-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>15ml</p>\n<p><em>\"Color Club has<span> </span>taken their<span> </span>proprietary holographic formula and packed it with even more Halo Hues goodness! Each Halo Crush shade features and intense holographic shine PLUS holographic glitter for an over-the-top rainbow effect.\"<",
+   "variants": [
+    {
+     "id": 12172565577830,
+     "title": "Default Title",
+     "sku": "1150",
+     "barcode": null,
+     "price": "12.29",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 4198348324966,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Color_Club_Shattered_holographic_nail_polish_Halo_Crush_Collection.jpg?v=1540659871",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 4198348390502,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Shattered_3.jpg?v=1540659871",
+     "width": 1600,
+     "height": 1596,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 5018391052390,
+   "title": "Rock On",
+   "handle": "rock-on",
+   "vendor": "Color Club",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Halo Jewels",
+    "Holographic",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2021-02-04T10:51:34-05:00",
+   "updated_at": "2026-11-08T01:31:03-05:00",
+   "published_at": "2021-02-04T10:51:35-05:00",
+   "body_html": "Color Club <strong>Rock On</strong> is a rich grey-green holographic nail polish.<br><meta charset=\"utf-8\">\n<ul data-mce-fragment=\"1\">\n<li data-mce-fragment=\"1\">Opacity: Full coverage in 2 coats</li>\n<li data-mce-fragment=\"1\">Finish:<span data-mce-fragment=\"1\"> </span><span data-mce-fragment=\"1\">Hol",
+   "variants": [
+    {
+     "id": 32306309726310,
+     "title": "Default Title",
+     "sku": "1314",
+     "barcode": null,
+     "price": "12.29",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 16074291642470,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/ColorClubRockOn.jpg?v=1612453897",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 16074291609702,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/ColorClubRockOnswatch.png?v=1612453897",
+     "width": 978,
+     "height": 978,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 1301528871014,
+   "title": "Piece Out",
+   "handle": "piece-out",
+   "vendor": "Color Club",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Halo Crush",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2018-06-19T14:22:23-04:00",
+   "updated_at": "2026-11-08T01:31:06-05:00",
+   "published_at": "2018-06-19T14:21:34-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>15ml</p>\n<p><em>\"Color Club has<span> </span>taken their<span> </span>proprietary holographic formula and packed it with even more Halo Hues goodness! Each Halo Crush shade features and intense holographic shine PLUS holographic glitter for an over-the-top rainbow effect.\"<",
+   "variants": [
+    {
+     "id": 12172568428646,
+     "title": "Default Title",
+     "sku": "1148",
+     "barcode": null,
+     "price": "12.29",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 4198347866214,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Color_Club_Piece_Out_holographic_nail_polish_Halo_Crush_Collection.jpg?v=1540659813",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 4198347964518,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Piece_Out_3.jpg?v=1540659813",
+     "width": 1600,
+     "height": 1599,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 109150074,
+   "title": "Angel Kiss",
+   "handle": "angel-kiss",
+   "vendor": "Color Club",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Halo Hues",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2012-10-26T14:17:13-04:00",
+   "updated_at": "2026-11-08T01:31:10-05:00",
+   "published_at": "2012-10-27T10:00:00-04:00",
+   "body_html": "<p>0.5 oz.</p>\n<p>Bring a touch of heaven to everything you do with the Angel Kiss <strong>nail lacquer </strong>from the NEW Halo Hues <b>nail polish collection</b>. Color Club has searched the galaxy for these six heavenly shades. Halo Hues is beyond color, it's a <b>holographic nail polish</b> th",
+   "variants": [
+    {
+     "id": 13825074659430,
+     "title": "Default Title",
+     "sku": "981",
+     "barcode": null,
+     "price": "12.29",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 4198461046886,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/Color_Club_Angel_Kiss_holographic_nail_polish_Halo_Hues_Collection.jpg?v=1540666379",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 4198452002918,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/color-club-halo-hues-angel-kiss.png?v=1540666379",
+     "width": 1000,
+     "height": 1010,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9922868969792,
+   "title": "It's a Knife When...",
+   "handle": "its-a-knife-when",
+   "vendor": "Polished for Days",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Alter Ego",
+    "Flakies",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2025-09-25T09:58:03-04:00",
+   "updated_at": "2026-11-08T01:30:58-05:00",
+   "published_at": "2025-09-25T09:58:06-04:00",
+   "body_html": "<p>Polished for Days <strong>It's a Knife When...</strong> is <meta charset=\"utf-8\"><span>a cherry red base with pink-gold shifting iridescent flakes, orange-green shifting iridescent flakes, tiny black to red shifting flakes and matte black flakes. </span></p>\n<p><span><strong>Note:</strong> This i",
+   "variants": [
+    {
+     "id": 51087366324544,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "20.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 50922355392832,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/5ba0d7_8b91888df3694177adef30e9c3e3e072_mv2.jpg?v=1758808618",
+     "width": 550,
+     "height": 550,
+     "position": 1
+    },
+    {
+     "id": 50922355360064,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/5ba0d7_d70a9640464a43809c374beb9df26b76_mv2.jpg?v=1758808618",
+     "width": 550,
+     "height": 550,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15428356931904,
+   "title": "Truth or Dare",
+   "handle": "truth-or-dare",
+   "vendor": "Polished for Days",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Alter Ego: Pt 2",
+    "Magnetic Nail Polish"
+   ],
+   "created_at": "2026-10-15T15:59:09-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-15T15:59:11-04:00",
+   "body_html": "<p>Polished for Days <strong>Truth or Dare</strong> is <meta charset=\"utf-8\">a blackened purple base with scattered holographic micro flakes and orange-gold multichrome magnetic pigment. </p>\n<p><a href=\"https://www.harlowandco.org/collections/all/magnet\" target=\"_blank\" rel=\"noopener\">Magnet</a> so",
+   "variants": [
+    {
+     "id": 67778473558336,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "21.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57751999840576,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/5ba0d7_aacd21a9d89e47e49698b77830ce1cd3_mv2.jpg?v=1792094340",
+     "width": 560,
+     "height": 560,
+     "position": 1
+    },
+    {
+     "id": 57751999873344,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/5ba0d7_8daccd05aa4f468388fcfc8a7ffa33fe_mv2.jpg?v=1792094340",
+     "width": 560,
+     "height": 560,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 10026100621632,
+   "title": "Birds of a Feather",
+   "handle": "birds-of-a-feather",
+   "vendor": "Polished for Days",
+   "product_type": "Nail Polish",
+   "tags": [
+    "New Years 2026 Duo",
+    "Shimmer",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2026-01-22T14:58:14-05:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-01-22T14:58:15-05:00",
+   "body_html": "<p>Polished for Days <strong>Birds of a Feather</strong> is a <meta charset=\"utf-8\"><span>cool greyed slightly purple tinted base with a strong green-blue-purple iridescent shifting shimmer and a light scattering of holographic micro flakes.</span></p>\n<p>15ml</p>\n<p><span>All polishes are handmade ",
+   "variants": [
+    {
+     "id": 51468998476096,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "20.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 53366381019456,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/5ba0d7_b1b138cc878448b8a904550093b60cd7_mv2.jpg?v=1769111866",
+     "width": 561,
+     "height": 561,
+     "position": 1
+    },
+    {
+     "id": 53366381052224,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/5ba0d7_528de6c84288419eae5ca11f789a0b70_mv2.jpg?v=1769111866",
+     "width": 561,
+     "height": 561,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15428363256128,
+   "title": "Diva in Disguise",
+   "handle": "diva-in-disguise",
+   "vendor": "Polished for Days",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Alter Ego: Pt 2",
+    "Shimmer"
+   ],
+   "created_at": "2026-10-15T16:03:13-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-15T16:03:16-04:00",
+   "body_html": "<p>Polished for Days <strong>Diva in Disguise</strong> is a <meta charset=\"utf-8\"><span>bright magenta base with a glowing purple-pink iridescent shimmer.</span><meta charset=\"utf-8\"></p>\n<p>15ml</p>\n<p><span>All polishes are handmade and hand mixed in beautiful California. All polishes are 5 Free, ",
+   "variants": [
+    {
+     "id": 67778516943168,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "21.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57752052531520,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/5ba0d7_4c6fd7c5633e4a6cb402e30c97e334fe_mv2.jpg?v=1792094563",
+     "width": 560,
+     "height": 560,
+     "position": 1
+    },
+    {
+     "id": 57752052564288,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/5ba0d7_76a76e1c307e49bebea286627074bcae_mv2.jpg?v=1792094563",
+     "width": 560,
+     "height": 560,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15419889254720,
+   "title": "Disarm",
+   "handle": "disarm",
+   "vendor": "Emily de Molly",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Magnetic Nail Polish"
+   ],
+   "created_at": "2026-10-09T09:42:38-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-15T10:42:55-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>A pink nail polish with a blue aurora shimmer and a rose gold magnetic effect.<br></span><br><span>Opaque in 2 - 3 coats depending on your application, </span>top coat recommended<span> for a glossy finish.</span><br><meta charset=\"utf-8\"></p>\n<p><a href=\"https://www.h",
+   "variants": [
+    {
+     "id": 67738273087808,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "20.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57710550286656,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/6c0fe34d-edm-disarm-2.webp?v=1791553267",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 57710550417728,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/f94574cd-disarm2.webp?v=1791553267",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15426270167360,
+   "title": "The Romantics",
+   "handle": "the-romantics",
+   "vendor": "Emily de Molly",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Magnetic Nail Polish"
+   ],
+   "created_at": "2026-10-14T10:38:31-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-15T10:43:30-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>A pale pink nail polish with a strong pink/orange/gold shifting shimmer and a very, very light blue magnetic effect.<br></span><br><span>Opaque in 2 - 3 coats depending on your application, </span>top coat recommended<a href=\"https://www.emilydemolly.com.au/product/lon",
+   "variants": [
+    {
+     "id": 67761426432320,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "20.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57742683144512,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/the-romantics4.webp?v=1791988616",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 57742683111744,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/the-romantics.webp?v=1791988616",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15424535200064,
+   "title": "Places To Be",
+   "handle": "places-to-be",
+   "vendor": "Emily de Molly",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Magnetic Nail Polish"
+   ],
+   "created_at": "2026-10-13T16:55:52-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-15T10:43:17-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>A black nail polish with a blue aurora shimmer and a light copper/gold/green/blue shifting magnetic effect.<br></span><br><span>Opaque in about 3 coats depending on your application, </span>top coat recommended<a href=\"https://www.emilydemolly.com.au/product/long-lasti",
+   "variants": [
+    {
+     "id": 67755699241280,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "20.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57736110244160,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Places-to-be-edm-1.webp?v=1791924913",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 57736110276928,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Places-to-be-edm-5.webp?v=1791924913",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15419903181120,
+   "title": "Love Is The Law",
+   "handle": "love-is-the-law",
+   "vendor": "Emily de Molly",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Shimmer"
+   ],
+   "created_at": "2026-10-09T10:28:23-04:00",
+   "updated_at": "2026-11-08T01:30:56-05:00",
+   "published_at": "2026-10-15T10:43:07-04:00",
+   "body_html": "<p><meta charset=\"utf-8\"><span>A pale purple nail polish with a strong pink/gold/green shifting aurora shimmer.<br></span><br><span>Opaque in 2 - 3 coats depending on your application, </span>top coat recommended<span> for a glossy finish.</span><br><meta charset=\"utf-8\"></p>\n<p><strong>Ingredients:",
+   "variants": [
+    {
+     "id": 67738346619200,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "20.99",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 57710835728704,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/20260709_232230.webp?v=1791556059",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 57710835761472,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/love-is-the-law1.webp?v=1791556059",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 8923772518720,
+   "title": "Jet Setter",
+   "handle": "jet-setter",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "Magnetic Nail Polish",
+    "Nightlife",
+    "spo-cs-disabled",
+    "spo-default",
+    "spo-disabled",
+    "spo-notify-me-disabled"
+   ],
+   "created_at": "2023-11-23T11:56:17-05:00",
+   "updated_at": "2026-11-08T01:31:01-05:00",
+   "published_at": "2023-11-23T11:56:17-05:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p data-mce-fragment=\"1\">Jet Setter is a black-based pink nail polish with holographic and color-shifting magnetic pigment that will take your manicures to new heights.</p>\n<p data-mce-fragment=\"1\">Jet Setter nail polish is the ultimate accessory for the adventurous and nightl",
+   "variants": [
+    {
+     "id": 47375011971392,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 43278998176064,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Jet-Setter.jpg?v=1700758578",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 43278998307136,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/Jet-Setter-M1.jpg?v=1700758579",
+     "width": 2000,
+     "height": 2000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 4867261792358,
+   "title": "Set Sail",
+   "handle": "set-sail",
+   "vendor": "ILNP",
+   "product_type": "Nail Polish",
+   "tags": [
+    "At Sea",
+    "Holographic",
+    "Jelly",
+    "spo-default",
+    "spo-disabled"
+   ],
+   "created_at": "2020-06-24T10:58:18-04:00",
+   "updated_at": "2026-11-08T01:31:06-05:00",
+   "published_at": "2020-06-24T10:58:19-04:00",
+   "body_html": "<meta charset=\"utf-8\">\n<p>Set Sail is a deep and fresh navy-blue holographic jelly.</p>\n<p>Set Sail is a flawlessly put together masterpiece, showcasing a stunning cobalt hue that pairs beautifully with an impressive rainbow flare. Set Sail’s jelly finish combined with vivid holographic micro-flakes",
+   "variants": [
+    {
+     "id": 31922719260774,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "17.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 52252374827328,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/files/ILNP-Set20Sail.jpg?v=1764283356",
+     "width": 1500,
+     "height": 1500,
+     "position": 1
+    },
+    {
+     "id": 15010382053478,
+     "src": "https://cdn.shopify.com/s/files/1/0149/9994/products/ILNPSetSailswatch.jpg?v=1764283356",
+     "width": 1400,
+     "height": 1400,
+     "position": 2
+    }
+   ]
+  }
+ ]
+}

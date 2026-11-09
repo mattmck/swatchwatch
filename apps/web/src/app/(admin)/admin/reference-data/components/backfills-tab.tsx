@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { runAdminBackfillBatch } from "@/lib/api";
+import { ApiError, runAdminBackfillBatch } from "@/lib/api";
 import {
   type BackfillReport,
+  MAX_BACKFILL_LIST_ITEMS,
   mergeBackfillTotals,
   parseSourceNames,
   readBackfillCursor,
@@ -30,6 +31,8 @@ interface BackfillDefinition {
   maxLimit: number;
   /** Offers the comma-separated data source filter (`sources`). */
   sources?: boolean;
+  /** Replaces the default "comma-separated, empty = all" hint of the data source input. */
+  sourcesHint?: string;
   /** Boolean body fields shown as switches. */
   options?: { key: string; label: string; defaultValue: boolean }[];
   metrics: { key: string; label: string }[];
@@ -37,6 +40,8 @@ interface BackfillDefinition {
   maps?: { key: string; label: string; format?: (value: unknown) => string }[];
   /** List-valued report keys (findings to review). */
   lists?: { key: string; label: string; format: (item: Record<string, unknown>) => string }[];
+  /** Lists kept whole across the run (every item in the downloaded report; the display stays capped). */
+  uncappedLists?: string[];
   applyConfirm: string;
 }
 
@@ -137,6 +142,35 @@ const BACKFILLS: BackfillDefinition[] = [
       { key: "failures", label: "Failures", format: (f) => `image ${f.imageId}: ${f.error}` },
     ],
     applyConfirm: "Unlink the duplicate gallery images? Image rows and blobs are kept.",
+  },
+  {
+    id: "source-images-remove",
+    title: "Remove a source's images",
+    description:
+      "Removes one data source's catalog images when the store asks us to stop using its pictures: unlinks their swatches, deletes the image rows, blobs and thumbnails. Enter exactly one source name, and disable the source first. Images with a hex label or color features are kept, and a blob another image row shares stays. A batch ends early (about 45 s) and the run carries on from where it stopped.",
+    command: "npm run remove:source-images --workspace=swatchwatch-functions -- --source <name> --write",
+    path: "images-admin/source-images/remove",
+    cursorKey: "afterImageId",
+    nextKey: "nextAfterImageId",
+    dryRun: true,
+    defaultLimit: 100,
+    maxLimit: 500,
+    sources: true,
+    sourcesHint: "Exactly one disabled data source name",
+    metrics: [
+      { key: "scanned", label: "Images read" },
+      { key: "swatchesUnlinked", label: "Swatches unlinked" },
+      { key: "imagesDeleted", label: "Image rows deleted" },
+      { key: "blobsDeleted", label: "Blobs deleted" },
+    ],
+    lists: [
+      { key: "kept", label: "Kept", format: (k) => `image ${k.imageId}: ${k.reason}` },
+      { key: "failures", label: "Failures", format: (f) => `image ${f.imageId}: ${f.error}` },
+    ],
+    // A blob failure names an orphaned blob whose row is already gone: the report is the only record.
+    uncappedLists: ["failures"],
+    applyConfirm:
+      "Delete this source's catalog images, rows and blobs? This cannot be undone. The source must be disabled first; labeled images are kept.",
   },
   {
     id: "product-text",
@@ -284,6 +318,13 @@ const BACKFILLS: BackfillDefinition[] = [
 
 type RunStatus = "idle" | "running" | "done" | "stopped" | "failed";
 
+/** The partial batch report an `ApiError` body carries as `result` (object), or null. */
+function partialBatchResult(err: unknown): BackfillReport | null {
+  if (!(err instanceof ApiError) || typeof err.body !== "object" || err.body === null) return null;
+  const result = (err.body as { result?: unknown }).result;
+  return typeof result === "object" && result !== null && !Array.isArray(result) ? (result as BackfillReport) : null;
+}
+
 function parseNonNegativeInt(text: string): number | null {
   const trimmed = text.trim();
   if (!/^\d+$/.test(trimmed)) return null;
@@ -371,7 +412,9 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
           ...options,
           ...(sources ? { sources } : {}),
         });
-        runTotals = mergeBackfillTotals(runTotals, report, [definition.nextKey, "dryRun"]);
+        runTotals = mergeBackfillTotals(runTotals, report, [definition.nextKey, "dryRun"], {
+          uncapped: definition.uncappedLists,
+        });
         runBatches += 1;
         const next = readBackfillCursor(report, definition.nextKey);
         setTotals(runTotals);
@@ -388,7 +431,20 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
         }
       }
     } catch (err) {
-      setCursor(after);
+      // A batch that stopped part-way (the removal job's source re-enabled mid-batch answers 409
+      // with `result`) still did work: fold it in and resume from its cursor, not the batch start.
+      const partial = partialBatchResult(err);
+      if (partial) {
+        runTotals = mergeBackfillTotals(runTotals, partial, [definition.nextKey, "dryRun"], {
+          uncapped: definition.uncappedLists,
+        });
+        setTotals(runTotals);
+        setBatches(runBatches + 1);
+        const resumeAt = readBackfillCursor(partial, definition.nextKey);
+        setCursor(resumeAt ?? after);
+      } else {
+        setCursor(after);
+      }
       setError(err instanceof Error ? err.message : "Batch failed");
       setStatus("failed");
     }
@@ -452,7 +508,9 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
         </label>
         {definition.sources && (
           <label className="min-w-[12rem] flex-1 space-y-1 text-xs">
-            <span className="text-muted-foreground">Data sources (comma-separated, empty = all)</span>
+            <span className="text-muted-foreground">
+              {definition.sourcesHint ?? "Data sources (comma-separated, empty = all)"}
+            </span>
             <Input
               className="h-8"
               placeholder="MakeupAPI, HoloTacoShopify"
@@ -558,6 +616,7 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
           {(definition.lists ?? []).map((list) => {
             const items = Array.isArray(totals[list.key]) ? (totals[list.key] as Record<string, unknown>[]) : [];
             const count = Number(totals[`${list.key}Count`] ?? items.length);
+            const shown = items.slice(0, MAX_BACKFILL_LIST_ITEMS);
             if (count === 0) return null;
             return (
               <div key={list.key} className="space-y-1">
@@ -565,12 +624,15 @@ function BackfillCard({ definition }: { definition: BackfillDefinition }) {
                   {list.label} <span className="text-muted-foreground">({count.toLocaleString()})</span>
                 </h4>
                 <ul className="max-h-40 space-y-0.5 overflow-y-auto break-all text-xs">
-                  {items.map((item, index) => (
+                  {shown.map((item, index) => (
                     <li key={index}>{list.format(item)}</li>
                   ))}
                 </ul>
-                {count > items.length && (
-                  <p className="text-xs text-muted-foreground">First {items.length} shown; the full list is in the server log.</p>
+                {count > shown.length && (
+                  <p className="text-xs text-muted-foreground">
+                    First {shown.length} shown;{" "}
+                    {items.length > shown.length ? "the full list is in the downloaded report." : "the rest were counted, not kept (the server log has them)."}
+                  </p>
                 )}
               </div>
             );

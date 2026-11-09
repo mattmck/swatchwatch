@@ -1024,6 +1024,8 @@ resource "azurerm_linux_function_app" "main" {
     SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS  = tostring(var.shopify_connector_request_timeout_ms)
     SHOPIFY_CONNECTOR_MAX_RETRIES         = tostring(var.shopify_connector_max_retries)
     SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS = tostring(var.shopify_connector_retry_base_delay_ms)
+    SHOPIFY_CONNECTOR_PAGE_DELAY_MS       = tostring(var.shopify_connector_page_delay_ms)
+    SHOPIFY_CONNECTOR_MAX_PAGES           = tostring(var.shopify_connector_max_pages)
     SOURCE_IMAGE_CONTAINER                = var.source_image_container
     SOURCE_IMAGE_MAX_EDGE_PX              = tostring(var.source_image_max_edge_px)
     SOURCE_IMAGE_MAX_DOWNLOAD_BYTES       = tostring(var.source_image_max_download_bytes)

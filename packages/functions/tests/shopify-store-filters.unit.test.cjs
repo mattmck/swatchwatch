@@ -11,6 +11,10 @@ const {
   shopifyStoreProductVerdict,
 } = require("../dist/lib/connectors/store-filters");
 const { ShopifyGenericConnector, isBundle } = require("../dist/lib/connectors/shopify-generic");
+const { isHarlowAndCoPolish } = require("../dist/lib/connectors/store-filters/harlow-and-co");
+const { isBeyondPolishPolish } = require("../dist/lib/connectors/store-filters/beyond-polish");
+const { isHypnoticPolishPolish } = require("../dist/lib/connectors/store-filters/hypnotic-polish");
+const { readSourceSettings } = require("../dist/lib/source-settings");
 const { classifyIngestedProduct } = require("../dist/lib/product-category");
 
 // pahlish.com/products.json, fetched 2026-10-18 (all 36 products, one page), trimmed.
@@ -383,9 +387,12 @@ describe("store-filters/sweet-and-sour — isSweetAndSourPolish (#273 batch 3)",
 });
 
 describe("store-filters — shopifyStoreProductVerdict", () => {
-  it("registers filters for Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour and Polish Pickup only", () => {
+  it("registers filters for Beyond Polish, Pahlish, Cirque Colors, Stella Chroma, Lemming Lacquer, Sweet & Sour, Polish Pickup, Harlow & Co and Hypnotic Polish only", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
+      "BeyondPolishShopify",
       "CirqueColorsShopify",
+      "HarlowAndCoShopify",
+      "HypnoticPolishShopify",
       "LemmingLacquerShopify",
       "PahlishShopify",
       "PolishPickupShopify",
@@ -470,5 +477,362 @@ describe("ShopifyGenericConnector applies the store pre-filter", () => {
         ["Magic Mirror Quick Dry Topcoat", "top_coat"],
       ]
     );
+  });
+});
+
+// harlowandco.org/products.json, fetched 2026-11-08 (1,537 products over 7 pages), trimmed to 102:
+// the first 60 non-"Nail Polish" products, 40 polishes across the six polish vendors, and
+// set-titled polishes (fixture _note). Harlow & Co is a multi-brand retailer (metadata.kind =
+// "retailer"); its titles are bare shade names.
+const HARLOW = require("./fixtures/harlow-and-co-products.json").products;
+
+const HARLOW_ACCEPTED = [
+  // ILNP
+  "Save The Date", "Cherry", "Overcoat", "Building Blocks", "Overload", "Summer Stargazing",
+  "Cream Pop", "Compass", "Black Orchid", "Woven", "Jet Setter", "Set Sail",
+  // KBShimmer
+  "Candy Cane Crush", "Shell We?", "Comet At Me Bro", "Give It A Whirl", "Grow With The Flow",
+  "Race Against Slime", "Constellation Prize", "Ice and Easy",
+  // Cirque
+  "Enchanted", "Citron Jelly", "Socialite", "Trinket", "Showgirl", "Grape Jelly", "Pony Up",
+  "Wishful Thinking", "Thunderbolt", "La Rougeanne",
+  // Color Club
+  "What's Your Sign?", "Blue Heaven", "Shattered", "Rock On", "Piece Out", "Angel Kiss",
+  // Polished for Days
+  "It's a Knife When...", "Truth or Dare", "Birds of a Feather", "Diva in Disguise",
+  // Emily de Molly
+  "Disarm", "The Romantics", "Places To Be", "Love Is The Law",
+];
+
+const harlow = (title) => {
+  const product = HARLOW.find((p) => p.title === title);
+  assert.ok(product, `Harlow fixture has no product titled ${title}`);
+  return product;
+};
+
+describe("store-filters/harlow-and-co — isHarlowAndCoPolish", () => {
+  it("defers every Nail Polish / Nail Polishes listing to the generic gate (null)", () => {
+    for (const title of HARLOW_ACCEPTED) {
+      assert.equal(isHarlowAndCoPolish(harlow(title)), null, title);
+    }
+  });
+
+  it("drops the non-polish product types (stickers, scrubs, oils, magnets, lotion, stamping plates, apparel)", () => {
+    const rejected = HARLOW.filter((p) => !/^Nail Polish(?:es)?$/.test(p.product_type));
+    assert.equal(rejected.length, 58);
+    for (const product of rejected) {
+      assert.equal(isHarlowAndCoPolish(product), false, `${product.vendor} | ${product.title}`);
+    }
+    assert.equal(isHarlowAndCoPolish({ title: "Harlow Gift Card", product_type: "Gift Card", vendor: "Harlow & Co." }), false);
+  });
+
+  it("drops the non-polish vendors even under a polish product type", () => {
+    for (const vendor of ["MILV", "Lina Nail Art Supplies", "Deco Beauty", "Walton Wood Farm", "Cutie Oils", "Simply Polished", "Harlow & Co."]) {
+      assert.equal(isHarlowAndCoPolish({ title: "Mystery Item", product_type: "Nail Polish", vendor }), false, vendor);
+    }
+  });
+
+  it("drops set, collection and bundle titles (the parser's set regex)", () => {
+    for (const title of ["It's Fall Good Collection", "Cirque Holiday Duo", "Mini Trio", "Polish Bundle", "Mani Kit", "Winter Combo"]) {
+      assert.equal(isHarlowAndCoPolish({ title, product_type: "Nail Polish", vendor: "Cirque" }), false, title);
+    }
+    // A set word counts only at the end of a segment, so the ILNP shade "Set Sail" stays.
+    assert.equal(isHarlowAndCoPolish(harlow("Set Sail")), null);
+  });
+
+  it("does not drop a shade whose name only contains a set word inside another word", () => {
+    assert.equal(isHarlowAndCoPolish({ title: "Settle Down", product_type: "Nail Polish", vendor: "ILNP" }), null);
+    assert.equal(isHarlowAndCoPolish({ title: "Kitten Heels", product_type: "Nail Polish", vendor: "Cirque" }), null);
+  });
+});
+
+describe("HarlowAndCoShopify retailer ingestion", () => {
+  let originalFetch;
+  let originalEndpoint;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
+    delete process.env.AZURE_OPENAI_ENDPOINT; // keep color-name detection offline
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ products: HARLOW }),
+    });
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalEndpoint !== undefined) process.env.AZURE_OPENAI_ENDPOINT = originalEndpoint;
+    else delete process.env.AZURE_OPENAI_ENDPOINT;
+  });
+
+  const settings = readSourceSettings({
+    kind: "retailer",
+    currency: "CAD",
+    vendorAliases: { Cirque: "Cirque Colors", "piCture pOlish": "Picture Polish" },
+  });
+
+  it("accepts the 44 single-shade polishes from the fixture under their brands, and nothing else", async () => {
+    const connector = new ShopifyGenericConnector("HarlowAndCoShopify", "https://www.harlowandco.org", {
+      currency: "CAD",
+      settings,
+    });
+    const result = await connector.pullProducts({ searchTerm: "", page: 1, pageSize: 200, maxRecords: 200 });
+    assert.equal(result.metadata.fetchedProductCount, 102);
+    assert.equal(result.records.length, 44);
+    assert.deepEqual(result.records.map((r) => r.normalized.name).sort(), [...HARLOW_ACCEPTED].sort());
+    const brands = new Set(result.records.map((r) => r.normalized.brand));
+    assert.deepEqual([...brands].sort(), [
+      "Cirque Colors",
+      "Color Club",
+      "Emily de Molly",
+      "ILNP",
+      "KBShimmer",
+      "Polished for Days",
+    ]);
+    // The shared classifier reads two listings' descriptions as toppers; the rest are colors.
+    assert.deepEqual(
+      result.records.filter((r) => r.normalized.productCategory !== "color").map((r) => [r.normalized.name, r.normalized.productCategory]).sort(),
+      [["Compass", "topper"], ["Ice and Easy", "topper"]]
+    );
+  });
+});
+
+// beyondpolish.com/products.json, fetched 2026-11-08 (17,508 products over 71 pages), trimmed to 247:
+// 8 lacquer-typed products per lacquer vendor, every product_type at least twice, 12 "Gel &
+// Lacquer Polish" combos, 12 "Gel Polish", Nail Set-tagged lacquers and Hair/Body products
+// (fixture _note). Beyond Polish is a multi-brand retailer (metadata.kind = "retailer").
+const BEYOND = require("./fixtures/beyond-polish-pull-products.json").products;
+const BEYOND_LACQUER_TYPES = ["Nail Lacquer", "Lacquer & Dip", "Gel, Lacquer & Dip"];
+const BEYOND_NO_GEL = { includeGel: false };
+const BEYOND_GEL = { includeGel: true };
+
+// Accepted lacquer-typed products per vendor in the fixture (the whole-store numbers are in the
+// README). Each vendor has 8 single-shade lacquers; the extra Nail Set / combo listings of OPI,
+// Orly, CND and Londontown in the fixture are rejected.
+const BEYOND_ACCEPTED_BY_VENDOR = {
+  OPI: 8, Zoya: 8, ORLY: 8, "Cirque Colors": 8, KBShimmer: 8, "Morgan Taylor": 8, CND: 8,
+  "Ella+Mila": 8, Londontown: 8, Essie: 8, "China Glaze": 8, "Color Club": 8, "butter LONDON": 8,
+  "Loud Lacquer": 8, "Sunday Studio": 8, "Cracked Polish": 8, Lippmann: 8, "Deborah Lippmann": 7,
+  "Static Nails": 8, Peacci: 8,
+};
+
+const beyond = (title) => {
+  const product = BEYOND.find((p) => p.title === title);
+  assert.ok(product, `Beyond Polish fixture has no product titled ${title}`);
+  return product;
+};
+const beyondListing = (title, product_type, extra = {}) => ({ title, product_type, vendor: "OPI", tags: [], ...extra });
+
+describe("store-filters/beyond-polish — isBeyondPolishPolish", () => {
+  it("accepts the lacquer lines named in the plan", () => {
+    for (const [title, productType, vendor] of [
+      ["OPI Nail Lacquer - No Room for the Blues 0.5 oz - #NLB83", "Nail Lacquer", "OPI"],
+      ["Zoya - Fairleigh .5 oz. - #ZP1210", "Nail Lacquer", "Zoya"],
+      ["Orly Nail Lacquer - Velvet Dreams - #2000478", "Nail Lacquer", "ORLY"],
+      ["Londontown - Lakur Enhanced Colour - Dream State 0.4 oz", "Nail Lacquer", "Londontown"],
+    ]) {
+      assert.equal(isBeyondPolishPolish({ title, product_type: productType, vendor, tags: [] }, BEYOND_NO_GEL), true, title);
+    }
+    for (const type of BEYOND_LACQUER_TYPES) {
+      assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", type), BEYOND_NO_GEL), true, type);
+    }
+  });
+
+  it("accepts the per-vendor counts of the fixture's lacquer-typed products", () => {
+    const accepted = {};
+    for (const product of BEYOND) {
+      if (isBeyondPolishPolish(product, BEYOND_NO_GEL)) accepted[product.vendor] = (accepted[product.vendor] ?? 0) + 1;
+    }
+    assert.deepEqual(accepted, BEYOND_ACCEPTED_BY_VENDOR);
+    assert.equal(BEYOND.filter((p) => isBeyondPolishPolish(p, BEYOND_NO_GEL)).length, 159);
+  });
+
+  it("accepts a lacquer-typed product only under a lacquer product type", () => {
+    // Every accepted fixture product has a lacquer type; every other type is rejected, whatever
+    // the title says.
+    for (const product of BEYOND) {
+      if (isBeyondPolishPolish(product, BEYOND_GEL)) {
+        assert.ok(
+          [...BEYOND_LACQUER_TYPES, "Gel Polish"].includes(product.product_type),
+          `${product.vendor} | ${product.title} | ${product.product_type}`
+        );
+      }
+    }
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", "Hair"), BEYOND_GEL), false);
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", ""), BEYOND_GEL), false);
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", undefined), BEYOND_GEL), false);
+  });
+
+  it("rejects every Gel & Lacquer Polish product (all are combos), with or without includeGel", () => {
+    const combos = BEYOND.filter((p) => p.product_type === "Gel & Lacquer Polish");
+    assert.equal(combos.length, 12);
+    for (const product of combos) {
+      assert.equal(isBeyondPolishPolish(product, BEYOND_NO_GEL), false, product.title);
+      assert.equal(isBeyondPolishPolish(product, BEYOND_GEL), false, product.title);
+    }
+  });
+
+  it("rejects the combo and set titles of the plan", () => {
+    for (const title of [
+      "OPI - Gel & Lacquer Combo - Metallic Rewind",
+      "OPI - Nail Lacquer Combo - Base, Top & Machu Peach-u 0.5 oz - #NLP36",
+      "Zoya - Sonnet Fall Collection",
+      "Lacquer Set - Ella+Mila Pretty In Pink",
+    ]) {
+      assert.equal(isBeyondPolishPolish(beyondListing(title, "Nail Lacquer"), BEYOND_GEL), false, title);
+    }
+  });
+
+  it("rejects the set tags (Nail Set, TIER COMBO, Custom Bundle, Kit, Mystery Box) in any case, even under a lacquer type", () => {
+    for (const tag of ["Nail Set", "TIER COMBO", "Custom Bundle", "Kit", "Mystery Box", "nail set", "kit", "tier combo"]) {
+      assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", "Nail Lacquer", { tags: ["Nail Polish", tag] }), BEYOND_NO_GEL), false, tag);
+    }
+    // Tags as Shopify's comma string, too.
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", "Nail Lacquer", { tags: "OPI, Nail Set" }), BEYOND_NO_GEL), false);
+    assert.equal(isBeyondPolishPolish(beyondListing("OPI - Alpine Snow", "Nail Lacquer", { tags: "OPI, Nail Polish" }), BEYOND_NO_GEL), true);
+    const tagged = BEYOND.filter(
+      (p) => BEYOND_LACQUER_TYPES.includes(p.product_type) && p.tags.some((t) => /^(?:nail set|tier combo|custom bundle|kit)$/i.test(t))
+    );
+    assert.ok(tagged.length >= 5);
+    for (const product of tagged) assert.equal(isBeyondPolishPolish(product, BEYOND_GEL), false, product.title);
+  });
+
+  it("drops hair, body, jewellery and every other non-polish type", () => {
+    const rejected = BEYOND.filter((p) => !BEYOND_LACQUER_TYPES.includes(p.product_type) && p.product_type !== "Gel Polish");
+    assert.ok(rejected.length >= 60);
+    for (const product of rejected) {
+      assert.equal(isBeyondPolishPolish(product, BEYOND_GEL), false, `${product.vendor} | ${product.title} | ${product.product_type}`);
+    }
+  });
+
+  it("accepts Gel Polish only with includeGel", () => {
+    const gel = beyond("OPI GelColor - Black Cherry Chutney 0.5 oz - #GCI43");
+    assert.equal(isBeyondPolishPolish(gel, BEYOND_NO_GEL), false);
+    assert.equal(isBeyondPolishPolish(gel, BEYOND_GEL), true);
+    const gelProducts = BEYOND.filter((p) => p.product_type === "Gel Polish");
+    assert.equal(gelProducts.length, 12);
+    assert.equal(gelProducts.filter((p) => isBeyondPolishPolish(p, BEYOND_NO_GEL)).length, 0);
+    // The gel combos and sets stay out even with includeGel.
+    assert.equal(gelProducts.filter((p) => isBeyondPolishPolish(p, BEYOND_GEL)).length, 5);
+  });
+
+  it("drops the store's own merchandise: a vendor named Beyond Polish is never a brand", () => {
+    for (const vendor of ["Beyond Polish", "beyond polish", " BEYOND POLISH "]) {
+      assert.equal(isBeyondPolishPolish(beyondListing("Beyond Polish Mystery Lacquer - Surprise", "Nail Lacquer", { vendor }), BEYOND_GEL), false, vendor);
+    }
+  });
+
+  it("defaults to includeGel false when the registry passes no settings", () => {
+    const gel = beyond("OPI GelColor - Black Cherry Chutney 0.5 oz - #GCI43");
+    assert.equal(shopifyStoreProductVerdict("BeyondPolishShopify", gel), false);
+    assert.equal(shopifyStoreProductVerdict("BeyondPolishShopify", gel, readSourceSettings({ kind: "retailer", includeGel: true })), true);
+    assert.equal(shopifyStoreProductVerdict("BeyondPolishShopify", gel, readSourceSettings({ kind: "retailer" })), false);
+  });
+});
+
+// hypnoticpolish.com/products.json, fetched 2026-11-08 (998 products over 4 pages), trimmed to 101
+// (fixture _note). Hypnotic Polish is a multi-brand EU retailer (metadata.kind = "retailer"),
+// registered disabled until the store's written OK.
+const HYPNOTIC = require("./fixtures/hypnotic-polish-products.json").products;
+const hypnotic = (title) => {
+  const product = HYPNOTIC.find((p) => p.title === title);
+  assert.ok(product, `Hypnotic Polish fixture has no product titled ${title}`);
+  return product;
+};
+const hypnoticListing = (title, product_type, extra = {}) => ({ title, product_type, vendor: "ILNP", tags: [], ...extra });
+
+describe("store-filters/hypnotic-polish — isHypnoticPolishPolish", () => {
+  it("accepts polishes, including a *PRE-ORDER* listing", () => {
+    for (const title of ["ILNP - Turquoise Water", "*PRE-ORDER* ILNP - Molten", "Cosmic Polish - Star Garnet (Magnetic)"]) {
+      assert.strictEqual(isHypnoticPolishPolish(hypnoticListing(title, "Nail Polish")), null, title);
+    }
+    assert.equal(isHypnoticPolishPolish(hypnotic("*PRE-ORDER* ILNP - Molten")), null);
+  });
+
+  it("defers coats, toppers and treatments to the generic gate (null)", () => {
+    for (const type of ["Top Coat", "Base Coat", "Topper", "Treatment", "Nail Polish"]) {
+      assert.equal(isHypnoticPolishPolish(hypnoticListing("ILNP - Glass Candy", type)), null, type);
+    }
+  });
+
+  it("rejects cuticle treatments and accessories, in any case", () => {
+    for (const type of ["Cuticle Treatment", "Accessories", "cuticle treatment", " ACCESSORIES "]) {
+      assert.equal(isHypnoticPolishPolish(hypnoticListing("KBShimmer - Barely There Matte Cuticle Cream", type)), false, type);
+    }
+    const rejected = HYPNOTIC.filter((p) => ["Cuticle Treatment", "Accessories"].includes(p.product_type));
+    assert.equal(rejected.length, 12);
+    for (const product of rejected) assert.equal(isHypnoticPolishPolish(product), false, product.title);
+  });
+
+  it("rejects grab bag and mystery titles, in any case, even under Nail Polish", () => {
+    for (const title of [
+      "ILNP - Grab Bag",
+      "KBShimmer - GRAB BAG of 5",
+      "Cirque Colors - Mystery Box",
+      "Starrily - mystery polish",
+    ]) {
+      assert.equal(isHypnoticPolishPolish(hypnoticListing(title, "Nail Polish")), false, title);
+    }
+  });
+
+  it("is registered for HypnoticPolishShopify", () => {
+    assert.equal(shopifyStoreProductVerdict("HypnoticPolishShopify", hypnotic("*PRE-ORDER* ILNP - Molten")), null);
+    assert.equal(
+      shopifyStoreProductVerdict("HypnoticPolishShopify", hypnoticListing("KBShimmer - Magnetic Wand", "Accessories")),
+      false
+    );
+  });
+});
+
+describe("HypnoticPolishShopify — connector over the fixture", () => {
+  const SETTINGS_METADATA = {
+    kind: "retailer",
+    currency: "EUR",
+    vendorAliases: { "Cuticula Nail Lacquer": "Cuticula" },
+  };
+  const pull = async () => {
+    const settings = readSourceSettings(SETTINGS_METADATA, "HypnoticPolishShopify");
+    return new ShopifyGenericConnector("HypnoticPolishShopify", "https://www.hypnoticpolish.com", {
+      currency: "EUR",
+      settings,
+    }).pullProducts({
+      searchTerm: "",
+      page: 1,
+      pageSize: 1000,
+      maxRecords: 1000,
+      catalogCache: { load: async () => HYPNOTIC, save: async () => {} },
+    });
+  };
+
+  it("accepts 88 records (63 colors, 6 toppers, 19 coats), drops the 12 accessories and cuticle treatments and the Cadillacquer trio set", async () => {
+    const result = await pull();
+    assert.equal(result.metadata.fetchedProductCount, 101);
+    assert.equal(result.records.length, 88);
+    // "*PRE-ORDER* Cadillacquer - FB Trio - Spotted Glass Frog" ends a segment with a set word.
+    assert.ok(!result.records.some((r) => /FB Trio/.test(r.normalized.listingTitle)));
+    const categories = {};
+    for (const r of result.records) categories[r.normalized.productCategory] = (categories[r.normalized.productCategory] ?? 0) + 1;
+    assert.deepEqual(categories, { color: 63, base_coat: 11, top_coat: 8, topper: 6 });
+  });
+
+  it("reads brand and shade from a Brand - Shade title, with aliases and pipe markers handled", async () => {
+    const records = (await pull()).records;
+    const byName = (brand, name) => records.find((r) => r.normalized.brand === brand && r.normalized.name === name);
+    const cosmic = byName("Cosmic Polish", "Star Garnet");
+    assert.ok(cosmic, "Cosmic Polish - Star Garnet (Magnetic) -> Star Garnet");
+    assert.equal(cosmic.normalized.listingTitle, "Cosmic Polish - Star Garnet (Magnetic)");
+    assert.ok(byName("Cuticula", "Flames Of A Phoenix"), "*PRE-ORDER* prefix and vendor alias");
+    // No alias: the vendor is the catalog brand (Bee's Knees Lacquer), and its full name is stripped.
+    assert.ok(byName("Bee's Knees Lacquer", "The Pond Spirit"));
+    const topCoat = byName("Starrily", "Eclipse");
+    assert.equal(topCoat.normalized.productCategory, "top_coat");
+    // product_type "Nail Polish" with both "|| Top Coat" and "|| Topper" tags: the tags decide,
+    // and topper beats coat wording. (No fixture polish carries only the Top Coat tag.)
+    const tagged = byName("KBShimmer", "In A Flurry");
+    assert.ok(tagged, "KBShimmer - In A Flurry");
+    assert.equal(tagged.normalized.productCategory, "topper");
+    assert.ok(records.every((r) => !String(r.normalized.name).includes("PRE-ORDER")));
   });
 });

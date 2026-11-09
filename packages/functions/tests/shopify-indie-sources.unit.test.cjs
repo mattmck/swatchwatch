@@ -293,10 +293,69 @@ describe("Polish Pickup retailer source", () => {
   });
 });
 
-describe("Polish Pickup retailer kind", () => {
-  it("is the only retailer source", () => {
-    assert.deepEqual([...SHOPIFY_RETAILER_SOURCES], ["PolishPickupShopify"]);
+describe("Hypnotic Polish retailer source", () => {
+  it("is pending approval, disabled by default and has its base URL", () => {
+    assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has("HypnoticPolishShopify"), true);
+    assert.equal(SHOPIFY_SOURCE_BASE_URLS.HypnoticPolishShopify, "https://www.hypnoticpolish.com");
+    assert.equal(isShopifySourceEnabledByDefault("HypnoticPolishShopify"), false);
+    assert.ok(SUPPORTED_SOURCES.includes("HypnoticPolishShopify"));
+  });
+});
+
+describe("Phase B retailer migrations", () => {
+  /** The metadata JSON of `name`'s VALUES tuple (SQL quotes undone), parsed. */
+  const metadataOf = (sql, name) => {
+    const tuple = seedTuple(sql, name);
+    const literal = tuple.slice(tuple.indexOf("'{"), tuple.lastIndexOf("}'") + 1);
+    return JSON.parse(literal.slice(1).replace(/''/g, "'"));
+  };
+
+  for (const [name, file] of [
+    ["HarlowAndCoShopify", "20261108120000000_add-harlow-and-co-source.sql"],
+    ["BeyondPolishShopify", "20261108130000000_add-beyond-polish-source.sql"],
+    ["HypnoticPolishShopify", "20261108140000000_add-hypnotic-polish-source.sql"],
+  ]) {
+    it(`${name}: the migration inserts the seed's metadata plus its insertedByMigration stamp`, () => {
+      const migration = readFileSync(resolve(MIGRATIONS_DIR, file), "utf8");
+      const fromMigration = metadataOf(migration, name);
+      assert.equal(fromMigration.insertedByMigration, file.split("_")[0]);
+      delete fromMigration.insertedByMigration;
+      assert.deepEqual(fromMigration, metadataOf(SEED_SQL, name));
+    });
+  }
+
+  it("Hypnotic maps no vendor away from a catalog brand name (Bee's Knees Lacquer stays itself)", () => {
+    const aliases = metadataOf(SEED_SQL, "HypnoticPolishShopify").vendorAliases;
+    assert.deepEqual(aliases, { "Cuticula Nail Lacquer": "Cuticula" });
+  });
+});
+
+describe("retailer source kind", () => {
+  it("lists the four retailer sources", () => {
+    assert.deepEqual(
+      [...SHOPIFY_RETAILER_SOURCES].sort(),
+      ["BeyondPolishShopify", "HarlowAndCoShopify", "HypnoticPolishShopify", "PolishPickupShopify"]
+    );
     assert.equal(isShopifyRetailerSource("PolishPickupShopify"), true);
     assert.equal(isShopifyRetailerSource("NightOwlLacquerShopify"), false);
+  });
+
+  it("lists every source the seed registers with \"kind\": \"retailer\"", () => {
+    const names = [...SEED_SQL.matchAll(/\(\s*'([A-Za-z0-9]+)',\s*'[a-z_]+',/g)].map((m) => m[1]);
+    assert.ok(names.length > 10, "seed source names parsed");
+    const retailers = names.filter((name) => /"kind": "retailer"/.test(seedTuple(SEED_SQL, name)));
+    assert.ok(retailers.length >= 4, `retailer seed rows parsed: ${retailers.join(", ")}`);
+    for (const name of retailers) {
+      assert.equal(SHOPIFY_RETAILER_SOURCES.has(name), true, `${name} is seeded as a retailer but missing from SHOPIFY_RETAILER_SOURCES`);
+    }
+  });
+
+  it("seeds Harlow & Co enabled as a CAD retailer without imagesPermitted", () => {
+    const tuple = seedTuple(SEED_SQL, "HarlowAndCoShopify");
+    assert.match(tuple, /,\s*true,\s*'\{/, "HarlowAndCoShopify must be seeded enabled");
+    assert.match(tuple, /"kind": "retailer"/);
+    assert.match(tuple, /"currency": "CAD"/);
+    assert.doesNotMatch(tuple, /"imagesPermitted"/);
+    assert.doesNotMatch(tuple, /"pendingApproval"/);
   });
 });

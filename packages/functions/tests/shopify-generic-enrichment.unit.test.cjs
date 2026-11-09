@@ -1,4 +1,4 @@
-const { describe, it } = require("node:test");
+const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
@@ -108,6 +108,83 @@ describe("ShopifyGenericConnector — gate first, enrich only the page window", 
     for (const term of ["fall   drop", "linear holo"]) {
       const result = await search(term);
       assert.deepEqual(result.records.map((r) => r.externalId), ["1001"], term);
+    }
+  });
+});
+
+describe("ShopifyGenericConnector — page limit (SHOPIFY_CONNECTOR_MAX_PAGES / settings.maxPages)", () => {
+  const { readSourceSettings } = require("../dist/lib/source-settings");
+  let originalFetch;
+  let pagesRequested;
+  let originalDelay;
+  beforeEach(() => {
+    originalDelay = process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS;
+    process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS = "0";
+    originalFetch = globalThis.fetch;
+    pagesRequested = [];
+    // A store with 35 full pages of 250 products and a short 36th page.
+    globalThis.fetch = async (url) => {
+      const page = Number(new URL(url).searchParams.get("page"));
+      pagesRequested.push(page);
+      const count = page <= 35 ? 250 : 10;
+      const products = Array.from({ length: count }, (_, i) => ({
+        id: page * 1000 + i,
+        title: `Shade ${page}-${i}`,
+        vendor: "Test Brand",
+        product_type: "Nail Polish",
+        tags: "nail-polish",
+        variants: [],
+        images: [],
+      }));
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ products }),
+      };
+    };
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDelay === undefined) delete process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS;
+    else process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS = originalDelay;
+  });
+
+  const pullAll = (settings) =>
+    new ShopifyGenericConnector("TestBrandShopify", "https://example.test", { currency: "USD", settings }).pullProducts({
+      searchTerm: "",
+      page: 1,
+      pageSize: 250,
+      maxRecords: 250,
+    });
+
+  it("stops at the default 30 pages without a per-source limit", async () => {
+    const result = await pullAll(undefined);
+    assert.equal(pagesRequested.length, 30);
+    assert.equal(result.metadata.fetchedProductCount, 30 * 250);
+    assert.equal(result.catalog.complete, false, "a truncated read is not a complete catalog");
+  });
+
+  it("reads a 35-page store to the end with settings.maxPages 40", async () => {
+    const result = await pullAll(readSourceSettings({ kind: "retailer", maxPages: 40 }));
+    assert.equal(pagesRequested.length, 36);
+    assert.equal(result.metadata.fetchedProductCount, 35 * 250 + 10);
+    assert.equal(result.catalog.complete, true);
+  });
+
+  it("waits SHOPIFY_CONNECTOR_PAGE_DELAY_MS between consecutive pages, not after the last", async () => {
+    process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS = "40";
+    const stamps = [];
+    const inner = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      stamps.push(Date.now());
+      return inner(url);
+    };
+    await pullAll(readSourceSettings({ kind: "retailer", maxPages: 3 }));
+    assert.equal(stamps.length, 3);
+    for (let i = 1; i < stamps.length; i += 1) {
+      assert.ok(stamps[i] - stamps[i - 1] >= 38, `gap ${stamps[i] - stamps[i - 1]}ms`);
     }
   });
 });

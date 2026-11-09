@@ -182,9 +182,9 @@ Resellers are the finding of this evaluation. One Shopify storefront, one `data_
 
 | Reseller | Country / currency | Platform | Products (pages) | Vendors | Generic gate accepts | Headline brands (accepted listings) | Terms | Verdict |
 |---|---|---|---|---|---|---|---|---|
-| **Beyond Polish** (beyondpolish.com) | US / USD | Shopify, `products.json` open, 71 pages of 250 | **17,508** | **103** | 9,395 (4,138 on lacquer-typed products: 4,022 color + coats) | OPI 1,857 (1,160 lacquer-line), DND 714, Kiara Sky 527, CND 470, Madam Glam 451, Harmony 373, Orly 285, Zoya 267, Cirque 248, KBShimmer 233, Morgan Taylor 210, Londontown 158, essie 149, Ella+Mila 145, Color Club 116, Loud Lacquer 108, China Glaze 108, butter LONDON 79, Cracked 57, Sundays 53, Lippmann 45, Static Nails 38 | **Own terms, no automated-access clause** (only "harvesting personal data from other users"); robots.txt Shopify default (`/products/` allowed, `products.json` not disallowed) | **Best single source.** Needs a reseller store filter (§4, S1) |
-| **Harlow & Co** (harlowandco.org; the `.ca` domain redirects) | Canada / CAD | Shopify, 7 pages | **1,537** | 22 | **1,282** | ILNP 605, KBShimmer 260, Cirque 238, Color Club 61, Polished for Days 59, Emily de Molly 40, I Scream Nails 10 | **Own short terms (4,900 chars), no automated-access clause** | **Second source: ILNP + KBShimmer.** `product_type` is clean ("Nail Polish"); the generic gate already works |
-| **Hypnotic Polish** (hypnoticpolish.com) | EU / EUR (Bancontact, iDEAL) | Shopify, 4 pages | 998 | 16 | 977 | ILNP 308, Cirque 201, KBShimmer 110, Cosmic Polish 73, Cuticula 68, Emily de Molly 58, Bee's Knees 49, Starrily 49, Cadillacquer 40 | Shopify clause | Third: needs a written OK; adds Cadillacquer, Cosmic, Cuticula and EUR prices |
+| **Beyond Polish** (beyondpolish.com) | US / USD | Shopify, `products.json` open, 71 pages of 250 | **17,508** | **103** | 9,395 (4,138 on lacquer-typed products: 4,022 color + coats) | OPI 1,857 (1,160 lacquer-line), DND 714, Kiara Sky 527, CND 470, Madam Glam 451, Harmony 373, Orly 285, Zoya 267, Cirque 248, KBShimmer 233, Morgan Taylor 210, Londontown 158, essie 149, Ella+Mila 145, Color Club 116, Loud Lacquer 108, China Glaze 108, butter LONDON 79, Cracked 57, Sundays 53, Lippmann 45, Static Nails 38 | **Own terms, no automated-access clause** (only "harvesting personal data from other users"); robots.txt Shopify default (`/products/` allowed, `products.json` not disallowed) | **Best single source.** Needs a reseller store filter (§4, S1); **registered (Task 7)** |
+| **Harlow & Co** (harlowandco.org; the `.ca` domain redirects) | Canada / CAD | Shopify, 7 pages | **1,537** | 22 | **1,282** | ILNP 605, KBShimmer 260, Cirque 238, Color Club 61, Polished for Days 59, Emily de Molly 40, I Scream Nails 10 | **Own short terms (4,900 chars), no automated-access clause** | **Second source: ILNP + KBShimmer.** `product_type` is clean ("Nail Polish"); the generic gate already works; **registered (Task 6)** |
+| **Hypnotic Polish** (hypnoticpolish.com) | EU / EUR (Bancontact, iDEAL) | Shopify, 4 pages | 998 | 16 | 977 | ILNP 308, Cirque 201, KBShimmer 110, Cosmic Polish 73, Cuticula 68, Emily de Molly 58, Bee's Knees 49, Starrily 49, Cadillacquer 40 | Shopify clause | Third: needs a written OK; adds Cadillacquer, Cosmic, Cuticula and EUR prices. **Registered pending (Task 8):** disabled, `pendingApproval`, store filter and fixture in place; the owner's email (spec §7) is the next action |
 | **Ninja Polish** (ninjapolish.com) | US | Shopify | 126 | 11 (`Various`, `My Online Shop`, Messy Mansion, DRK Nails…) | — | mostly stamping | No clause, but terms say no reproduction without consent (survey) | Low value |
 | **Color4Nails** (color4nails.com) | US | behind Cloudflare challenge (403) | — | — | — | ILNP, KBShimmer, indies (reputation) | — | Unreachable |
 | **Nail Polish Canada** (nailpolishcanada.com) | — | no DNS answer | — | — | — | — | — | Gone |
@@ -295,9 +295,10 @@ new**. Together **~3,000 new lacquer shades from two sources**, 30% of the targe
 
 **Risks.** Title noise and duplicates (mitigated by the parser and the audit); reseller stock churn
 (Beyond Polish lists `Discontinued` and `CLEARANCE`, which is a feature for collectors); a reseller
-asking us to stop (then disable the source: the catalog rows and listings stay, and its stored images are
-removed by the admin job the plan adds for this, `POST /api/images-admin/source-images/remove`; nothing
-removes them automatically today); gel lines flooding color search if decision 3 is "no" and the filter is wrong.
+asking us to stop (then disable the source: the catalog rows and listings stay, and disabling alone keeps
+its stored images; they are removed by the admin job `POST /api/images-admin/source-images/remove`, run as
+`npm run remove:source-images -- --source <name> --write` or from the admin Backfills tab, "Remove a
+source's images", which refuses an enabled source and keeps hex-labeled images); gel lines flooding color search if decision 3 is "no" and the filter is wrong.
 
 ### S2 — Brand stores on Shopify: enable the clause-free ones, ask the others
 

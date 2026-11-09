@@ -254,6 +254,7 @@ function materialize(rec, options) {
 const shadeInserts = () => calls.filter((c) => c.sql.startsWith("INSERT INTO shade "));
 const brandInserts = () => calls.filter((c) => c.sql.startsWith("INSERT INTO brand"));
 const sourceProductInserts = () => calls.filter((c) => c.sql.startsWith("INSERT INTO shade_source_product"));
+const aliasInserts = () => calls.filter((c) => c.sql.startsWith("INSERT INTO shade_alias"));
 const catalogUpdates = () => calls.filter((c) => c.sql.startsWith("UPDATE shade SET color_name"));
 
 beforeEach(() => {
@@ -276,6 +277,34 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("materializeHoloTacoRecords — retailer source adopts the brand's shade", () => {
+  it("adds the vendor code and the raw listing title as aliases of the shade", async () => {
+    shades = [{ shadeId: 11, name: "Big Apple Red", finish: "creme", collection: null, finishes: ["creme"] }];
+    const rec = record({ name: "Big Apple Red", finishes: ["creme"] });
+    rec.normalized.vendorCode = "NLB83";
+    rec.normalized.listingTitle = "OPI - Big Apple Red #NLB83";
+
+    await materialize(rec, RETAILER);
+
+    const aliases = aliasInserts();
+    assert.deepEqual(aliases.map((c) => [c.params[0], c.params[1]]), [
+      [11, "NLB83"],
+      [11, "OPI - Big Apple Red #NLB83"],
+    ]);
+    assert.ok(aliases.every((c) => c.sql.includes("ON CONFLICT DO NOTHING")));
+  });
+
+  it("adds no alias for a record without a code, and never one equal to the shade name", async () => {
+    shades = [{ shadeId: 11, name: "Big Apple Red", finish: "creme", collection: null, finishes: ["creme"] }];
+    await materialize(record({ name: "Big Apple Red", finishes: ["creme"] }), RETAILER);
+    assert.equal(aliasInserts().length, 0);
+
+    const rec = record({ name: "Big Apple Red", finishes: ["creme"] });
+    rec.normalized.vendorCode = "  ";
+    rec.normalized.listingTitle = " big apple red ";
+    await materialize(rec, RETAILER);
+    assert.equal(aliasInserts().length, 0);
+  });
+
   it("adopts the one same-name shade and writes fill-only", async () => {
     shades = [{ shadeId: 11, name: "Velvet Dreams", finish: "creme", collection: "Fall 2025", finishes: ["creme"] }];
 
@@ -998,5 +1027,40 @@ describe("materializeHoloTacoRecords — catalog authority (one write-rule imple
 
     assert.equal(aiCalls, 0);
     assert.equal(metrics.hexDetectionSkippedUnchanged, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retailer-mode connector record → shade (brand sources plan, Task 5)
+// ---------------------------------------------------------------------------
+
+describe("materializeHoloTacoRecords — a retailer-mode Shopify record", () => {
+  it("creates the shade with no legacy finish key and its finishes from the store tags", async () => {
+    const { ShopifyGenericConnector } = require("../dist/lib/connectors/shopify-generic");
+    const { readSourceSettings } = require("../dist/lib/source-settings");
+    const { products } = require("./fixtures/beyond-polish-products.json");
+    const opiListing = products.find((product) => product.id === 7001);
+    const connector = new ShopifyGenericConnector("FixtureRetailerShopify", "https://www.beyondpolish.com", {
+      currency: "USD",
+      settings: readSourceSettings({ kind: "retailer" }),
+    });
+    const { records } = await connector.pullProducts({
+      searchTerm: "",
+      page: 1,
+      pageSize: 50,
+      maxRecords: 50,
+      catalogCache: { load: async () => [opiListing], save: async () => {} },
+    });
+    assert.equal(records.length, 1);
+    brands = { opi: 1 };
+
+    const metrics = await materialize({ ...records[0], externalId: "r1" }, RETAILER);
+
+    assert.equal(metrics.shadesCreated, 1);
+    const [insert] = shadeInserts();
+    assert.equal(insert.params[1], "No Room for the Blues");
+    assert.equal(insert.params[2], null, "legacy shade.finish identity key");
+    assert.equal(insert.params[3], null, "collection");
+    assert.deepEqual([...insert.params[4]], ["creme"]);
   });
 });

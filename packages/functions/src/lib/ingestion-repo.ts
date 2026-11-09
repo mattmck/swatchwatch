@@ -469,6 +469,28 @@ export function isRawTitleDuplicate(matchedShadeId: number, rawShadeId: number |
   return rawShadeId !== null && rawShadeId !== matchedShadeId;
 }
 
+/** Aliases a retailer listing adds to its shade: the vendor code and the raw listing title. */
+async function recordRetailerAliases(
+  client: IngestedShadeQuery,
+  shadeId: number,
+  shadeName: string,
+  normalized: Record<string, unknown>
+): Promise<void> {
+  const name = shadeName.trim().toLowerCase();
+  const seen = new Set<string>([name]);
+  for (const key of ["vendorCode", "listingTitle"] as const) {
+    const value = normalized[key];
+    if (typeof value !== "string") continue;
+    const alias = value.trim();
+    if (!alias || seen.has(alias.toLowerCase())) continue;
+    seen.add(alias.toLowerCase());
+    await client.query(
+      "INSERT INTO shade_alias (shade_id, alias) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      [shadeId, alias]
+    );
+  }
+}
+
 /** Renames a shade stored under a raw title to the cleaned name and keeps the raw title as an alias. */
 export async function renameShadeToCleanName(
   client: IngestedShadeQuery,
@@ -3450,6 +3472,10 @@ async function materializePreparedHoloTacoRecord(
   // Remember which product this shade came from (drives the "Buy from brand" link, #267).
   await recordShadeSourceProduct(client, shadeId, dataSourceId, record.externalId);
   delta.shadeId = shadeId;
+  // Retailer listings carry the vendor code ("NLB83") and the raw listing title; both become
+  // aliases, so typed catalog search and CSV import match the code or title through the alias
+  // (the capture / bottle resolver does not read shade_alias).
+  await recordRetailerAliases(client, shadeId, holo.name, record.normalized);
   // Catalog barcodes (#21): the product GTIN and variant barcodes resolve scans to this shade.
   const barcodeResult = await materializeProductBarcodes(client, { shadeId, dataSourceId, record });
   delta.barcodesLinked += barcodeResult.inserted;

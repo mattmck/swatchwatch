@@ -386,6 +386,33 @@ VALUES
     '{"kind": "retailer", "currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Polish Pickup: monthly multi-brand indie pre-order shop. Pending owner OK."}'::jsonb
   ),
   (
+    'HarlowAndCoShopify',
+    'api',
+    'https://www.harlowandco.org',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://www.harlowandco.org/policies/terms-of-service',
+    true,
+    '{"kind": "retailer", "currency": "CAD", "vendorAliases": {"Cirque": "Cirque Colors", "piCture pOlish": "Picture Polish"}, "priority": "medium", "mvp": "no", "notes": "Harlow & Co Shopify store (Canadian multi-brand retailer, CAD). Verified 2026-11-08: /products.json returns 200 with Shopify products (1,537 over 7 pages, 22 vendors). Polish is typed Nail Polish / Nail Polishes (ILNP 605, KBShimmer 260, Cirque 238, Color Club, Polished for Days, Emily de Molly, I Scream Nails); the rest is other vendors'' decals, stamping plates, scrubs, oils, lotions, magnets and apparel. The store-specific filter connectors/store-filters/harlow-and-co.ts drops the non-polish product types and vendors and set-titled listings; with the retailer gate expected about 1,282 of 1,537 (from the 2026-11-08 pull; the first dry run confirms). robots.txt is the Shopify default (products.json not disallowed). The store''s own terms carry no automated-access clause. Registered as a retailer (metadata.kind = retailer): listings adopt the brand stores'' shades and only fill empty data; images stay off until metadata.imagesPermitted is set after the store''s OK. Enabled 2026-11-08.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 1537, "vendors": 22, "storeFilterPass": 1282, "storeFilterCheckedAt": "2026-11-08", "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'BeyondPolishShopify',
+    'api',
+    'https://www.beyondpolish.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://www.beyondpolish.com/policies/terms-of-service',
+    true,
+    '{"kind": "retailer", "currency": "USD", "includeGel": false, "maxPages": 100, "vendorAliases": {"ORLY": "Orly", "Lippmann": "Deborah Lippmann", "Sunday Studio": "Sundays", "DND - Daisy Nail Design": "DND", "Harmony": "Gelish", "ella+mila": "Ella+Mila", "butter LONDON": "butter LONDON"}, "priority": "medium", "mvp": "no", "notes": "Beyond Polish Shopify store (US multi-brand retailer, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (17,508 over 71 pages of 250, 103 vendors). The store''s own terms carry no automated-access clause (only a sentence about harvesting other users'' personal data); robots.txt is the Shopify default (products.json not disallowed). The generic polish gate accepts 9,395 of the 17,508; the lacquer-typed products (product_type Nail Lacquer, Lacquer & Dip, Gel, Lacquer & Dip) accept 4,138 (OPI 1,160, Zoya 262, Orly 255, Cirque 244, KBShimmer 223, Morgan Taylor 205, CND 159, Ella+Mila 142, Londontown 141, Essie 118, China Glaze 102, Color Club 80, butter LONDON 66). The store-specific filter connectors/store-filters/beyond-polish.ts keeps only those lacquer types (Gel Polish too when metadata.includeGel is true) and drops Gel & Lacquer Polish combos, sets, kits, mystery boxes, hair, skin, jewellery, tools and the store''s own merchandise. Products.json carries no barcodes. Registered as a retailer (metadata.kind = retailer): listings adopt the brand stores'' shades and only fill empty data; images stay off until metadata.imagesPermitted is set after the store''s OK. maxPages 100 lets the 71-page catalog be read to the end. Enabled 2026-11-08.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 17508, "vendors": 103, "genericGateAccepts": 9395, "lacquerTypedAccepts": 4138, "barcodesInProductsJson": false, "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'HypnoticPolishShopify',
+    'api',
+    'https://www.hypnoticpolish.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://www.hypnoticpolish.com/policies/terms-of-service',
+    false,
+    '{"kind": "retailer", "currency": "EUR", "vendorAliases": {"Cuticula Nail Lacquer": "Cuticula"}, "pendingApproval": true, "priority": "medium", "mvp": "no", "notes": "Hypnotic Polish Shopify store (EU multi-brand retailer, EUR). Verified 2026-11-08: /products.json returns 200 with Shopify products (998 over 4 pages of 250, 16 vendors). robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service carries the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. REGISTERED DISABLED AND PENDING: needs the store''s written OK before it is enabled; record it here as ''Acceptable use confirmed by <name, role> at Hypnotic Polish on <date> via <channel>: <summary>'', then set enabled = true and remove pendingApproval. The generic polish gate accepts 977 of the 998; headline brands (accepted listings): ILNP 308, Cirque Colors 201, KBShimmer 110, Cosmic Polish 73, Cuticula 68, Emily de Molly 58, Bee''s Knees 49, Starrily 49, Cadillacquer 40. The store filter connectors/store-filters/hypnotic-polish.ts drops the Cuticle Treatment and Accessories product types and grab bag / mystery listings; coats and toppers go through the generic gate with their category. Registered as a retailer (metadata.kind = retailer): listings adopt the brand stores'' shades and only fill empty data; vendorAliases map the store''s vendor spellings to brands; images stay off until metadata.imagesPermitted is set after the store''s OK.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 998, "vendors": 16, "genericGateAccepts": 977, "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true, "writtenPermission": null}}'::jsonb
+  ),
+  (
     'CosIng',
     'api',
     'https://ec.europa.eu/growth/sectors/cosmetics/cosing',

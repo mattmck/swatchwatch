@@ -643,6 +643,18 @@ variable "shopify_connector_retry_base_delay_ms" {
   default     = 1000
 }
 
+variable "shopify_connector_page_delay_ms" {
+  description = "Shopify connector pause between consecutive page requests to one store, 0-10000 (SHOPIFY_CONNECTOR_PAGE_DELAY_MS)"
+  type        = number
+  default     = 1000
+}
+
+variable "shopify_connector_max_pages" {
+  description = "Shopify connector pages of 250 products read per run, 1-200; a source overrides it with data_source.metadata.maxPages (SHOPIFY_CONNECTOR_MAX_PAGES)"
+  type        = number
+  default     = 30
+}
+
 variable "source_image_container" {
   description = "Blob container for catalog images and their thumbnail variants (the only container public v2 ids read) (SOURCE_IMAGE_CONTAINER)"
   type        = string
