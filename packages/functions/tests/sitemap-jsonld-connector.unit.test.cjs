@@ -65,21 +65,36 @@ function memoryCache({ durable = true } = {}) {
 }
 
 /**
- * Fetch stub: `routes` maps a URL to a body, or to `(attempt) => ({ status, body, latencyMs })`.
+ * Fetch stub: `routes` maps a URL to a body, or to `(attempt) => ({ status, body, latencyMs, headers })`.
  * Every request advances the clock by `latencyMs` (default `latency`) and is logged with its start.
+ * robots.txt requests (one per crawling pull) go to `robotsLog` instead of `log`; without a route
+ * they answer 404 (allow) at once, so the sitemap and page logs and timings stay readable.
  */
-function stubFetch(clock, routes, { latency = 0, log = [] } = {}) {
+function stubFetch(clock, routes, { latency = 0, log = [], robotsLog = [] } = {}) {
   const attempts = new Map();
   const fetchImpl = async (url, init) => {
     const attempt = (attempts.get(url) ?? 0) + 1;
     attempts.set(url, attempt);
-    log.push({ url, at: clock.t, headers: init.headers });
+    const robots = url.endsWith("/robots.txt");
+    (robots ? robotsLog : log).push({ url, at: clock.t, headers: init.headers });
     const route = routes[url];
-    const answer = typeof route === "function" ? route(attempt) : route === undefined ? { status: 404, body: "" } : { status: 200, body: route };
+    const answer =
+      typeof route === "function"
+        ? route(attempt)
+        : route === undefined
+          ? { status: 404, body: "", latencyMs: robots ? 0 : undefined }
+          : { status: 200, body: route };
     clock.t += answer.latencyMs ?? latency;
-    return { ok: answer.status >= 200 && answer.status < 300, status: answer.status, statusText: "", text: async () => answer.body };
+    const headers = answer.headers ?? {};
+    return {
+      ok: answer.status >= 200 && answer.status < 300,
+      status: answer.status,
+      statusText: "",
+      headers: { get: (name) => headers[name.toLowerCase()] ?? null },
+      text: async () => answer.body,
+    };
   };
-  return { fetchImpl, log };
+  return { fetchImpl, log, robotsLog };
 }
 
 function connector(clock, fetchImpl, options = {}) {
@@ -159,7 +174,9 @@ describe("SitemapJsonLdConnector: fixtures", () => {
 
     const pink = byId["/products/nail-lacquer-pink-on-canvas"];
     assert.equal(pink.gtin, "4064665004236");
-    assert.equal(pink.normalized.vendorCode, "99350098453");
+    // The numeric SKU is the store's stock code, not a shade code: kept as sku, never vendorCode.
+    assert.equal(pink.normalized.vendorCode, null);
+    assert.equal(pink.normalized.sku, "99350098453");
     assert.equal(pink.normalized.brand, "OPI");
     assert.equal(pink.normalized.name, "(P)Ink on Canvas");
     assert.doesNotMatch(pink.normalized.name, /OPI Nail Lacquer -/);
@@ -364,10 +381,11 @@ describe("SitemapJsonLdConnector: checkpointed crawl", () => {
     });
     const { fetchImpl, log } = stubFetch(clock, routes, { latency: 3000 });
     const cache = memoryCache();
-    // 12 s before the margin: the index (0–3 s), child 1 (3–6 s), child 2 (6–9 s); child 3 would start with 3 s left.
+    // 12 s before the margin: robots.txt (0 s), the index (1–4 s, paced), child 1 (4–7 s), child 2
+    // (7–10 s); child 3 would start with 2 s left.
     const first = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + MARGIN + 12000 });
     assert.equal(first.metadata.catalogComplete, false);
-    assert.deepEqual(cache.peek().discovery, { rootRead: true, children, done: children.slice(0, 2) });
+    assert.deepEqual(cache.peek().discovery, { rootRead: true, children, done: children.slice(0, 2), foreignSkipped: 0 });
     assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, children[0], children[1]]);
 
     log.length = 0;
@@ -611,6 +629,157 @@ describe("SitemapJsonLdConnector: checkpointed crawl", () => {
   });
 });
 
+describe("SitemapJsonLdConnector: politeness and trust", () => {
+  /** A saved checkpoint with discovery done and these URLs still to fetch. */
+  async function seeded(urls) {
+    const cache = memoryCache();
+    await cache.saveCheckpoint(
+      {
+        discovery: { rootRead: true, children: [], done: [] },
+        urls: urls.map((url) => ({ url, lastmod: null })),
+        pages: {},
+        complete: false,
+        generation: 1,
+      },
+      null
+    );
+    return cache;
+  }
+
+  it("stops the pull after 10 consecutive page failures, saving the checkpoint first, and fails", async () => {
+    const clock = fakeClock();
+    const urls = Array.from({ length: 30 }, (_, i) => `${PREFIXES[0]}blocked-${i}`);
+    const routes = Object.fromEntries(urls.map((url) => [url, () => ({ status: 403, body: "" })]));
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    const cache = await seeded(urls);
+    await assert.rejects(
+      connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000 }),
+      /^Error: SitemapJsonLd: 10 consecutive page failures \(status 403\), stopping$/
+    );
+    assert.equal(log.length, 10, "10 page requests, then the pull stopped");
+    assert.equal(cache.peek().generation, 2, "the checkpoint was saved before the error");
+    assert.deepEqual(cache.peek().failed, urls.slice(0, 10));
+    assert.equal(cache.peek().complete, false);
+  });
+
+  it("an answered page resets the consecutive-failure count", async () => {
+    const clock = fakeClock();
+    const urls = Array.from({ length: 19 }, (_, i) => `${PREFIXES[0]}mixed-${i}`);
+    const routes = Object.fromEntries(urls.map((url) => [url, () => ({ status: 403, body: "" })]));
+    routes[urls[9]] = ldPage({ "@type": "Product", name: "Fine", brand: "OPI" });
+    const { fetchImpl } = stubFetch(clock, routes);
+    const cache = await seeded(urls);
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000 });
+    assert.equal(result.metadata.catalogComplete, true);
+    assert.equal(cache.peek().failed.length, 18);
+  });
+
+  it("waits Retry-After before retrying a 429 when it fits before the margin", async () => {
+    const clock = fakeClock();
+    const url = `${PREFIXES[0]}busy`;
+    const routes = {
+      [url]: (attempt) =>
+        attempt === 1
+          ? { status: 429, body: "", headers: { "retry-after": "2" } }
+          : { status: 200, body: ldPage({ "@type": "Product", name: "Busy", brand: "OPI" }) },
+    };
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    const cache = await seeded([url]);
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 10_000_000 });
+    assert.deepEqual(log.map((entry) => entry.url), [url, url]);
+    assert.equal(log[1].at - log[0].at, 2000, "retried 2 s later (Retry-After), not after the 1 s backoff");
+    assert.equal(result.records.length, 1);
+  });
+
+  it("defers the page when Retry-After does not fit before the margin", async () => {
+    const clock = fakeClock();
+    const url = `${PREFIXES[0]}busy`;
+    const routes = { [url]: () => ({ status: 429, body: "", headers: { "retry-after": "120" } }) };
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    const cache = await seeded([url]);
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + MARGIN + 60000 });
+    assert.equal(log.length, 1, "no retry inside this pull");
+    assert.equal(result.metadata.catalogComplete, false);
+    assert.equal(cache.peek().attempts[url], 1);
+  });
+
+  it("reads robots.txt once per crawling pull and refuses when it disallows a product prefix", async () => {
+    for (const body of ["User-agent: *\nDisallow: /products/\n", "User-agent: SwatchWatch\nDisallow: /\n"]) {
+      const clock = fakeClock();
+      const routes = { ...fixtureRoutes(), "https://www.opi.com/robots.txt": body };
+      const { fetchImpl, log, robotsLog } = stubFetch(clock, routes);
+      await assert.rejects(
+        connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: memoryCache(), deadlineMs: clock.t + 120000 }),
+        /^Error: SitemapJsonLd disallowed by robots\.txt$/
+      );
+      assert.deepEqual(robotsLog.map((entry) => entry.url), ["https://www.opi.com/robots.txt"]);
+      assert.equal(log.length, 0, "no sitemap or product request");
+    }
+  });
+
+  it("crawls when robots.txt allows the prefixes or is missing (4xx)", async () => {
+    for (const robots of ["User-agent: *\nDisallow: /account/\n", { status: 403 }]) {
+      const clock = fakeClock();
+      const routes = {
+        ...fixtureRoutes(),
+        "https://www.opi.com/robots.txt": typeof robots === "string" ? robots : () => ({ status: robots.status, body: "" }),
+      };
+      const { fetchImpl, robotsLog } = stubFetch(clock, routes);
+      const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: memoryCache(), deadlineMs: clock.t + 120000 });
+      assert.equal(robotsLog.length, 1);
+      assert.equal(result.records.length, 3);
+    }
+  });
+
+  it("skips child sitemaps on another origin and counts them", async () => {
+    const clock = fakeClock();
+    const own = "https://www.opi.com/sitemap-products-1.xml";
+    const foreign = ["https://evil.example/sitemap.xml", "http://www.opi.com/sitemap-products-2.xml"];
+    const routes = {
+      [SITEMAP_URL]: `<?xml version="1.0"?><sitemapindex>${[own, ...foreign]
+        .map((loc) => `<sitemap><loc>${loc}</loc></sitemap>`)
+        .join("")}</sitemapindex>`,
+      [own]: `<urlset><url><loc>${PREFIXES[0]}own</loc></url></urlset>`,
+      [`${PREFIXES[0]}own`]: ldPage({ "@type": "Product", name: "Own", brand: "OPI" }),
+    };
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    const cache = memoryCache();
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 120000 });
+    assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, own, `${PREFIXES[0]}own`]);
+    assert.equal(result.metadata.foreignSitemapsSkipped, 2);
+    assert.deepEqual(cache.peek().discovery.children, [own]);
+    assert.equal(result.records.length, 1);
+  });
+
+  it("uses the crawled URL as productUrl, never the page's JSON-LD url", () => {
+    const outcome = gateCrawledPage(
+      {
+        url: `${PREFIXES[0]}honest`,
+        lastmod: null,
+        product: { "@type": "Product", name: "Honest", brand: "OPI", url: "https://phish.example/buy" },
+      },
+      SETTINGS,
+      PREFIXES
+    );
+    assert.equal(outcome.accept, true);
+    assert.equal(buildCrawledRecord(outcome.gated, SETTINGS).record.normalized.productUrl, `${PREFIXES[0]}honest`);
+  });
+
+  it("maps the JSON-LD brand through metadata.vendorAliases; a retailer page without a brand is vendorless", () => {
+    const aliased = readSourceSettings(
+      { sitemapUrl: SITEMAP_URL, productUrlPrefixes: PREFIXES, vendorAliases: { "piCture pOlish": "Picture Polish" } },
+      "ShopSitemap"
+    );
+    const page = (brand) => ({ url: `${PREFIXES[0]}atomic`, lastmod: null, product: { "@type": "Product", name: "Atomic", ...(brand ? { brand } : {}) } });
+    const outcome = gateCrawledPage(page({ name: "piCture pOlish" }), aliased, PREFIXES);
+    assert.equal(outcome.accept, true);
+    assert.equal(outcome.gated.brand, "Picture Polish");
+
+    const retailer = readSourceSettings({ kind: "retailer", sitemapUrl: SITEMAP_URL, productUrlPrefixes: PREFIXES }, "ShopSitemap");
+    assert.deepEqual(gateCrawledPage(page(null), retailer, PREFIXES), { accept: false, vendorless: true });
+  });
+});
+
 describe("sitemap + JSON-LD vendor codes", () => {
   const page = (name) => ({
     url: "https://shop.example/products/nail-lacquer-big-apple-red",
@@ -623,16 +792,17 @@ describe("sitemap + JSON-LD vendor codes", () => {
     return buildCrawledRecord(outcome.gated, settings).record.normalized.vendorCode;
   };
 
-  it("retailer/feed: the #CODE parsed from the title wins over the store SKU, else the SKU", () => {
+  it("retailer/feed: vendorCode is only the #CODE parsed from the title, never the store SKU", () => {
     for (const kind of ["retailer", "feed"]) {
       const settings = readSourceSettings({ kind, sitemapUrl: SITEMAP_URL, productUrlPrefixes: PREFIXES }, "ShopSitemap");
       assert.equal(vendorCode("OPI - Big Apple Red #NLN25", settings), "NLN25");
-      assert.equal(vendorCode("OPI - Big Apple Red", settings), "RET-55501");
+      assert.equal(vendorCode("OPI - Big Apple Red", settings), null);
     }
   });
 
-  it("brand mode keeps the SKU first", () => {
-    assert.equal(vendorCode("OPI - Big Apple Red #NLN25", SETTINGS), "RET-55501");
+  it("brand mode: only the title #CODE too; the numeric SKU stays in sku", () => {
+    assert.equal(vendorCode("OPI - Big Apple Red #NLN25", SETTINGS), "NLN25");
+    assert.equal(vendorCode("OPI - Big Apple Red", SETTINGS), null);
   });
 });
 

@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { BigCartelConnector, bigCartelStoreFilterProduct } = require("../dist/lib/connectors/big-cartel");
+const { BigCartelConnector, bigCartelStoreFilterProduct, gateBigCartelProduct } = require("../dist/lib/connectors/big-cartel");
 const { MYSTERY_TITLE_REGEX } = require("../dist/lib/connectors/store-filters/shared");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 
@@ -38,12 +38,16 @@ function stubFetch(routes) {
   return { fetchImpl, log };
 }
 
+/** A connector on a fake clock: `sleep` records the wait and advances the clock by it. */
 function connector(fetchImpl, options = {}) {
   const sleeps = [];
+  let clock = 1_000_000;
   const instance = new BigCartelConnector(SOURCE, options.baseUrl ?? null, options.settings ?? SETTINGS, {
     fetchImpl,
+    now: () => clock,
     sleep: async (ms) => {
       sleeps.push(ms);
+      clock += ms;
     },
   });
   return { instance, sleeps };
@@ -57,8 +61,7 @@ describe("BigCartelConnector: fixture", () => {
 
     assert.deepEqual(log.map((entry) => entry.url), [PRODUCTS, STORE]);
     assert.ok(log.every((entry) => entry.headers["User-Agent"] === UA && entry.headers.Accept === "application/json"));
-    assert.equal(sleeps.length, 1, "store.json waits after products.json");
-    assert.ok(sleeps[0] > 900 && sleeps[0] <= 1000);
+    assert.deepEqual(sleeps, [1000], "store.json waits 1 s after products.json");
 
     assert.deepEqual(result.records.map((record) => record.externalId), ["pumpkin-spice-crelly", "midnight-orchard"]);
     assert.deepEqual(result.catalog, {
@@ -169,6 +172,30 @@ describe("BigCartelConnector: fixture", () => {
     assert.equal(record.normalized.listingTitle, "Painted Polish - Pumpkin Spice Crelly #PP101");
   });
 
+  it("maps metadata.brand through metadata.vendorAliases", async () => {
+    const settings = readSourceSettings(
+      { brand: "piCture pOlish", subdomain: "paintedpolish", vendorAliases: { "piCture pOlish": "Picture Polish" } },
+      SOURCE
+    );
+    const { fetchImpl } = stubFetch({ [PRODUCTS]: JSON.stringify([SAMPLE[0]]), [STORE]: STORE_JSON });
+    const [record] = (await connector(fetchImpl, { settings }).instance.pullProducts(PULL)).records;
+    assert.equal(record.normalized.brand, "Picture Polish");
+  });
+
+  it("the gate skips a retailer product as vendorless when the source names no brand", () => {
+    const settings = readSourceSettings({ kind: "retailer", subdomain: "paintedpolish" }, SOURCE);
+    const outcome = gateBigCartelProduct({ product: SAMPLE[0], store: { url: null, currency: null } }, SOURCE, settings);
+    assert.deepEqual(outcome, { accept: false, vendorless: true });
+  });
+
+  it("keeps a shade whose name only contains the word Mystery; drops a Mystery Bag", () => {
+    const store = { url: null, currency: null };
+    for (const [name, accept] of [["Midnight Mystery", true], ["Mystery", true], ["Mystery Bag", false]]) {
+      const outcome = gateBigCartelProduct({ product: { ...SAMPLE[0], name }, store }, SOURCE, SETTINGS);
+      assert.equal(outcome.accept, accept, name);
+    }
+  });
+
   it("fails the pull on a products.json error status and on an empty store", async () => {
     const { fetchImpl } = stubFetch({ [PRODUCTS]: { status: 404, body: "" } });
     await assert.rejects(connector(fetchImpl).instance.pullProducts(PULL), /Big Cartel API request failed: HTTP 404/);
@@ -213,7 +240,10 @@ describe("MYSTERY_TITLE_REGEX", () => {
     for (const title of ["Mystery Bag", "mystery polish", "Halloween Grab Bag", "Surprise Bag", "BLIND BAG #3"]) {
       assert.match(title, MYSTERY_TITLE_REGEX, title);
     }
-    for (const title of ["Mysteryous Orchid", "Grab Bagel", "Blind Date", "Surprise Party"]) {
+    for (const title of ["Mystery Polishes", "Mystery Box", "Holiday Mystery Pack"]) {
+      assert.match(title, MYSTERY_TITLE_REGEX, title);
+    }
+    for (const title of ["Mysteryous Orchid", "Grab Bagel", "Blind Date", "Surprise Party", "Mystery", "Midnight Mystery"]) {
       assert.doesNotMatch(title, MYSTERY_TITLE_REGEX, title);
     }
   });

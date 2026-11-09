@@ -1199,3 +1199,57 @@ describe("processIngestionJobQueueMessage — disabled source", () => {
     assert.equal(failed.metrics.failedStage, "source_disabled");
   });
 });
+
+describe("processIngestionJobQueueMessage — known-blocked source", () => {
+  it("fails the job at start with stage source_blocked and never pulls, even when the row is enabled", async () => {
+    sourceMetadata = { blocked: "robots" };
+    pages[1] = { records: makeRecords(1, 5), metadata: {} };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(events.filter((e) => e.type === "pull").length, 0);
+    assert.equal(enqueued().length, 0);
+    const failed = events.find((e) => e.type === "failed");
+    assert.ok(failed, "expected the job to be marked failed");
+    assert.equal(failed.error, "Source HoloTacoShopify is known-blocked (robots); the job was not run");
+    assert.equal(failed.metrics.failedStage, "source_blocked");
+  });
+});
+
+describe("processIngestionJobQueueMessage — listing freshness on the Shopify path", () => {
+  // A Shopify page that downloaded the catalog (`fetchedComplete`) reports it on the pull.
+  const shopifyPage = (records) => ({
+    records,
+    metadata: { sourcePageCount: 1 },
+    catalog: { externalIds: records.map((record) => record.externalId), complete: true },
+  });
+
+  it("a fresh job whose first pull returns a catalog runs freshness once", async () => {
+    pages[1] = shopifyPage(makeRecords(1, 3));
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(events.filter((e) => e.type === "pull").length, 1);
+    assert.equal(freshnessCalls.length, 1);
+    assert.deepEqual(freshnessCalls[0].catalog.externalIds, ["p1-0", "p1-1", "p1-2"]);
+    assert.equal(job.status, "succeeded");
+    assert.equal(job.metrics.workerTotals.persistence.listingsMarkedMissing, 0);
+  });
+
+  it("a continuation whose pull also returns a catalog (cache-miss re-download) does not run it again", async () => {
+    pages[1] = shopifyPage(makeRecords(1, 3));
+    await processIngestionJobQueueMessage(makePayload(), context);
+    assert.equal(freshnessCalls.length, 1);
+
+    // The next invocation of the same job re-downloads (its catalog cache missed) and reports
+    // the catalog again; the job's totals say freshness already ran.
+    freshnessCalls = [];
+    events = [];
+    pages[1] = shopifyPage(makeRecords(1, 3));
+    const again = { ...checkpoint({ continuationCount: 1 }), nextPage: 1, recordOffset: 0 };
+    job = { status: "running", metrics: { ...job.metrics, checkpoint: again } };
+    await processIngestionJobQueueMessage(makePayload({ checkpoint: again }), context);
+    assert.equal(events.filter((e) => e.type === "pull").length, 1);
+    assert.equal(freshnessCalls.length, 0);
+  });
+});

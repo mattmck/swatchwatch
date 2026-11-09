@@ -998,6 +998,24 @@ export function resolveRetailerVendor(
 }
 
 /**
+ * The brand of a record from a non-Shopify connector (product feed, sitemap, WooCommerce, Big
+ * Cartel), through the same helpers as a Shopify product: a brand source reads `itemBrand` with
+ * `resolveBrandStoreVendor` (the `vendorAliases` entry first, then the item's brand, then
+ * `settings.brand`); a retailer or feed source with `resolveRetailerVendor` (alias, else the
+ * item's brand unless missing or a placeholder), then `settings.brand`. Null when neither names a
+ * brand (the connectors skip the record and count it as `vendorlessSkipped`).
+ */
+export function resolveConnectorBrand(itemBrand: unknown, settings: SourceSettings): string | null {
+  if (settings.kind === "brand") {
+    const fallback = settings.brand ?? asNonEmptyString(itemBrand);
+    return fallback ? resolveBrandStoreVendor(itemBrand, settings.vendorAliases, fallback) : null;
+  }
+  return (
+    resolveRetailerVendor(itemBrand, settings.vendorAliases, settings.brand ?? "", settings.kind) ?? settings.brand ?? null
+  );
+}
+
+/**
  * Whether `source` runs in retailer mode: its settings say it is not a brand store, and it has no
  * store title parser of its own (Polish Pickup's "Vendor | Shade" titles keep that parser).
  */

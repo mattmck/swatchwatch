@@ -22,6 +22,7 @@ import { normalizeCurrencyCode, normalizePriceAmount, type ProductPrice } from "
 import { htmlToPlainText, normalizeDescriptors, PRODUCT_DESCRIPTION_MAX_CHARS } from "../product-text.js";
 import type { SourceSettings } from "../source-settings.js";
 import { isRetailerSetSegment, parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
+import { resolveConnectorBrand } from "./shopify-generic.js";
 import {
   ConnectorProductRecord,
   ConnectorPullOptions,
@@ -328,15 +329,16 @@ interface GatedItem {
   title: string;
   brand: string;
   category: ProductCategory;
-  /** Set for a `feed` or `retailer` source (title parsed with `parseRetailerTitle`). */
-  listing?: RetailerTitle;
+  /** `parseRetailerTitle` of the title (every kind; a `feed`/`retailer` item without one is dropped). */
+  listing: RetailerTitle | null;
 }
 
 type GateOutcome = { accept: true; gated: GatedItem } | { accept: false; vendorless?: true };
 
 /**
- * Whether a feed item is ingested: it needs an id and a title; a brand from `g:brand`, else
- * `settings.brand` (neither = skipped, counted as vendorless); the shared connector gate
+ * Whether a feed item is ingested: it needs an id and a title; a brand (`resolveConnectorBrand`:
+ * the `vendorAliases` entry for `g:brand`, else `g:brand`, else `settings.brand`; none = skipped,
+ * counted as vendorless); the shared connector gate
  * (`classifyIngestedProduct` over the title, `g:product_type` and `g:color`, plus a textual
  * `g:google_product_category`); and no set (gate evidence `set`; for a `feed` or `retailer`
  * source also a title ending in a set word or one `parseRetailerTitle` reads as a set; a brand
@@ -346,7 +348,7 @@ export function gateFeedItem(item: FeedItem, settings: SourceSettings): GateOutc
   const externalId = first(item, "id");
   const title = first(item, "title");
   if (!externalId || !title) return { accept: false };
-  const brand = first(item, "brand") ?? settings.brand;
+  const brand = resolveConnectorBrand(first(item, "brand"), settings);
   if (!brand) return { accept: false, vendorless: true };
 
   const googleCategory = first(item, "google_product_category");
@@ -356,14 +358,13 @@ export function gateFeedItem(item: FeedItem, settings: SourceSettings): GateOutc
   const gate = classifyIngestedProduct({ title, productType: first(item, "product_type"), tags });
   if (!gate.accept || gate.evidence === "set") return { accept: false };
 
-  // A brand feed relies on the generic gate's set evidence (its shade "Jet Set" is a polish);
-  // a feed or retailer listing ending in a set word is a multi-item listing.
-  if (settings.kind === "brand") {
-    return { accept: true, gated: { item, externalId, title, brand, category: gate.category } };
-  }
-  if (isRetailerSetSegment(title)) return { accept: false };
+  // The title parser strips the brand, line and code in brand mode too ("Zoya Nail Polish -
+  // Aurora" -> "Aurora"). A brand feed relies on the generic gate's set evidence (its shade
+  // "Jet Set" is a polish); a feed or retailer listing ending in a set word is a multi-item listing.
   const listing = parseRetailerTitle(title, brand);
-  if (!listing || listing.isSet) return { accept: false };
+  if (settings.kind !== "brand" && (isRetailerSetSegment(title) || !listing || listing.isSet)) {
+    return { accept: false };
+  }
   return { accept: true, gated: { item, externalId, title, brand, category: gate.category, listing } };
 }
 
@@ -391,8 +392,11 @@ export function buildFeedRecord(gated: GatedItem, settings: SourceSettings): Fee
       normalized: {
         productId: externalId,
         brand,
-        name: listing ? listing.shadeName : title,
+        name: listing?.shadeName ?? title,
         rawTitle: title,
+        productLine: listing?.productLine ?? null,
+        // Only a "#CODE" parsed from the title (it becomes a shade alias); never a store SKU.
+        vendorCode: listing?.vendorCode ?? null,
         productType,
         // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
         productCategory: category,
@@ -410,9 +414,7 @@ export function buildFeedRecord(gated: GatedItem, settings: SourceSettings): Fee
         currency,
         available: parseFeedAvailability(first(item, "availability")),
         kind: settings.kind,
-        ...(listing
-          ? { listingTitle: title, vendorCode: listing.vendorCode, productLine: listing.productLine }
-          : {}),
+        ...(settings.kind !== "brand" ? { listingTitle: title } : {}),
       },
     },
   };

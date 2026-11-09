@@ -43,8 +43,9 @@ export const CONNECTOR_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   "OpiSitemap",
   // WooCommerce Store API stores (brand sources plan, Task 16). Picture Polish: the Store API
   // answered 200 on 2026-11-08, terms not read yet. ILNP (robots.txt disallows the Store API) and
-  // KBShimmer (Cloudflare challenge) are known-blocked (`metadata.blocked`), registered so the
-  // admin console lists them.
+  // KBShimmer (Cloudflare challenge) are known-blocked: `metadata.blocked` makes the run endpoints
+  // answer 409 `source_blocked` and the worker refuse a queued job (lib/ingestion-run-guard.ts),
+  // even if the row is enabled; they are registered so the admin console lists them.
   "PicturePolishWooCommerce",
   "IlnpWooCommerce",
   "KbshimmerWooCommerce",

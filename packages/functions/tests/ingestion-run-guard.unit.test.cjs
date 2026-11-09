@@ -45,3 +45,26 @@ test("an enabled ensured row (or no row) proceeds", () => {
   assert.equal(refuseIfDisabled("X", { enabled: true }), null);
   assert.equal(refuseIfDisabled("X", null), null);
 });
+
+test("a source whose metadata has blocked answers 409 source_blocked naming the reason, even when enabled", async () => {
+  const { partitionBlockedSources } = require("../dist/lib/ingestion-run-guard");
+  for (const enabled of [true, false]) {
+    const res = await assertSourceEnabledForRun("IlnpWooCommerce", async () => ({ enabled, metadata: { blocked: "robots" } }));
+    assert.equal(res.status, 409);
+    assert.equal(res.jsonBody.error, "source_blocked");
+    assert.match(res.jsonBody.message, /IlnpWooCommerce is known-blocked \(robots\)/);
+  }
+  assert.equal(refuseIfDisabled("X", { enabled: true, metadata: { blocked: true } }).jsonBody.error, "source_blocked");
+  for (const blocked of [false, null, "", undefined]) {
+    assert.equal(refuseIfDisabled("X", { enabled: true, metadata: { blocked } }), null, String(blocked));
+  }
+  assert.deepEqual(
+    partitionBlockedSources([
+      { name: "A", enabled: true, metadata: {} },
+      { name: "B", enabled: false, metadata: { blocked: "cloudflare" } },
+      null,
+      { name: "C", enabled: true, metadata: { blocked: "robots" } },
+    ]),
+    ["B", "C"]
+  );
+});

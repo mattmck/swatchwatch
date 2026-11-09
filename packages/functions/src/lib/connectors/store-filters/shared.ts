@@ -23,8 +23,10 @@ export function stripHtml(value: unknown): string {
 }
 
 /**
- * A mystery or grab-bag listing ("Mystery Bag", "Halloween Grab Bag", "Blind Bag"): never one
- * shade, whatever its category says. The WooCommerce and Big Cartel gates reject a matching title
- * before the category gate, because a store category ("Nail Polish") can carry a polish signal.
+ * A mystery or grab-bag listing ("Mystery Bag", "Mystery Polishes", "Halloween Grab Bag", "Blind
+ * Bag"): never one shade, whatever its category says. "Mystery" alone is not enough, so a shade
+ * named "Mystery" or "Midnight Mystery" is kept. The WooCommerce and Big Cartel gates reject a
+ * matching title before the category gate, because a store category ("Nail Polish") can carry a
+ * polish signal.
  */
-export const MYSTERY_TITLE_REGEX = /\b(?:mystery|grab bag|surprise bag|blind bag)\b/i;
+export const MYSTERY_TITLE_REGEX = /\bmystery\s+(?:bag|box|polish|pack)e?s?\b|\b(?:grab|surprise|blind)\s+bags?\b/i;

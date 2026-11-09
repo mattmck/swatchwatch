@@ -15,6 +15,14 @@
  * crawl is complete, the stable catalog is gated, sorted (newest `lastmod` first) and windowed
  * by page like the Shopify connector, and every pull reports the complete `catalog` for listing
  * freshness.
+ *
+ * Every crawling pull first reads `<sitemap origin>/robots.txt` (`lib/robots.ts`): a `Disallow`
+ * covering a configured product prefix's path (or `/`) throws `SitemapJsonLd disallowed by
+ * robots.txt`; a missing robots.txt (any 4xx) allows. Child sitemaps of a `<sitemapindex>` on
+ * another origin are skipped (`metadata.foreignSitemapsSkipped`). A pull that sees
+ * `SITEMAP_JSONLD_MAX_CONSECUTIVE_FAILURES` product pages fail in a row saves its checkpoint and
+ * fails (a store blocking us must not burn through the whole catalog). A 429 or 503 with
+ * `Retry-After` waits that long when it fits before the save margin, else the page is deferred.
  */
 
 import { XMLParser } from "fast-xml-parser";
@@ -23,8 +31,10 @@ import { normalizeGtin } from "../barcodes.js";
 import { classifyIngestedProduct } from "../product-category.js";
 import { normalizeCurrencyCode, normalizePriceAmount } from "../product-price.js";
 import { htmlToPlainText, normalizeDescriptors, PRODUCT_DESCRIPTION_MAX_CHARS } from "../product-text.js";
+import { isPathDisallowed } from "../robots.js";
 import type { SourceSettings } from "../source-settings.js";
 import { isRetailerSetSegment, parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
+import { resolveConnectorBrand } from "./shopify-generic.js";
 import {
   ConnectorCatalogCache,
   ConnectorCheckpointSupersededError,
@@ -47,6 +57,11 @@ const REQUEST_TIMEOUT_MS = parseIntEnv(process.env.SHOPIFY_CONNECTOR_REQUEST_TIM
 const MAX_REQUEST_RETRIES = parseIntEnv(process.env.SHOPIFY_CONNECTOR_MAX_RETRIES, 2, 0, 6);
 const RETRY_BASE_DELAY_MS = parseIntEnv(process.env.SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS, 1000, 100, 30000);
 const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
+/** The product token robots.txt groups name us by. */
+const ROBOTS_AGENT_TOKEN = "SwatchWatch";
+
+/** Product pages failing in a row (any status but 200/404/410) that stop the pull and fail the job. */
+export const SITEMAP_JSONLD_MAX_CONSECUTIVE_FAILURES = 10;
 
 /** Pulls in which one page may be tried and left unanswered before it is recorded as failed. */
 export const SITEMAP_JSONLD_MAX_URL_ATTEMPTS = 3;
@@ -75,7 +90,30 @@ export function resolveSitemapPageDelayMs(): number {
 type FetchLike = (
   url: string,
   init: { method: string; headers: Record<string, string>; signal: AbortSignal }
-) => Promise<{ ok: boolean; status: number; statusText?: string; text(): Promise<string> }>;
+) => Promise<{
+  ok: boolean;
+  status: number;
+  statusText?: string;
+  headers?: { get(name: string): string | null } | null;
+  text(): Promise<string>;
+}>;
+
+/** A `Retry-After` value (delay seconds or an HTTP date) in ms from `nowMs`; null when absent or unreadable. */
+export function parseRetryAfterMs(value: string | null | undefined, nowMs: number): number | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000;
+  const at = Date.parse(trimmed);
+  return Number.isFinite(at) ? Math.max(0, at - nowMs) : null;
+}
+
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
 
 /** One JSON-LD `Product` object as stored in the checkpoint (the record's `raw`). */
 export type JsonLdProduct = Record<string, unknown>;
@@ -89,6 +127,8 @@ export interface SitemapCrawlCheckpoint {
     children: string[];
     /** Children already read (their matching URLs are in `urls`). */
     done: string[];
+    /** Children the index listed on another origin than `sitemapUrl` (never read). */
+    foreignSkipped: number;
   };
   /** Product page URLs matching a prefix, deduped, in sitemap order. */
   urls: Array<{ url: string; lastmod: string | null }>;
@@ -110,7 +150,7 @@ export interface SitemapCrawlCheckpoint {
 
 function emptyCheckpoint(): SitemapCrawlCheckpoint {
   return {
-    discovery: { rootRead: false, children: [], done: [] },
+    discovery: { rootRead: false, children: [], done: [], foreignSkipped: 0 },
     urls: [],
     pages: {},
     attempts: {},
@@ -141,6 +181,7 @@ export function readCrawlCheckpoint(value: unknown): SitemapCrawlCheckpoint {
       rootRead: discovery.rootRead === true,
       children: stringList(discovery.children),
       done: stringList(discovery.done),
+      foreignSkipped: typeof discovery.foreignSkipped === "number" ? discovery.foreignSkipped : 0,
     },
     urls: value.urls.flatMap((entry) =>
       isRecord(entry) && typeof entry.url === "string"
@@ -324,8 +365,9 @@ interface GatedPage {
 type GateOutcome = { accept: true; gated: GatedPage } | { accept: false; vendorless?: true };
 
 /**
- * Whether a crawled page is ingested: a Product with a name and a brand (`brand.name`, else
- * `settings.brand`; neither = skipped, counted as vendorless); the shared connector gate over
+ * Whether a crawled page is ingested: a Product with a name and a brand (`resolveConnectorBrand`:
+ * the `vendorAliases` entry for `brand.name`, else `brand.name`, else `settings.brand`; none =
+ * skipped, counted as vendorless); the shared connector gate over
  * the name and the product line (a prefix match is the polish signal); no set (gate evidence `set`; a `feed`/`retailer` source also
  * drops a title ending in a set word or one `parseRetailerTitle` reads as a set).
  */
@@ -336,7 +378,7 @@ export function gateCrawledPage(
 ): GateOutcome {
   const title = text(page.product.name);
   if (!title) return { accept: false };
-  const brand = brandOf(page.product) ?? settings.brand;
+  const brand = resolveConnectorBrand(brandOf(page.product), settings);
   if (!brand) return { accept: false, vendorless: true };
 
   // Enterprise titles may carry the line ("OPI Nail Lacquer - Big Apple Red"): the parser strips
@@ -381,11 +423,6 @@ export function buildCrawledRecord(gated: GatedPage, settings: SourceSettings): 
   const offer = firstOffer(product);
   const price = normalizePriceAmount(offer?.price ?? offer?.lowPrice ?? null);
   const currency = normalizeCurrencyCode(offer?.priceCurrency);
-  // A retailer's or feed's SKU is its own stock code: the maker's "#CODE" in the title comes first.
-  const vendorCode =
-    settings.kind === "brand"
-      ? text(product.sku) ?? listing?.vendorCode ?? null
-      : listing?.vendorCode ?? text(product.sku) ?? null;
   return {
     invalidCheckDigit: gtin && !gtin.checkDigitValid ? gtin.gtin : null,
     record: {
@@ -398,7 +435,10 @@ export function buildCrawledRecord(gated: GatedPage, settings: SourceSettings): 
         name: shadeName,
         rawTitle: title,
         productLine,
-        vendorCode,
+        // Only a "#CODE" parsed from the title becomes `vendorCode` (and so a shade alias); the
+        // page's SKU is the store's stock code and stays in `sku`.
+        vendorCode: listing?.vendorCode ?? null,
+        sku: text(product.sku),
         productType: productLine,
         // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
         productCategory: category,
@@ -409,7 +449,9 @@ export function buildCrawledRecord(gated: GatedPage, settings: SourceSettings): 
         descriptionText: htmlToPlainText(text(product.description), PRODUCT_DESCRIPTION_MAX_CHARS),
         imageUrls,
         primaryImageUrl: imageUrls[0] ?? null,
-        productUrl: text(product.url) ?? url,
+        // The crawled URL: it matched a configured prefix on the sitemap's origin; the JSON-LD
+        // `url` is page content and is not trusted as a link.
+        productUrl: url,
         price: price && currency ? price : null,
         currency: price && currency ? currency : null,
         available: parseJsonLdAvailability(offer?.availability),
@@ -594,6 +636,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
       crawlPullEstimateMs: this.crawlPullEstimateMs(),
       sitemapChildren: state.discovery.children.length,
       sitemapChildrenRead: state.discovery.done.length,
+      foreignSitemapsSkipped: state.discovery.foreignSkipped,
     };
 
     if (!state.complete) {
@@ -693,14 +736,42 @@ export class SitemapJsonLdConnector implements ProductConnector {
       }
     };
 
+    // robots.txt once per crawling pull, before discovery and any product page.
+    const sitemapOrigin = originOf(this.sitemapUrl);
+    if (!sitemapOrigin) throw new Error(`${this.source}: metadata.sitemapUrl is not an absolute URL`);
+    const robots = await this.request(`${sitemapOrigin}/robots.txt`, stopAt, "robots");
+    requests += 1;
+    if (robots.status === "deferred") return { pages: 0, requests };
+    if (robots.status === "ok") {
+      const paths = this.prefixes.map(urlPath);
+      if (paths.some((prefixPath) => isPathDisallowed(robots.body, ROBOTS_AGENT_TOKEN, prefixPath))) {
+        throw new Error("SitemapJsonLd disallowed by robots.txt");
+      }
+    } else if (!(robots.status === "http" && robots.httpStatus >= 400 && robots.httpStatus < 500)) {
+      // A missing robots.txt (any 4xx) allows everything (RFC 9309); a 5xx or network failure fails.
+      throw new Error(`${this.source} robots.txt request failed: ${describeOutcome(robots)}`);
+    }
+
     if (!state.discovery.rootRead) {
       const outcome = await this.request(this.sitemapUrl, stopAt, "sitemap");
       requests += 1;
       if (outcome.status === "deferred") return { pages: 0, requests };
       if (outcome.status !== "ok") throw new Error(`${this.source} sitemap request failed: ${describeOutcome(outcome)}`);
       const root = parseSitemapXml(outcome.body);
-      if (root.kind === "index") state.discovery.children = [...new Set(root.entries.map((entry) => entry.url))];
-      else addUrls(root.entries);
+      if (root.kind === "index") {
+        // Only child sitemaps on the sitemap's own origin are read.
+        const children = [...new Set(root.entries.map((entry) => entry.url))];
+        const sameOrigin = children.filter((child) => originOf(child) === sitemapOrigin);
+        state.discovery.children = sameOrigin;
+        state.discovery.foreignSkipped = children.length - sameOrigin.length;
+        if (state.discovery.foreignSkipped > 0) {
+          const message = `Skipped ${state.discovery.foreignSkipped} child sitemap(s) on another origin than ${sitemapOrigin}`;
+          if (log) log("warn", message, { foreignSitemapsSkipped: state.discovery.foreignSkipped });
+          else console.warn(`${this.source} ${message}`);
+        }
+      } else {
+        addUrls(root.entries);
+      }
       state.discovery.rootRead = true;
     }
     for (const child of state.discovery.children) {
@@ -735,6 +806,14 @@ export class SitemapJsonLdConnector implements ProductConnector {
     };
     // A page that errored in this pull stays for the next pull, so the crawl is not complete yet.
     let pendingRetry = false;
+    // Product pages failing in a row; any answered page (200, 404, 410) resets it.
+    let consecutiveFailures = 0;
+    const pageFailed = (status: string) => {
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= SITEMAP_JSONLD_MAX_CONSECUTIVE_FAILURES) {
+        throw new Error(`SitemapJsonLd: ${consecutiveFailures} consecutive page failures (status ${status}), stopping`);
+      }
+    };
     for (const { url } of state.urls) {
       if (url in state.pages || failed.has(url)) continue;
       if (pages >= this.maxPagesPerRun) return { pages, requests };
@@ -755,15 +834,18 @@ export class SitemapJsonLdConnector implements ProductConnector {
           countAttempt(url, outcome.reason);
           if (!failed.has(url)) pendingRetry = true;
         }
+        pageFailed(outcome.reason);
         continue;
       }
       if (outcome.status === "exhausted") {
         giveUp(url, outcome.reason);
+        pageFailed(outcome.reason.replace(/^HTTP /, ""));
         continue;
       }
       if (outcome.status === "http") {
         if (outcome.httpStatus !== 404 && outcome.httpStatus !== 410) {
           giveUp(url, `HTTP ${outcome.httpStatus}`);
+          pageFailed(String(outcome.httpStatus));
           continue;
         }
         state.gone.push(url);
@@ -771,6 +853,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
       } else {
         state.pages[url] = extractJsonLdProduct(outcome.body);
       }
+      consecutiveFailures = 0;
       delete state.attempts[url];
     }
     if (!pendingRetry) state.complete = true;
@@ -784,7 +867,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
    * non-retryable thrown error (not a timeout or network error) is fatal and thrown for a
    * sitemap request; for a product page it is returned as `error` (one attempt for that page).
    */
-  private async request(url: string, stopAt: number, kind: "sitemap" | "page"): Promise<RequestOutcome> {
+  private async request(url: string, stopAt: number, kind: "robots" | "sitemap" | "page"): Promise<RequestOutcome> {
     const attemptCount = MAX_REQUEST_RETRIES + 1;
     let backoffMs = 0;
     let lastFailure: string | undefined;
@@ -802,11 +885,17 @@ export class SitemapJsonLdConnector implements ProductConnector {
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       this.lastRequestAt = this.now();
       let retryReason: string;
+      let retryAfterMs: number | null = null;
       try {
         const response = await this.fetchImpl(url, {
           method: "GET",
           headers: {
-            Accept: kind === "sitemap" ? "application/xml, text/xml;q=0.9, */*;q=0.5" : "text/html, application/xhtml+xml;q=0.9, */*;q=0.5",
+            Accept:
+              kind === "robots"
+                ? "text/plain, */*;q=0.5"
+                : kind === "sitemap"
+                  ? "application/xml, text/xml;q=0.9, */*;q=0.5"
+                  : "text/html, application/xhtml+xml;q=0.9, */*;q=0.5",
             "User-Agent": USER_AGENT,
           },
           signal: controller.signal,
@@ -814,13 +903,14 @@ export class SitemapJsonLdConnector implements ProductConnector {
         if (response.ok) return { status: "ok", body: await response.text() };
         if (!isRetryableStatus(response.status)) return { status: "http", httpStatus: response.status };
         retryReason = `HTTP ${response.status}`;
+        retryAfterMs = parseRetryAfterMs(response.headers?.get("retry-after"), this.now());
       } catch (error) {
         let normalized = error instanceof Error ? error : new Error(String(error));
         if (normalized.name === "AbortError") {
           normalized = new Error(`${this.source} ${kind} request timed out after ${timeoutMs}ms`);
         }
         if (!isRetryableRequestError(normalized)) {
-          if (kind === "sitemap") throw normalized;
+          if (kind !== "page") throw normalized;
           const reason = `${normalized.name === "Error" ? "" : `${normalized.name}: `}${normalized.message}`;
           return { status: "error", reason, permanent: isPermanentRequestError(normalized) };
         }
@@ -830,7 +920,9 @@ export class SitemapJsonLdConnector implements ProductConnector {
       }
       lastFailure = retryReason;
       if (attempt >= attemptCount) return { status: "exhausted", reason: retryReason };
-      backoffMs = RETRY_BASE_DELAY_MS * attempt;
+      // A Retry-After longer than the linear backoff is honoured; one that does not fit before
+      // the save margin defers the page (the check at the top of the next attempt).
+      backoffMs = Math.max(RETRY_BASE_DELAY_MS * attempt, retryAfterMs ?? 0);
       console.warn(`${this.source} ${kind} retry ${attempt}/${MAX_REQUEST_RETRIES} after ${retryReason}; waiting ${backoffMs}ms`, { url });
     }
     return { status: "exhausted", reason: lastFailure ?? "request failed" };

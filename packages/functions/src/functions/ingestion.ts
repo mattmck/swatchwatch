@@ -35,7 +35,12 @@ import {
   updateGlobalSettings,
   upsertExternalProducts,
 } from "../lib/ingestion-repo";
-import { partitionDisabledSources, refuseIfDisabled } from "../lib/ingestion-run-guard";
+import {
+  partitionBlockedSources,
+  partitionDisabledSources,
+  refuseIfDisabled,
+  sourceBlockedReason,
+} from "../lib/ingestion-run-guard";
 
 
 import {
@@ -684,6 +689,13 @@ export async function processIngestionJobQueueMessage(
     const source = await getDataSourceByName(payload.request.source);
     if (!source) {
       throw new Error(`Data source '${payload.request.source}' not found in data_source table`);
+    }
+    // A source marked known-blocked after this job was queued stops here, before any pull.
+    const blockedReason = sourceBlockedReason(source);
+    if (blockedReason) {
+      stage = "source_blocked";
+      logger.warn(`Job ${payload.jobId} not run: source ${source.name} is known-blocked (${blockedReason})`);
+      throw new Error(`Source ${source.name} is known-blocked (${blockedReason}); the job was not run`);
     }
     // A source disabled after this job was queued stops here, before any connector pull.
     if (source.enabled === false) {
@@ -1814,6 +1826,17 @@ async function bulkIngestionHandler(
     }
   } catch (error) {
     return internalServerError(context, error, "Bulk ingestion: provisioning data sources failed", "ingestion.bulk");
+  }
+  const blockedSources = partitionBlockedSources([...ensuredRows.values()]);
+  if (blockedSources.length > 0) {
+    return {
+      status: 409,
+      jsonBody: {
+        error: "source_blocked",
+        message: `Known-blocked sources (metadata.blocked): ${blockedSources.join(", ")}`,
+        sources: blockedSources,
+      },
+    };
   }
   const disabledSources = partitionDisabledSources([...ensuredRows.values()]);
   if (disabledSources.length > 0) {

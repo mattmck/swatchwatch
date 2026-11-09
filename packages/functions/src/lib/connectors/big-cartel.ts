@@ -21,7 +21,7 @@ import { normalizeCurrencyCode, normalizePriceAmount } from "../product-price.js
 import { htmlToPlainText, normalizeDescriptors, PRODUCT_DESCRIPTION_MAX_CHARS } from "../product-text.js";
 import type { SourceSettings } from "../source-settings.js";
 import { isRetailerSetSegment, parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
-import { isBundle } from "./shopify-generic.js";
+import { isBundle, resolveConnectorBrand } from "./shopify-generic.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import { MYSTERY_TITLE_REGEX } from "./store-filters/shared.js";
 import type { StoreFilterProduct } from "./store-filters/types.js";
@@ -154,7 +154,8 @@ type GateOutcome = { accept: true; gated: GatedProduct } | { accept: false; vend
 /**
  * Whether a v0 product is ingested: a permalink and a name; no mystery or grab-bag title
  * (`MYSTERY_TITLE_REGEX`, before the category gate: a "Nail Polish" category carries a polish
- * signal); a brand (`settings.brand`; none = skipped, counted as vendorless); the store filter of
+ * signal); a brand (`settings.brand` through `resolveConnectorBrand`, so `vendorAliases` apply;
+ * none = skipped, counted as vendorless); the store filter of
  * the source (`shopifyStoreProductVerdict`) over `bigCartelStoreFilterProduct`, else the shared
  * gate (`classifyIngestedProduct` over the name, the first category as product type and every
  * category as a tag); no bundle tag and no set (gate evidence `set`; a `feed`/`retailer` source
@@ -166,7 +167,7 @@ export function gateBigCartelProduct(entry: CachedProduct, source: string, setti
   const title = plain(product.name);
   if (!externalId || !title) return { accept: false };
   if (MYSTERY_TITLE_REGEX.test(title)) return { accept: false };
-  const brand = settings.brand;
+  const brand = resolveConnectorBrand(settings.brand, settings);
   if (!brand) return { accept: false, vendorless: true };
 
   const categories = names(product.categories);
@@ -265,7 +266,8 @@ function isRetryableRequestError(error: Error): boolean {
 export interface BigCartelConnectorOptions {
   /** Injected in tests; defaults to the global fetch. */
   fetchImpl?: FetchLike;
-  /** Injected in tests; defaults to `setTimeout`. */
+  /** Injected in tests (a fake clock); default `Date.now` and `setTimeout`. */
+  now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** Override the env-derived pause between requests (tests). */
   pageDelayMs?: number;
@@ -277,6 +279,7 @@ export class BigCartelConnector implements ProductConnector {
   private readonly fallbackStoreUrl: string;
   private readonly settings: SourceSettings;
   private readonly fetchImpl: FetchLike;
+  private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly pageDelayMs: number;
   private lastRequestAt: number | null = null;
@@ -299,6 +302,7 @@ export class BigCartelConnector implements ProductConnector {
     this.fallbackStoreUrl = (base ?? `https://${subdomain}.bigcartel.com`).replace(/\/+$/, "");
     this.settings = settings;
     this.fetchImpl = options.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
+    this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.pageDelayMs = options.pageDelayMs ?? defaultPageDelayMs();
   }
@@ -401,12 +405,12 @@ export class BigCartelConnector implements ProductConnector {
     let backoffMs = 0;
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= attemptCount; attempt += 1) {
-      const paceMs = this.lastRequestAt === null ? 0 : Math.max(0, this.lastRequestAt + this.pageDelayMs - Date.now());
+      const paceMs = this.lastRequestAt === null ? 0 : Math.max(0, this.lastRequestAt + this.pageDelayMs - this.now());
       const waitMs = Math.max(paceMs, backoffMs);
       if (waitMs > 0) await this.sleep(waitMs);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      this.lastRequestAt = Date.now();
+      this.lastRequestAt = this.now();
       let retryReason: string;
       try {
         const response = await this.fetchImpl(url, {

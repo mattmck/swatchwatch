@@ -23,7 +23,7 @@ import { htmlToPlainText, normalizeDescriptors, PRODUCT_DESCRIPTION_MAX_CHARS } 
 import { isPathDisallowed } from "../robots.js";
 import type { SourceSettings } from "../source-settings.js";
 import { isRetailerSetSegment, parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
-import { isBundle } from "./shopify-generic.js";
+import { isBundle, resolveConnectorBrand } from "./shopify-generic.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import { MYSTERY_TITLE_REGEX } from "./store-filters/shared.js";
 import type { StoreFilterProduct } from "./store-filters/types.js";
@@ -178,6 +178,8 @@ interface GatedProduct {
   brand: string;
   category: ProductCategory;
   productType: string | null;
+  /** The tags the gate read: the product's tags, then every category after the first. */
+  tags: string[];
   listing: RetailerTitle | null;
 }
 
@@ -186,8 +188,8 @@ type GateOutcome = { accept: true; gated: GatedProduct } | { accept: false; vend
 /**
  * Whether a Store API product is ingested, gated like a Shopify product: an id and a name; no
  * mystery or grab-bag title (`MYSTERY_TITLE_REGEX`, before the category gate); a
- * brand (`settings.brand`, else `brands[0]`, else the "Brand" attribute; none = skipped, counted
- * as vendorless); the store filter of the source (`shopifyStoreProductVerdict`, keyed by source
+ * brand (`settings.brand`, else `brands[0]`, else the "Brand" attribute, read through
+ * `resolveConnectorBrand` so `vendorAliases` apply; none = skipped, counted as vendorless); the store filter of the source (`shopifyStoreProductVerdict`, keyed by source
  * name) over `wooStoreFilterProduct`, else the shared gate (`classifyIngestedProduct` over the
  * name, the first category as product type, the tags and the other category names); no bundle
  * tag and no set (gate evidence `set`; a `feed`/`retailer` source also drops a title ending in a
@@ -199,7 +201,7 @@ export function gateWooStoreProduct(product: WooStoreProduct, source: string, se
   if (!externalId || !title) return { accept: false };
   // A mystery or grab bag is never one shade, even under a "Nail Polish" category.
   if (MYSTERY_TITLE_REGEX.test(title)) return { accept: false };
-  const brand = settings.brand ?? names(product.brands)[0] ?? brandAttribute(product);
+  const brand = resolveConnectorBrand(settings.brand ?? names(product.brands)[0] ?? brandAttribute(product), settings);
   if (!brand) return { accept: false, vendorless: true };
 
   const categories = names(product.categories);
@@ -222,12 +224,12 @@ export function gateWooStoreProduct(product: WooStoreProduct, source: string, se
   if (settings.kind !== "brand" && (isRetailerSetSegment(parseable) || !listing || listing.isSet)) {
     return { accept: false };
   }
-  return { accept: true, gated: { product, externalId, title, brand, category, productType, listing } };
+  return { accept: true, gated: { product, externalId, title, brand, category, productType, tags, listing } };
 }
 
 /** The connector record for a product `gateWooStoreProduct` accepted. */
 export function buildWooStoreRecord(gated: GatedProduct, settings: SourceSettings): ConnectorProductRecord {
-  const { product, externalId, title, brand, category, productType, listing } = gated;
+  const { product, externalId, title, brand, category, productType, tags, listing } = gated;
   const imageUrls = [
     ...new Set(
       (Array.isArray(product.images) ? product.images : []).flatMap((image) =>
@@ -253,15 +255,14 @@ export function buildWooStoreRecord(gated: GatedProduct, settings: SourceSetting
       name: listing?.shadeName ?? title,
       rawTitle: title,
       productLine: listing?.productLine ?? null,
-      // A retailer's SKU is its own stock code: the maker's "#CODE" in the title comes first.
-      vendorCode:
-        settings.kind === "brand"
-          ? plain(product.sku) ?? listing?.vendorCode ?? null
-          : listing?.vendorCode ?? plain(product.sku) ?? null,
+      // Only a "#CODE" parsed from the title becomes `vendorCode` (and so a shade alias); the
+      // store's SKU is its own stock code and stays in `sku`.
+      vendorCode: listing?.vendorCode ?? null,
+      sku: plain(product.sku),
       productType,
       // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
       productCategory: category,
-      tags: names(product.tags),
+      tags,
       finishes: [],
       collections: [],
       descriptors: normalizeDescriptors([...attributeTerms, ...names(product.categories)]),
@@ -298,7 +299,8 @@ function isRetryableRequestError(error: Error): boolean {
 export interface WooCommerceStoreConnectorOptions {
   /** Injected in tests; defaults to the global fetch. */
   fetchImpl?: FetchLike;
-  /** Injected in tests; defaults to `setTimeout`. */
+  /** Injected in tests (a fake clock); default `Date.now` and `setTimeout`. */
+  now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   /** Override the env-derived pause between requests (tests). */
   pageDelayMs?: number;
@@ -315,6 +317,7 @@ export class WooCommerceStoreConnector implements ProductConnector {
   private readonly baseUrl: string;
   private readonly settings: SourceSettings;
   private readonly fetchImpl: FetchLike;
+  private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly pageDelayMs: number;
   private lastRequestAt: number | null = null;
@@ -331,6 +334,7 @@ export class WooCommerceStoreConnector implements ProductConnector {
     this.baseUrl = base;
     this.settings = settings;
     this.fetchImpl = options.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
+    this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.pageDelayMs = options.pageDelayMs ?? defaultPageDelayMs();
   }
@@ -395,16 +399,24 @@ export class WooCommerceStoreConnector implements ProductConnector {
   /**
    * robots.txt once, then the Store API pages until a short page, the last page `X-WP-TotalPages`
    * names, a 400/404 on the page after a full one (WordPress answers an out-of-range page with
-   * `rest_post_invalid_page_number`), or the page cap.
+   * `rest_post_invalid_page_number`), or the page cap. That 400/404 ends the catalog only when the
+   * previous page sent no `X-WP-TotalPages` or the page is past it; when the header says the page
+   * exists, the error fails the pull (a truncated catalog would mark the rest missing).
    */
   private async fetchCatalog(): Promise<FetchedCatalog> {
     await this.assertRobotsAllow();
     const maxPages = this.settings.maxPages ?? defaultMaxPages();
     const products: WooStoreProduct[] = [];
+    let totalPages: number | null = null;
     for (let page = 1; page <= maxPages; page += 1) {
       const url = `${this.baseUrl}${WOOCOMMERCE_STORE_API_PATH}?per_page=${WOOCOMMERCE_PAGE_SIZE}&page=${page}`;
       const response = await this.request(url, "application/json");
       if (!response.ok && page > 1 && (response.status === 400 || response.status === 404)) {
+        if (totalPages !== null && page <= totalPages) {
+          throw new Error(
+            `${this.source} Store API request failed: HTTP ${response.status} (page ${page} of ${totalPages} per X-WP-TotalPages)`
+          );
+        }
         // The previous page was full and this one is out of range: the catalog ended there.
         return { products, complete: true, pagesFetched: page - 1 };
       }
@@ -419,6 +431,7 @@ export class WooCommerceStoreConnector implements ProductConnector {
       }
       if (!Array.isArray(parsed)) throw new Error(`${this.source} Store API page ${page} is not a product array`);
       products.push(...parsed.filter(isRecord));
+      totalPages = response.totalPages;
       if (parsed.length < WOOCOMMERCE_PAGE_SIZE || (response.totalPages !== null && page >= response.totalPages)) {
         if (products.length === 0) throw new Error(`${this.source} Store API returned no products`);
         return { products, complete: true, pagesFetched: page };
@@ -450,12 +463,12 @@ export class WooCommerceStoreConnector implements ProductConnector {
     let backoffMs = 0;
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= attemptCount; attempt += 1) {
-      const paceMs = this.lastRequestAt === null ? 0 : Math.max(0, this.lastRequestAt + this.pageDelayMs - Date.now());
+      const paceMs = this.lastRequestAt === null ? 0 : Math.max(0, this.lastRequestAt + this.pageDelayMs - this.now());
       const waitMs = Math.max(paceMs, backoffMs);
       if (waitMs > 0) await this.sleep(waitMs);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      this.lastRequestAt = Date.now();
+      this.lastRequestAt = this.now();
       let retryReason: string;
       try {
         const response = await this.fetchImpl(url, {

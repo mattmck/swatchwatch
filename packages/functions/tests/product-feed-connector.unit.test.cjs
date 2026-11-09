@@ -229,11 +229,31 @@ describe("ProductFeedConnector: feed-kind pull", () => {
     assert.equal(feed.records.length, 0);
   });
 
-  it("keeps a brand-kind title as the shade name", async () => {
-    const body = rss([feedItem({ id: "B-1", title: "Night Swim - Holo", brand: "Example Lacquer" })]);
+  it("parses a brand-kind title like the other connectors, keeping rawTitle", async () => {
+    const body = rss([feedItem({ id: "B-1", title: "Zoya Nail Polish - Aurora", brand: "Zoya" })]);
     const result = await connector(body, "application/xml", { kind: "brand" }).pullProducts(PULL);
-    assert.equal(result.records[0].normalized.name, "Night Swim - Holo");
-    assert.equal(result.records[0].normalized.listingTitle, undefined);
+    const [record] = result.records;
+    assert.equal(record.normalized.name, "Aurora");
+    assert.equal(record.normalized.rawTitle, "Zoya Nail Polish - Aurora");
+    assert.equal(record.normalized.listingTitle, undefined, "brand mode");
+  });
+
+  it("maps g:brand through metadata.vendorAliases, in feed and brand mode", async () => {
+    const body = rss([feedItem({ id: "A-1", title: "Atomic", brand: "piCture pOlish" })]);
+    for (const kind of ["feed", "brand"]) {
+      const result = await connector(body, "application/xml", {
+        kind,
+        vendorAliases: { "piCture pOlish": "Picture Polish" },
+      }).pullProducts(PULL);
+      assert.equal(result.records[0].normalized.brand, "Picture Polish", kind);
+    }
+  });
+
+  it("skips a feed item whose g:brand is a placeholder when the source has no brand", async () => {
+    const body = rss([feedItem({ id: "P-1", title: "Atomic", brand: "Vendor Unknown" })]);
+    const result = await connector(body, "application/xml", { kind: "feed" }).pullProducts(PULL);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.metadata.vendorlessSkipped, 1);
   });
 });
 

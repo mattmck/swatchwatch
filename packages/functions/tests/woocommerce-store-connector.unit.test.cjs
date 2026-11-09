@@ -27,7 +27,7 @@ const UA = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchw
 function stubFetch(routes) {
   const log = [];
   const fetchImpl = async (url, init) => {
-    log.push({ url, headers: init.headers, at: Date.now() });
+    log.push({ url, headers: init.headers });
     const route = typeof routes === "function" ? routes(url) : routes[url];
     const answer = route === undefined ? { status: 404, body: "" } : typeof route === "string" ? { status: 200, body: route } : route;
     const headers = answer.headers ?? {};
@@ -42,12 +42,16 @@ function stubFetch(routes) {
   return { fetchImpl, log };
 }
 
+/** A connector on a fake clock: `sleep` records the wait and advances the clock by it. */
 function connector(fetchImpl, options = {}) {
   const sleeps = [];
+  let clock = 1_000_000;
   const instance = new WooCommerceStoreConnector(SOURCE, BASE, options.settings ?? SETTINGS, {
     fetchImpl,
+    now: () => clock,
     sleep: async (ms) => {
       sleeps.push(ms);
+      clock += ms;
     },
     ...options,
   });
@@ -67,8 +71,7 @@ describe("WooCommerceStoreConnector: fixture", () => {
 
     assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1)]);
     assert.ok(log.every((entry) => entry.headers["User-Agent"] === UA));
-    assert.equal(sleeps.length, 1, "the products request waits after robots.txt");
-    assert.ok(sleeps[0] > 900 && sleeps[0] <= 1000);
+    assert.deepEqual(sleeps, [1000], "the products request waits 1 s after robots.txt");
 
     assert.deepEqual(result.records.map((record) => record.externalId), ["4211", "4212", "4215"]);
     assert.deepEqual(result.catalog, { externalIds: ["4211", "4212", "4213", "4214", "4215"], complete: true });
@@ -103,7 +106,7 @@ describe("WooCommerceStoreConnector: fixture", () => {
         rawTitle: "Picture Polish – Atomic",
         productType: "Nail Polish",
         productCategory: "color",
-        tags: ["Orange"],
+        tags: ["Orange", "Cremes"],
         descriptors: ["Creme", "Nail Polish", "Cremes"],
         descriptionText: "A vivid orange crème with a glossy finish.",
         imageUrls: [
@@ -115,11 +118,13 @@ describe("WooCommerceStoreConnector: fixture", () => {
         price: "12.00",
         currency: "AUD",
         available: true,
-        vendorCode: "PP-ATOMIC",
+        vendorCode: null,
         kind: "brand",
       }
     );
     assert.equal(atomic.normalized.listingTitle, undefined, "brand mode");
+    // The store SKU is kept apart from vendorCode (only a title "#CODE" becomes a shade alias).
+    assert.equal(atomic.normalized.sku, "PP-ATOMIC");
 
     // An empty short_description falls back to the description; out of stock is false.
     assert.equal(moonlight.normalized.descriptionText, "A silver holographic polish that throws rainbows in the sun.");
@@ -159,7 +164,7 @@ describe("WooCommerceStoreConnector: fixture", () => {
     const { instance, sleeps } = connector(fetchImpl, { pageDelayMs: 1000 });
     const result = await instance.pullProducts({ ...PULL, pageSize: 500, maxRecords: 500 });
     assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1), pageUrl(2)]);
-    assert.equal(sleeps.length, 2);
+    assert.deepEqual(sleeps, [1000, 1000]);
     assert.equal(result.metadata.storePagesFetched, 2);
     assert.equal(result.catalog.externalIds.length, 105);
     assert.equal(result.catalog.complete, true);
@@ -233,19 +238,62 @@ describe("WooCommerceStoreConnector: fixture", () => {
     assert.equal(result.metadata.storePagesFetched, 1);
   });
 
-  it("retailer mode: the #CODE parsed from the title wins over the store SKU; brand mode keeps the SKU", async () => {
+  it("vendorCode is only the #CODE parsed from the title, never the store SKU (kept in sku), in either mode", async () => {
     const product = { ...SAMPLE[0], id: 5001, name: "Picture Polish – Atomic #PP12", sku: "RET-998877" };
-    const { fetchImpl } = stubFetch({ [pageUrl(1)]: JSON.stringify([product]) });
     const retailer = readSourceSettings({ kind: "retailer", brand: "Picture Polish" }, SOURCE);
-    const [listing] = (await connector(fetchImpl, { settings: retailer }).instance.pullProducts(PULL)).records;
-    assert.equal(listing.normalized.vendorCode, "PP12");
-    const noCode = { ...product, name: "Picture Polish – Atomic" };
-    const { fetchImpl: fetchNoCode } = stubFetch({ [pageUrl(1)]: JSON.stringify([noCode]) });
-    const [fallback] = (await connector(fetchNoCode, { settings: retailer }).instance.pullProducts(PULL)).records;
-    assert.equal(fallback.normalized.vendorCode, "RET-998877");
-    const { fetchImpl: fetchBrand } = stubFetch({ [pageUrl(1)]: JSON.stringify([product]) });
-    const [brand] = (await connector(fetchBrand).instance.pullProducts(PULL)).records;
-    assert.equal(brand.normalized.vendorCode, "RET-998877");
+    for (const settings of [retailer, SETTINGS]) {
+      const { fetchImpl } = stubFetch({ [pageUrl(1)]: JSON.stringify([product]) });
+      const [record] = (await connector(fetchImpl, { settings }).instance.pullProducts(PULL)).records;
+      assert.equal(record.normalized.vendorCode, "PP12", settings.kind);
+      assert.equal(record.normalized.sku, "RET-998877", settings.kind);
+      const noCode = { ...product, name: "Picture Polish – Atomic" };
+      const { fetchImpl: fetchNoCode } = stubFetch({ [pageUrl(1)]: JSON.stringify([noCode]) });
+      const [plain] = (await connector(fetchNoCode, { settings }).instance.pullProducts(PULL)).records;
+      assert.equal(plain.normalized.vendorCode, null, settings.kind);
+      assert.equal(plain.normalized.sku, "RET-998877", settings.kind);
+    }
+  });
+
+  it("maps the brand through metadata.vendorAliases", async () => {
+    const settings = readSourceSettings({ kind: "retailer", vendorAliases: { "piCture pOlish": "Picture Polish" } }, SOURCE);
+    const product = { ...SAMPLE[0], id: 5101, name: "Atomic", brands: [{ id: 1, name: "piCture pOlish" }] };
+    const { fetchImpl } = stubFetch({ [pageUrl(1)]: JSON.stringify([product]) });
+    const [record] = (await connector(fetchImpl, { settings }).instance.pullProducts(PULL)).records;
+    assert.equal(record.normalized.brand, "Picture Polish");
+  });
+
+  it("skips a retailer product without a brand when the source has no metadata.brand, counting it", async () => {
+    const settings = readSourceSettings({ kind: "retailer" }, SOURCE);
+    const product = { ...SAMPLE[0], id: 5102, name: "Atomic", brands: [], attributes: [] };
+    const { fetchImpl } = stubFetch({ [pageUrl(1)]: JSON.stringify([product]) });
+    const result = await connector(fetchImpl, { settings }).instance.pullProducts(PULL);
+    assert.equal(result.records.length, 0);
+    assert.equal(result.metadata.vendorlessSkipped, 1);
+  });
+
+  it("the record's tags are the list the gate read: the tags, then the categories after the first", async () => {
+    const product = {
+      ...SAMPLE[0],
+      id: 5103,
+      tags: [{ id: 1, name: "Orange" }],
+      categories: [{ id: 2, name: "Nail Polish" }, { id: 3, name: "Cremes" }, { id: 4, name: "Summer" }],
+    };
+    const { fetchImpl } = stubFetch({ [pageUrl(1)]: JSON.stringify([product]) });
+    const [record] = (await connector(fetchImpl).instance.pullProducts(PULL)).records;
+    assert.deepEqual(record.normalized.tags, ["Orange", "Cremes", "Summer"]);
+  });
+
+  it("fails on a 400/404 for a page X-WP-TotalPages says exists, instead of ending the catalog", async () => {
+    const full = Array.from({ length: 100 }, (_, i) => ({ ...SAMPLE[0], id: 50000 + i, name: `Shade ${i}` }));
+    const { fetchImpl, log } = stubFetch({
+      [pageUrl(1)]: { status: 200, body: JSON.stringify(full), headers: { "x-wp-totalpages": "3" } },
+      [pageUrl(2)]: { status: 404, body: '{"code":"rest_invalid_param"}' },
+    });
+    await assert.rejects(
+      connector(fetchImpl).instance.pullProducts({ ...PULL, pageSize: 500, maxRecords: 500 }),
+      /Store API request failed: HTTP 404 \(page 2 of 3 per X-WP-TotalPages\)/
+    );
+    assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1), pageUrl(2)]);
   });
 
   it("drops a mystery or grab bag before the category gate, even under Nail Polish", async () => {
@@ -257,6 +305,17 @@ describe("WooCommerceStoreConnector: fixture", () => {
     const { fetchImpl } = stubFetch({ [pageUrl(1)]: JSON.stringify([...bags, SAMPLE[0]]) });
     const result = await connector(fetchImpl).instance.pullProducts(PULL);
     assert.deepEqual(result.records.map((record) => record.externalId), ["4211"]);
+  });
+
+  it("keeps a shade whose name only contains the word Mystery", async () => {
+    const products = [
+      { ...SAMPLE[0], id: 6100, name: "Midnight Mystery" },
+      { ...SAMPLE[0], id: 6101, name: "Mystery" },
+      { ...SAMPLE[0], id: 6102, name: "Mystery Bag" },
+    ];
+    const { fetchImpl } = stubFetch({ [pageUrl(1)]: JSON.stringify(products) });
+    const result = await connector(fetchImpl).instance.pullProducts(PULL);
+    assert.deepEqual(result.records.map((record) => record.externalId), ["6100", "6101"]);
   });
 
   it("fails the pull on a Store API error status", async () => {
