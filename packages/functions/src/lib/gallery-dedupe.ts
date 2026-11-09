@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { isBrandSourceSql } from "./source-settings";
 
 /**
  * Catalog gallery hygiene: the same vendor image can end up linked to a shade twice under
@@ -78,7 +79,8 @@ export async function pruneStaleGallerySwatches(
 
 /**
  * A brand store took over a shade a retailer listed: unlink the retailer's `source_product` and
- * `source_gallery` swatches (images of a `data_source` whose `metadata.kind` is `retailer`), so the
+ * `source_gallery` swatches (images of a `data_source` whose `metadata.kind` is `retailer` or
+ * `feed`, `isBrandSourceSql`), so the
  * brand's own images are the shade's catalog gallery. Protected swatches (hex labels,
  * `color_features`) stay; `image_asset` rows and blobs are kept. Call it after the brand
  * listing's own swatches are linked.
@@ -95,7 +97,7 @@ export async function unlinkRetailerGallerySwatches(
        AND ia.image_id = sw.image_id_original
        AND ia.owner_type = 'source'
        AND ds.data_source_id = ia.owner_id
-       AND ds.metadata ->> 'kind' = 'retailer'
+       AND NOT (${isBrandSourceSql("ds.metadata")})
        AND NOT ${protectedSwatchSql("sw")}
      RETURNING sw.swatch_id AS "swatchId"`,
     [shadeId]

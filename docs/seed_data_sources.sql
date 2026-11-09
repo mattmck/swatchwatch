@@ -311,7 +311,7 @@ VALUES
   --   Lacquer carry the same clause and were added below on 2026-10-22 (batch 3, migration
   --   20261023021845964_add-approved-indie-shopify-sources) after the owner received each
   --   store's written permission by email. Copy/commercial-use clause: Nails.INC, Ninja Polish (also a multi-brand
-  --   reseller). Not Shopify or unreachable: Tonic Polish, Bluebird Lacquer (401), Colores de
+  --   retailer). Not Shopify or unreachable: Tonic Polish, Bluebird Lacquer (401), Colores de
   --   Carol, Glisten & Glow, Masura, Killer Colors, and twenty more without a storefront answer.
   (
     'NightOwlLacquerShopify',

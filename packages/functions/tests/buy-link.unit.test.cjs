@@ -124,6 +124,48 @@ describe("selectBuyFromBrandUrl", () => {
     );
   });
 
+  it("prefers a brand-store link over a feed or retailer link, however recent", () => {
+    const today = T("2026-11-08T00:00:00Z");
+    const lastYear = T("2025-11-08T00:00:00Z");
+    const retailer = (seen) => ({ ...base, url: "https://retailer.example/p", sourceKind: "retailer", lastSeenAt: seen, fetchedAt: seen });
+    const feed = (seen) => ({ ...base, url: "https://feed.example/p", sourceKind: "feed", lastSeenAt: seen, fetchedAt: seen });
+    const brand = (seen) => ({ ...base, url: "https://brand.example/p", sourceKind: "brand", lastSeenAt: seen, fetchedAt: seen });
+
+    assert.equal(selectBuyFromBrandLink([retailer(today), brand(lastYear)]).url, brand(lastYear).url);
+    assert.equal(selectBuyFromBrandLink([retailer(today), feed(lastYear)]).url, feed(lastYear).url);
+    assert.equal(selectBuyFromBrandLink([feed(today), brand(lastYear)]).url, brand(lastYear).url);
+    // Same kind: the existing recency rule still decides.
+    assert.equal(
+      selectBuyFromBrandLink([retailer(lastYear), { ...retailer(today), url: "https://retailer2.example/p" }]).url,
+      "https://retailer2.example/p"
+    );
+  });
+
+  it("ranks a missing or unknown source kind as a brand link", () => {
+    const old = T("2025-01-01T00:00:00Z");
+    const recent = T("2026-10-01T00:00:00Z");
+    const retailer = { ...base, url: "https://retailer.example/p", sourceKind: "retailer", lastSeenAt: recent };
+    assert.equal(selectBuyFromBrandUrl([retailer, { ...base, url: "https://legacy.example/p", lastSeenAt: old }]), "https://legacy.example/p");
+    assert.equal(
+      selectBuyFromBrandUrl([retailer, { ...base, url: "https://odd.example/p", sourceKind: "marketplace", lastSeenAt: old }]),
+      "https://odd.example/p"
+    );
+  });
+
+  it("reads the source kind from data_source.metadata (sourceKindFromMetadata), not a SQL column", () => {
+    assert.match(BUY_LINK_CANDIDATES_SQL, /ds\.metadata\s+AS "sourceMetadata"/);
+    assert.doesNotMatch(BUY_LINK_CANDIDATES_SQL, /'sourceKind'/);
+  });
+
+  it("ranks sold-out before kind: a buyable retailer link beats a sold-out brand link", () => {
+    const seen = T("2026-10-01T00:00:00Z");
+    const brandSoldOut = { ...base, url: "https://brand.example/p", sourceKind: "brand", available: false, lastSeenAt: seen };
+    const feedLive = { ...base, url: "https://feed.example/p", sourceKind: "feed", available: true, lastSeenAt: seen };
+    const retailerLive = { ...base, url: "https://retailer.example/p", sourceKind: "retailer", available: null, lastSeenAt: seen };
+    assert.equal(selectBuyFromBrandUrl([brandSoldOut, retailerLive]), "https://retailer.example/p");
+    assert.equal(selectBuyFromBrandUrl([brandSoldOut, retailerLive, feedLive]), "https://feed.example/p");
+  });
+
   it("treats an unknown enabled flag as enabled", () => {
     assert.equal(selectBuyFromBrandUrl([{ ...base, url: "https://brand.example/p", sourceEnabled: null }]), "https://brand.example/p");
   });
@@ -436,12 +478,13 @@ describe("loadBuyLinksForShades: source kind and missing listings (fake rows)", 
     assert.equal(none.has("7"), false);
   });
 
-  it("treats an unrecognized metadata kind as a brand store", async () => {
+  it("treats an unrecognized metadata kind as a brand store and normalizes a known one", async () => {
     const rows = [
-      row({ url: "https://shop-a.example/p", externalProductId: "1", lastSeenAt: "2026-11-01T00:00:00Z", sourceMetadata: { kind: "RETAILER" } }),
-      row({ url: "https://shop-b.example/p", externalProductId: "2", lastSeenAt: "2026-11-02T00:00:00Z", sourceMetadata: { kind: "retailer" } }),
+      row({ url: "https://shop-a.example/p", externalProductId: "1", lastSeenAt: "2026-11-01T00:00:00Z", sourceMetadata: { kind: "wholesale" } }),
+      row({ url: "https://shop-b.example/p", externalProductId: "2", lastSeenAt: "2026-11-02T00:00:00Z", sourceMetadata: { kind: " RETAILER " } }),
     ];
     const links = await loadBuyLinksForShades(["7"], async () => ({ rows }));
+    // "wholesale" is unknown (a brand store); " RETAILER " normalizes to retailer like readSourceKind.
     assert.equal(links.get("7").url, "https://shop-a.example/p");
   });
 });

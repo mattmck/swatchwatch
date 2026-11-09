@@ -48,6 +48,10 @@ export type ConnectorProtocol =
   | "OpenBeautyFacts"
   | "MakeupAPI"
   | "GS1"
+  | "ProductFeed"
+  | "SitemapJsonLd"
+  | "WooCommerce"
+  | "BigCartel"
   | "Custom";
 
 export type IngestionJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";

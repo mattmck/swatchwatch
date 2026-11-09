@@ -572,7 +572,7 @@ describe("unlinkRetailerGallerySwatches", () => {
     assert.match(sql, /sw\.shade_id = \$1/);
     assert.match(sql, /swatch_type IN \('source_gallery', 'source_product'\)/);
     assert.match(sql, /ia\.owner_type = 'source'/);
-    assert.match(sql, /ds\.metadata ->> 'kind' = 'retailer'/);
+    assert.match(sql, /NOT \(COALESCE\(NULLIF\(lower\(btrim\(ds\.metadata ->> 'kind'\)\), ''\), 'brand'\) NOT IN \('retailer', 'feed'\)\)/);
     assert.match(sql, /NOT \(EXISTS \(SELECT 1 FROM color_training_sample/);
     assert.match(sql, /color_features/);
     assert.doesNotMatch(sql, /DELETE FROM image_asset/);

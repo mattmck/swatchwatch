@@ -16,6 +16,7 @@
 import type { FinishCatalog } from "./finishes";
 import { applyIngestedFinishes, resolveNormalizedProductFinishes, type IngestedFinishSource } from "./finish-text";
 import { normalizeDescriptors, productTextFromRaw, type ProductText } from "./product-text";
+import { sourceKindRankSql } from "./source-settings";
 
 export type BackfillQueryFn = <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: T[] }>;
 
@@ -115,7 +116,7 @@ const READ_EMPTY_FINISH_SHADES_SQL = `SELECT s.shade_id::text AS "shadeId",
        JOIN data_source ds ON ds.data_source_id = ep.data_source_id
        WHERE ssp.shade_id = s.shade_id
          AND ($2::text[] IS NULL OR ds.name = ANY($2::text[]))
-       ORDER BY COALESCE((ds.metadata ->> 'kind') = 'retailer', false),
+       ORDER BY ${sourceKindRankSql("ds.metadata")},
                 ssp.last_seen_at DESC, ep.fetched_at DESC, ep.external_product_id DESC
        LIMIT 1
      ) lp ON true

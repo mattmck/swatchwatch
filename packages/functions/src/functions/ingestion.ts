@@ -2,6 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext, output } from "@
 import {
   BulkIngestionRequest,
   BulkIngestionResponse,
+  ConnectorProtocol,
   IngestionJobListResponse,
   IngestionJobRecord,
   IngestionJobRunRequest,
@@ -71,6 +72,8 @@ import {
   SupportedConnectorSource,
   SUPPORTED_SOURCES,
 } from "../lib/connectors/types";
+import { materializesShadeProducts, protocolOf } from "../lib/connectors/registry";
+import { readSourceSettings, type SourceSettings } from "../lib/source-settings";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -148,8 +151,26 @@ function isSupportedSource(value: string): value is SupportedConnectorSource {
   return (SUPPORTED_SOURCES as readonly string[]).includes(value);
 }
 
+type ConnectorFactory = (
+  source: SupportedConnectorSource,
+  baseUrl: string | null | undefined,
+  settings: SourceSettings
+) => ProductConnector;
+
+/**
+ * One factory per protocol that has a connector today. A runnable protocol without an entry
+ * (see `isRunnableProtocol` in lib/connectors/registry.ts) is not queueable yet.
+ */
+const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> = {
+  OpenBeautyFacts: (_source, baseUrl) => new OpenBeautyFactsConnector(baseUrl),
+  MakeupAPI: (_source, baseUrl) => new MakeupApiConnector(baseUrl),
+  HoloTaco: (_source, baseUrl, settings) => new HoloTacoShopifyConnector(baseUrl, { currency: settings.currency }),
+  Shopify: (source, baseUrl, settings) =>
+    new ShopifyGenericConnector(source, baseUrl, { currency: settings.currency, settings }),
+};
+
 function hasRunnableConnector(source: SupportedConnectorSource): boolean {
-  return source === "OpenBeautyFacts" || source === "MakeupAPI" || source.endsWith("Shopify");
+  return protocolOf(source) in CONNECTOR_FACTORIES;
 }
 
 function isRunnableConnectorSource(value: string): value is SupportedConnectorSource {
@@ -158,25 +179,14 @@ function isRunnableConnectorSource(value: string): value is SupportedConnectorSo
 
 function createConnector(
   source: SupportedConnectorSource,
-  baseUrl?: string | null,
-  currency?: string | null
+  baseUrl: string | null | undefined,
+  settings: SourceSettings
 ): ProductConnector {
-  if (source === "OpenBeautyFacts") {
-    return new OpenBeautyFactsConnector(baseUrl);
+  const factory = CONNECTOR_FACTORIES[protocolOf(source)];
+  if (!factory) {
+    throw new Error(`No connector available for source: ${source}`);
   }
-  if (source === "MakeupAPI") {
-    return new MakeupApiConnector(baseUrl);
-  }
-  if (source === "HoloTacoShopify") {
-    return new HoloTacoShopifyConnector(baseUrl, { currency });
-  }
-
-  // All other Shopify stores use the generic Shopify connector
-  if (source.endsWith("Shopify")) {
-    return new ShopifyGenericConnector(source, baseUrl, { currency });
-  }
-
-  throw new Error(`No connector available for source: ${source}`);
+  return factory(source, baseUrl, settings);
 }
 
 function getErrorMessage(error: unknown): string {
@@ -214,6 +224,7 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "applied",
   "skippedNoDetection",
   "noShadeMatch",
+  "ambiguousShadesSkipped",
 ]);
 
 /**
@@ -634,7 +645,18 @@ export async function processIngestionJobQueueMessage(
     if (!source) {
       throw new Error(`Data source '${payload.request.source}' not found in data_source table`);
     }
-    logger.info(`Found data source`, { dataSourceId: source.dataSourceId, baseUrl: source.baseUrl });
+    // Source kind, image permission and connector keys, read once per job (lib/source-settings.ts).
+    const sourceSettings = readSourceSettings(source.metadata, source.name);
+    logger.info(`Found data source`, {
+      dataSourceId: source.dataSourceId,
+      baseUrl: source.baseUrl,
+      sourceKind: sourceSettings.kind,
+      imagesPermitted: sourceSettings.imagesPermitted,
+    });
+    // A retailer or feed only fills empty catalog data: never overwrite detected hexes, so the
+    // AI batch submission and the poller's apply step (which read this flag) inherit it too.
+    const overwriteDetectedHex =
+      sourceSettings.kind === "brand" ? payload.request.overwriteDetectedHex : false;
 
     // Connector pull
     stage = "connector_pull";
@@ -651,7 +673,7 @@ export async function processIngestionJobQueueMessage(
       recentDays: payload.request.recentDays,
     });
 
-    const connector = createConnector(payload.request.source, source.baseUrl, source.currency);
+    const connector = createConnector(payload.request.source, source.baseUrl, sourceSettings);
     // One catalog download per job, reused across pages and continuation invocations.
     const catalogCache = createIngestionCatalogCache({
       jobId: payload.jobId,
@@ -814,7 +836,7 @@ export async function processIngestionJobQueueMessage(
         }
       }
 
-      if (payload.request.source.endsWith("Shopify") && payload.request.materializeToInventory) {
+      if (materializesShadeProducts(payload.request.source) && payload.request.materializeToInventory) {
         stage = "materialize_inventory";
         logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
           queuedAt: payload.queuedAt,
@@ -830,7 +852,7 @@ export async function processIngestionJobQueueMessage(
           userId: payload.userId,
           dataSourceId: source.dataSourceId,
           detectHexFromImage: payload.request.detectHexFromImage,
-          overwriteDetectedHex: payload.request.overwriteDetectedHex,
+          overwriteDetectedHex,
           hexBatchEnabled: hexBatchConfig.enabled,
           hexBatchMinImages: hexBatchConfig.minImages,
         });
@@ -842,7 +864,10 @@ export async function processIngestionJobQueueMessage(
             {
               detectHexFromImage: payload.request.detectHexFromImage,
               detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
-              overwriteDetectedHex: payload.request.overwriteDetectedHex,
+              overwriteDetectedHex,
+              storeImages: sourceSettings.imagesPermitted,
+              sourceKind: sourceSettings.kind,
+              sourceName: payload.request.source,
               useBatchForHexDetection: hexBatchConfig.enabled && !hexBatchDegraded,
               batchMinImages: hexBatchConfig.minImages,
               progressLogger: {
@@ -877,7 +902,7 @@ export async function processIngestionJobQueueMessage(
             durationMs: materializeDuration,
             recordCount: connectorResult.records.length,
             detectHexFromImage: payload.request.detectHexFromImage,
-            overwriteDetectedHex: payload.request.overwriteDetectedHex,
+            overwriteDetectedHex,
           });
           throw materializeError;
         }
@@ -927,7 +952,7 @@ export async function processIngestionJobQueueMessage(
     // detection costs an AI call + delay per record, so it runs in small chunks.
     const usesBatchHexDetection =
       hexBatchConfig.enabled &&
-      payload.request.source.endsWith("Shopify") &&
+      materializesShadeProducts(payload.request.source) &&
       payload.request.materializeToInventory &&
       payload.request.detectHexFromImage;
     const currentChunkSize = (): number =>

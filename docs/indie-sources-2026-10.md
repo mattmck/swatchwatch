@@ -84,7 +84,7 @@ and is not in the repo yet has terms that forbid automated access:
 | Sweet & Sour Lacquer (sweetandsourlacquer.com) | ✅ 200 | Shopify default clause | Not added in batch 2: needed written OK (added in batch 3) |
 | Maniology (maniology.com), What's Up Nails (whatsupnails.com) | ✅ 200 | "scrape" clause (stamping brands) | Not added |
 | Nails.INC (nailsinc.com) | ✅ 200 | `/pages/terms-conditions`: no copying, reproducing or republishing content without written permission; no commercial use | Not added (also not indie) |
-| Ninja Polish (ninjapolish.com) | ✅ 200 | Content may not be reproduced without written consent; multi-brand reseller (`vendor: Various`) | Not added |
+| Ninja Polish (ninjapolish.com) | ✅ 200 | Content may not be reproduced without written consent; multi-brand retailer (`vendor: Various`) | Not added |
 | F.U.N Lacquer, Glam Polish, Moon Shine Mani, Dreamland Lacquer | ✅ 200 | Scraping clause (re-checked) | Not added (as on 2026-10-17) |
 | Tonic Polish, Bluebird Lacquer | ❌ 401 (password page) | – | Skip |
 | Colores de Carol, Glisten & Glow, Masura, Killer Colors | ❌ not Shopify products.json | – | Skip |
@@ -118,7 +118,9 @@ its listings add buy links and fill gaps on the brands' shades but never overrid
 
 Titles are `Vendor | Shade` or `<Type> by Vendor | Shade`, parsed by `connectors/shopify-title.ts`. Run it by
 hand from Admin Jobs on the opening Friday and again after the window closes (the second run marks that
-month's listings missing). Status: registered disabled, pending the owner's OK.
+month's listings missing only when it fetched a complete, non-empty catalog: `markExternalProductsMissing`
+skips an empty or truncated catalog, so a store that publishes nothing between windows keeps the old
+listings live until a later complete run). Status: registered disabled, pending the owner's OK.
 Post-release order: migrate, run each brand store once (renames `X PPU` shades and re-detects them once; a raw-title duplicate is reported in the job log for an admin merge), and only then enable Polish Pickup after the owner's OK.
 
 Notes text to append once the store agrees (same format as above):

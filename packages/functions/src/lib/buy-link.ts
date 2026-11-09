@@ -18,7 +18,9 @@
  *      shade shows no link;
  *   2. then listings that are not known to be sold out (`available !== false`; unknown counts
  *      as available) before sold-out ones;
- *   3. then brand-store sources before retailers (`data_source.metadata.kind = 'retailer'`);
+ *   3. then the source kind (`data_source.metadata.kind`, see `source-settings.ts`): a brand
+ *      store's link beats a feed's, which beats a retailer's, however recently each was seen
+ *      (a missing or unknown kind counts as a brand store);
  *   4. then the most recently seen link (`shade_source_product.last_seen_at`);
  *   5. then the most recently fetched product (`external_product.fetched_at`);
  *   6. then the highest `external_product_id`, so ties are still deterministic.
@@ -34,7 +36,7 @@
  */
 import type { PoolClient } from "pg";
 import { query as defaultQuery } from "./db";
-import { sourceKindFromMetadata, type DataSourceKind } from "./data-source-kind";
+import { sourceKindFromMetadata, sourceKindRank, type SourceKind } from "./source-settings";
 import { normalizeCurrencyCode, normalizePriceAmount } from "./product-price";
 
 /** Longest URL we pass through; longer values are treated as junk rather than truncated. */
@@ -46,6 +48,11 @@ export interface BuyLinkCandidate {
   url: string | null | undefined;
   /** `data_source.enabled` of the product's source; `false` drops the candidate. */
   sourceEnabled: boolean | null | undefined;
+  /**
+   * Kind of the product's source (`sourceKindFromMetadata` of `data_source.metadata`; `brand` when
+   * unset or unknown): brand links rank first, then feed, then retailer.
+   */
+  sourceKind?: SourceKind | string | null;
   /** `shade_source_product.last_seen_at`. */
   lastSeenAt: Date | string | null | undefined;
   /** `external_product.fetched_at`. */
@@ -59,8 +66,6 @@ export interface BuyLinkCandidate {
   missingSince?: Date | string | null;
   /** Variant availability: true if any variant is available, false if all known ones are sold out, null if unknown. */
   available?: boolean | null;
-  /** `brand_store` unless the data source's `metadata.kind` is `retailer`. */
-  sourceKind?: DataSourceKind;
 }
 
 /** The selected buy link for a shade: URL plus the same product's list price, when known. */
@@ -134,9 +139,9 @@ export function compareBuyLinkCandidates(a: BuyLinkCandidate, b: BuyLinkCandidat
   const soldOutB = b.available === false;
   if (soldOutA !== soldOutB) return soldOutA ? 1 : -1;
 
-  const retailerA = a.sourceKind === "retailer";
-  const retailerB = b.sourceKind === "retailer";
-  if (retailerA !== retailerB) return retailerA ? 1 : -1;
+  const kindA = sourceKindRank(a.sourceKind);
+  const kindB = sourceKindRank(b.sourceKind);
+  if (kindA !== kindB) return kindA - kindB;
 
   const seenA = toMillis(a.lastSeenAt);
   const seenB = toMillis(b.lastSeenAt);

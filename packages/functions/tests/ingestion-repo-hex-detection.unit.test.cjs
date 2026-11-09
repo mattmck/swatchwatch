@@ -35,7 +35,12 @@ const transactionClient = {
   async query(sql, params) {
     // Yield on every statement so overlapping transactions would actually interleave.
     await new Promise((resolve) => setImmediate(resolve));
-    if (sql.includes("lower(shade_name_canonical) = lower($2)") && sql.includes("SELECT shade_id")) {
+    // The exact identity lookup, once per record (a miss is followed by the same-name candidate lookup).
+    if (
+      sql.includes("lower(shade_name_canonical) = lower($2)") &&
+      sql.includes("SELECT shade_id") &&
+      sql.includes("coalesce(finish, '')")
+    ) {
       committedShadeNames.push(params[1]);
     }
     if (sql.includes("detected_hex_method = CASE") && sql.includes("WHERE shade_id = $1")) {

@@ -18,6 +18,8 @@ import {
 import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
 import { shopifyProductText } from "../product-text.js";
 import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
+import type { ProductCategory } from "swatchwatch-shared";
+import type { SourceSettings } from "../source-settings.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import {
   parseEditionCap,
@@ -75,7 +77,7 @@ interface ShopifyVariant {
   option3?: string | null;
 }
 
-interface ShopifyProduct {
+export interface ShopifyProduct {
   id?: number | string;
   title?: string | null;
   handle?: string | null;
@@ -475,15 +477,11 @@ function toTimestamp(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function recordTimestamp(record: ConnectorProductRecord): number {
-  const normalized =
-    record.normalized && typeof record.normalized === "object"
-      ? (record.normalized as Record<string, unknown>)
-      : {};
+function productTimestamp(product: ShopifyProduct): number {
   return Math.max(
-    toTimestamp(normalized.publishedAt),
-    toTimestamp(normalized.createdAt),
-    toTimestamp(normalized.updatedAt)
+    toTimestamp(product.published_at),
+    toTimestamp(product.created_at),
+    toTimestamp(product.updated_at)
   );
 }
 
@@ -500,15 +498,18 @@ export class ShopifyGenericConnector implements ProductConnector {
   private readonly baseUrl: string;
   private readonly brandName: string;
   private readonly configuredCurrency: string | null;
+  /** The source's `data_source.metadata` settings (`readSourceSettings`), when the worker passed them. */
+  private readonly settings: SourceSettings | undefined;
   private storeCurrency: Promise<StoreCurrency> | null = null;
 
   constructor(
     source: SupportedConnectorSource,
     baseUrl?: string | null,
-    options: { currency?: string | null } = {}
+    options: { currency?: string | null; settings?: SourceSettings } = {}
   ) {
     this.source = source;
     this.configuredCurrency = options.currency ?? null;
+    this.settings = options.settings;
     // Extract brand name from source (e.g., "MooncatShopify" -> "Mooncat")
     this.brandName = source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
     this.baseUrl = stripTrailingSlashes(baseUrl || this.defaultBaseUrl());
@@ -546,14 +547,14 @@ export class ShopifyGenericConnector implements ProductConnector {
       return fetched.products;
     });
     const storeCurrency = await this.resolveStoreCurrency(allProducts);
-    const normalizedRecords = await Promise.all(
-      allProducts.map((product) =>
-        toNormalizedRecord(product, this.baseUrl, this.brandName, this.source, storeCurrency.currency)
-      )
-    );
-    const filteredRecords = normalizedRecords.filter(
-      (record): record is ConnectorProductRecord => Boolean(record)
-    );
+    // Gate, filter and sort on raw product fields (sync, no AI); only the page window is enriched.
+    const gated: Array<{ product: ShopifyProduct; category: ProductCategory; timestamp: number }> = [];
+    for (const product of allProducts) {
+      const gate = gateShopifyProduct(product, this.source, this.settings);
+      if (gate.accept) {
+        gated.push({ product, category: gate.category, timestamp: productTimestamp(product) });
+      }
+    }
 
     const textFilter = shouldApplyTextFilter(options.searchTerm)
       ? options.searchTerm.trim().toLowerCase()
@@ -563,34 +564,45 @@ export class ShopifyGenericConnector implements ProductConnector {
       ? Date.now() - recentDays * 24 * 60 * 60 * 1000
       : null;
 
-    let filtered = filteredRecords;
+    let filtered = gated;
     if (textFilter) {
-      filtered = filtered.filter((record) => {
-        const normalized =
-          record.normalized && typeof record.normalized === "object"
-            ? (record.normalized as Record<string, unknown>)
-            : {};
+      filtered = filtered.filter(({ product }) => {
+        const tags = normalizeTags(product.tags);
         const values = [
-          asNonEmptyString(normalized.name),
-          asNonEmptyString(normalized.brand),
-          asNonEmptyString(normalized.handle),
-          ...asStringArray(normalized.tags),
-          ...asStringArray(normalized.collections),
-          ...asStringArray(normalized.finishes),
+          asNonEmptyString(product.title),
+          asNonEmptyString(product.vendor),
+          // The brand the record will carry (a placeholder vendor resolves to the store's brand).
+          resolveShopifyVendor(product.vendor, this.brandName),
+          asNonEmptyString(product.handle),
+          ...tags,
+          // The record's derived collections and finishes, as the enriched record carries them.
+          ...extractTaggedValues(tags, "collection:"),
+          ...extractFinishFromTags(tags),
         ].filter((entry): entry is string => Boolean(entry));
         return values.some((entry) => entry.toLowerCase().includes(textFilter));
       });
     }
 
     if (cutoffEpoch !== null) {
-      filtered = filtered.filter((record) => recordTimestamp(record) >= cutoffEpoch);
+      filtered = filtered.filter((entry) => entry.timestamp >= cutoffEpoch);
     }
 
-    filtered.sort((a, b) => recordTimestamp(b) - recordTimestamp(a));
+    // Array#sort is stable, so equal timestamps keep catalog order across repeated calls.
+    filtered.sort((a, b) => b.timestamp - a.timestamp);
 
     const offset = Math.max(0, (options.page - 1) * options.pageSize);
-    const windowed = filtered.slice(offset, offset + options.pageSize);
-    const records = windowed.slice(0, options.maxRecords);
+    const windowed = filtered.slice(offset, offset + options.pageSize).slice(0, options.maxRecords);
+    const records = await Promise.all(
+      windowed.map(({ product, category }) =>
+        enrichShopifyRecord(product, {
+          baseUrl: this.baseUrl,
+          brandName: this.brandName,
+          source: this.source,
+          storeCurrency: storeCurrency.currency,
+          category,
+        })
+      )
+    );
 
     return {
       source: this.source as any,
@@ -850,48 +862,69 @@ export function defaultShopifyBaseUrl(source: string): string {
 
 const MONTH_ABBREVIATION_REGEX = /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/;
 
-async function toNormalizedRecord(
+/**
+ * The sync ingest decision for one Shopify product: the store filter (store-filters/, #328), the
+ * shared connector gate and the bundle/set checks. `settings` is reserved for settings-aware
+ * store filters and is not read yet.
+ */
+export function gateShopifyProduct(
   product: ShopifyProduct,
-  baseUrl: string,
-  brandName: string,
   source: string,
-  storeCurrency: string | null = null
-): Promise<ConnectorProductRecord | null> {
-  const externalId = asNonEmptyString(product.id);
-  if (!externalId) {
-    return null;
+  _settings?: SourceSettings
+): { accept: boolean; category: ProductCategory } {
+  const reject = { accept: false, category: "accessory" as ProductCategory };
+  if (!asNonEmptyString(product.id) || !asNonEmptyString(product.title)) {
+    return reject;
   }
 
   const tags = normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
   // Skip accessories, non-nail products and bundles; keep coats/toppers with their category (#347).
-  // A store-specific filter (store-filters/, #328) decides first for stores the generic gate
-  // cannot classify; null defers to the classifier. Sets and bundles are skipped either way.
+  // A store-specific filter decides first for stores the generic gate cannot classify; null defers
+  // to the classifier. Sets and bundles are skipped either way.
   const gate = classifyIngestedProduct({ title: asNonEmptyString(product.title), productType, tags });
   const storeVerdict = shopifyStoreProductVerdict(source, product);
   const isPolish = storeVerdict ?? gate.accept;
   if (!isPolish || isBundle(tags) || gate.evidence === "set") {
-    return null;
+    return reject;
   }
   // A store filter that keeps a product the June tag blocklist rejected (Cirque tags shades and
   // coats with nail-art tutorial names such as "Abstract Dry Brush") gets the rule category, the
   // one materialization stores, instead of the gate's "accessory".
-  const productCategory =
+  const category =
     storeVerdict === true && gate.evidence === "legacy-tag"
       ? classifyProductCategory({
           shadeName: asNonEmptyString(product.title),
           products: [{ productType, tags }],
         }).category
       : gate.category;
+  return { accept: true, category };
+}
 
-  const rawTitle = asNonEmptyString(product.title);
-  if (!rawTitle) {
-    return null;
-  }
+export interface ShopifyEnrichContext {
+  baseUrl: string;
+  brandName: string;
+  /** The connector source name (store title parsers and retailer release tags are per source). */
+  source: string;
+  storeCurrency: string | null;
+  /** The category `gateShopifyProduct` returned for this product. */
+  category: ProductCategory;
+}
+
+/** Builds the record for a product `gateShopifyProduct` accepted, including the AI color-name lookup. */
+export async function enrichShopifyRecord(
+  product: ShopifyProduct,
+  context: ShopifyEnrichContext
+): Promise<ConnectorProductRecord> {
+  const { baseUrl, brandName, source, storeCurrency, category: productCategory } = context;
+  const externalId = asNonEmptyString(product.id) as string;
+  const rawTitle = asNonEmptyString(product.title) as string;
   // Retailer titles ("Vendor | Shade") are parsed per store, then any " PPU" exclusive suffix is
   // dropped for every source. The raw title stays in normalized.rawTitle.
   const name = stripRetailerExclusiveSuffix(shopifyStoreShadeName(source, product) ?? rawTitle);
+  const tags = normalizeTags(product.tags);
+  const productType = asNonEmptyString(product.product_type);
 
   const handle = asNonEmptyString(product.handle);
   const vendor = resolveShopifyVendor(product.vendor, brandName);
