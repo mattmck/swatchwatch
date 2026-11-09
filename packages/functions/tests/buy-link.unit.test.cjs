@@ -363,6 +363,26 @@ describe("recordShadeSourceProduct", () => {
     assert.deepEqual(calls[0].params, [42, 3, "gid://shopify/Product/1"]);
   });
 
+  it("accepts the string ids node-postgres returns for bigint columns", async () => {
+    // data_source_id and shade_id are bigint, so pg hands them back as strings ("24"); ingestion
+    // passes them straight through, and a Number.isFinite check on the raw value skipped every link.
+    const calls = [];
+    const client = { query: async (sql, params) => calls.push({ sql, params }) };
+    await recordShadeSourceProduct(client, "42", "3", "7779998924851");
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].params, [42, 3, "7779998924851"]);
+  });
+
+  it("is a no-op for ids that are not positive integers", async () => {
+    const calls = [];
+    const client = { query: async (sql, params) => calls.push({ sql, params }) };
+    await recordShadeSourceProduct(client, "abc", 3, "1");
+    await recordShadeSourceProduct(client, 42, undefined, "1");
+    await recordShadeSourceProduct(client, 0, 3, "1");
+    await recordShadeSourceProduct(client, 4.5, 3, "1");
+    assert.equal(calls.length, 0);
+  });
+
   it("is a no-op without an external id", async () => {
     const calls = [];
     const client = { query: async (sql, params) => calls.push({ sql, params }) };
