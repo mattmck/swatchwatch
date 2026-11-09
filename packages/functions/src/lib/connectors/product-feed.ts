@@ -424,12 +424,15 @@ export function buildFeedRecord(gated: GatedItem, settings: SourceSettings): Fee
 const SEARCH_TERMS_MEANING_ALL = new Set(["", "nail polish", "nail_polish", "nailpolish", "all", "*", "recent", "latest", "new"]);
 
 /** The feed URL without its query string or credentials (for job metadata). */
+/**
+ * What the job log may show of the feed URL: the origin only. A feed token can sit in the query
+ * string or in the path, so neither is logged.
+ */
 function displayUrl(url: string): string {
   try {
-    const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname}`;
+    return new URL(url).origin;
   } catch {
-    return url.split("?")[0];
+    return "(invalid feed URL)";
   }
 }
 

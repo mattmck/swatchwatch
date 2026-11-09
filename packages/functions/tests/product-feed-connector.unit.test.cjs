@@ -312,7 +312,7 @@ describe("ProductFeedConnector: fetch", () => {
   it("never puts the credentials or the query string in the metadata", async () => {
     process.env[ENV] = "feeduser:s3cret";
     const result = await connector(XML, "application/xml", { feedAuthEnv: ENV }, { url: "https://lacquer.example/feed.xml?key=abc" }).pullProducts(PULL);
-    assert.equal(result.metadata.requestUrl, "https://lacquer.example/feed.xml");
+    assert.equal(result.metadata.requestUrl, "https://lacquer.example"); // origin only: a path or query token is never logged
     assert.doesNotMatch(JSON.stringify(result), /s3cret|key=abc/);
   });
 
