@@ -18,6 +18,7 @@
     "remove:source-images": "node scripts/remove-source-images.cjs",
     "dedupe:makeupapi-shades": "node scripts/dedupe-makeupapi-shades.cjs",
     "backfill:barcodes": "node scripts/backfill-barcodes.cjs",
+    "roster:polish-pickup": "node scripts/polish-pickup-roster.cjs",
     "backfill:imported-wishlist": "node scripts/backfill-imported-wishlist.cjs",
     "backfill:product-category": "node scripts/backfill-product-category.cjs",
     "backfill:product-text": "npm run build --workspace=swatchwatch-shared && npm run build && node dist/scripts/backfill-product-text.js",
