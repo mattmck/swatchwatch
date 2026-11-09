@@ -1003,19 +1003,6 @@ describe("processIngestionJobQueueMessage — source kinds", () => {
   });
 });
 
-describe("processIngestionJobQueueMessage — disabled source", () => {
-  it("fails the job at start with stage source_disabled and never pulls", async () => {
-    sourceEnabled = false;
-    pages[1] = { records: makeRecords(1, 5), metadata: {} };
-
-    await processIngestionJobQueueMessage(makePayload(), context);
-
-    assert.equal(events.filter((e) => e.type === "pull").length, 0);
-    assert.equal(enqueued().length, 0);
-    const failed = events.find((e) => e.type === "failed");
-    assert.ok(failed, "expected the job to be marked failed");
-    assert.equal(failed.error, "Source HoloTacoShopify is disabled; the job was not run");
-    assert.equal(failed.metrics.failedStage, "source_disabled");
 // ---------------------------------------------------------------------------
 // Crawling connectors (sitemap + JSON-LD): partial pulls with catalogComplete === false
 // ---------------------------------------------------------------------------
@@ -1194,5 +1181,21 @@ describe("processIngestionJobQueueMessage — partial crawl pulls", () => {
     assert.equal(job.status, "running");
     const pullIndex = events.findIndex((e) => e.type === "pull");
     assert.ok(!events.slice(pullIndex).some((e) => ["metrics", "succeeded", "failed"].includes(e.type)));
+  });
+});
+
+describe("processIngestionJobQueueMessage — disabled source", () => {
+  it("fails the job at start with stage source_disabled and never pulls", async () => {
+    sourceEnabled = false;
+    pages[1] = { records: makeRecords(1, 5), metadata: {} };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(events.filter((e) => e.type === "pull").length, 0);
+    assert.equal(enqueued().length, 0);
+    const failed = events.find((e) => e.type === "failed");
+    assert.ok(failed, "expected the job to be marked failed");
+    assert.equal(failed.error, "Source HoloTacoShopify is disabled; the job was not run");
+    assert.equal(failed.metrics.failedStage, "source_disabled");
   });
 });
