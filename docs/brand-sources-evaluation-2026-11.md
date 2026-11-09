@@ -168,7 +168,7 @@ merchandise, 1 hand & nail, 1 gift card). The generic gate accepts **5 of 92** (
 treatment, because `product_type` is `PPU`/`IPU` and the tags do not say polish), so the shop itself
 needs a store filter before it is a usable source, and its terms carry the Shopify clause. Even then
 it only ever lists this month's products: one shade per maker per month, gone when the window closes.
-Its value is the **roster**:
+Its value is the **roster**; `npm run roster:polish-pickup --workspace=swatchwatch-functions` lists it with the registered source each maker matches (one request; run it monthly, owner checklist item 4):
 
 - **Already sources (20 of 76):** enabled: Bee's Knees, Cracked Polish, Cupcake Polish, Dam Nail
   Polish, Emily de Molly, Kathleen & Co, Lemming Lacquer, Night Owl Lacquer, Pahlish, Paint it Pretty

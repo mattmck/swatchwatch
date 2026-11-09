@@ -54,7 +54,7 @@ const RETRY_BASE_DELAY_MS = parseIntEnv(
   100,
   30000
 );
-const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
+export const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
 const SHOPIFY_PAGE_LIMIT = 250;
 /** Pages of `SHOPIFY_PAGE_LIMIT` products read per run: `SHOPIFY_CONNECTOR_MAX_PAGES`, overridden per source by `metadata.maxPages`. */
 const DEFAULT_MAX_SHOPIFY_PAGES = parseIntEnv(process.env.SHOPIFY_CONNECTOR_MAX_PAGES, 30, 1, 200);
