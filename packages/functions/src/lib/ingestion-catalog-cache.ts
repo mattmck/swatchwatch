@@ -41,11 +41,13 @@ export interface CatalogSnapshotInfo {
   savedAt: string;
 }
 
+/** Returns the trimmed string, or null when it is undefined or blank. */
 function asNonEmpty(value: string | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : null;
 }
 
+/** Resolves the blob container for catalog snapshots from `CONNECTOR_RAW_CONTAINER` (or the deprecated `RAW_SNAPSHOT_CONTAINER`); null when unset. */
 function resolveCatalogContainer(): string | null {
   return asNonEmpty(process.env.CONNECTOR_RAW_CONTAINER) ?? asNonEmpty(process.env.RAW_SNAPSHOT_CONTAINER);
 }
@@ -91,6 +93,7 @@ export function createIngestionCatalogCache(params: {
     return containerName && connectionString ? { containerName, connectionString } : null;
   })();
   let preflight: Promise<void> | null = null;
+  /** Creates the snapshot container by writing a small preflight blob, so a missing or unwritable store fails before any work is done. */
   const runPreflight = (): Promise<void> =>
     storage
       ? uploadBytesToBlob({
@@ -110,8 +113,10 @@ export function createIngestionCatalogCache(params: {
           }
         )
       : Promise.resolve();
+  /** Runs the storage preflight at most once and shares its promise. */
   const ensurePreflight = (): Promise<void> => (preflight ??= runPreflight());
 
+  /** Reads and decompresses the stored checkpoint blob with its ETag; null when storage is off or no checkpoint exists. */
   const readCheckpoint = async (): Promise<{ value: unknown; etag: string | null; json: string } | null> => {
     if (!storage) return null;
     const blob = await readBlobByName({ ...storage, blobName: checkpointBlobName });

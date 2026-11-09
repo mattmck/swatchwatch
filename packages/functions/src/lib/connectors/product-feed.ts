@@ -32,6 +32,7 @@ import {
   SupportedConnectorSource,
 } from "./types.js";
 
+/** Parses an integer environment value, clamped to [min, max], or returns the fallback when it is not a number. */
 function parseIntEnv(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value || "", 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -63,14 +64,17 @@ type FetchLike = (
   text(): Promise<string>;
 }>;
 
+/** Resolves after the given number of milliseconds. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** True for HTTP statuses worth retrying (timeouts, rate limits, 5xx). */
 function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+/** True for request errors worth retrying (aborts, timeouts and transient network failures). */
 function isRetryableRequestError(error: Error): boolean {
   if (error.name === "AbortError") return true;
   const message = error.message.toLowerCase();
@@ -79,12 +83,14 @@ function isRetryableRequestError(error: Error): boolean {
   );
 }
 
+/** Collapses runs of whitespace to single spaces and trims the result. */
 function collapse(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
 // ── Parsing ────────────────────────────────────────────────────────────────────
 
+/** Reads the text of a parsed XML value (string, number, or an element with `#text` / an Atom `href`); null when empty. */
 function textOf(value: unknown): string | null {
   if (typeof value === "string") return value.trim() || null;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
@@ -96,6 +102,7 @@ function textOf(value: unknown): string | null {
   return null;
 }
 
+/** Adds a value under a key of a feed item, turning repeated keys into a list. */
 function addValue(item: FeedItem, key: string, value: string): void {
   const existing = item[key];
   if (existing === undefined) item[key] = value;
@@ -139,6 +146,7 @@ function xmlItem(element: Record<string, unknown>, prefixes: readonly string[]):
   return { ...plain, ...google };
 }
 
+/** Parses an RSS, Atom or Google Merchant XML feed into one item per product entry. */
 function parseXmlFeed(body: string): FeedItem[] {
   const parser = new XMLParser({
     ignoreAttributes: false,
@@ -221,6 +229,7 @@ function parseDelimitedRows(body: string, delimiter: string): string[][] {
 /** Attributes Google lets a delimited feed list several values of in one comma-separated cell. */
 const MULTI_VALUE_ATTRIBUTES: ReadonlySet<string> = new Set(["additional_image_link"]);
 
+/** Parses a CSV or TSV feed (header row, optional `g:` prefixes, multi-value columns split on commas) into feed items. */
 function parseDelimitedFeed(body: string): FeedItem[] {
   const text = body.replace(/^\uFEFF/, "");
   const firstLine = text.slice(0, text.search(/\r?\n|$/));
@@ -271,12 +280,14 @@ export function parseProductFeed(
 
 // ── Item fields ──────────────────────────────────────────────────────────────
 
+/** Returns the first value of a feed item's key as collapsed text, or null when absent or blank. */
 function first(item: FeedItem, key: string): string | null {
   const value = item[key];
   const text = Array.isArray(value) ? value[0] : value;
   return typeof text === "string" && text.trim() ? collapse(text) : null;
 }
 
+/** Returns every non-empty trimmed value of a feed item's key as a list. */
 function all(item: FeedItem, key: string): string[] {
   const value = item[key];
   return (Array.isArray(value) ? value : value === undefined ? [] : [value])
@@ -438,7 +449,9 @@ export function redactFeedUrl(error: Error, feedUrl: string, shown: string): Err
     // Not an absolute URL: the configured forms are enough.
   }
   const ordered = [...forms].filter((form) => form.length > 0).sort((a, b) => b.length - a.length);
+  /** Replaces every form of the secret URL parts in a text with the redacted display form. */
   const scrub = (text: string) => ordered.reduce((acc, form) => acc.split(form).join(shown), text);
+  /** Redacts an error's message and stack in place, falling back to a scrubbed copy when the error is read-only. */
   const scrubOne = (target: Error): Error => {
     try {
       target.message = scrub(target.message);

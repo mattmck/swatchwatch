@@ -34,6 +34,7 @@ import {
   SupportedConnectorSource,
 } from "./types.js";
 
+/** Parses an integer environment value, clamped to [min, max], or returns the fallback when it is not a number. */
 function parseIntEnv(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value || "", 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -87,10 +88,12 @@ interface CachedProduct {
   store: BigCartelStoreFacts;
 }
 
+/** Type guard for a plain object (not null, not an array). */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Plain text of a v0 API value: a number as a string, HTML stripped and truncated to `maxChars`; null when empty. */
 function plain(value: unknown, maxChars = 500): string | null {
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return htmlToPlainText(value, maxChars, { sentenceBreaks: false });
@@ -249,10 +252,12 @@ export function parseBigCartelStore(body: unknown): BigCartelStoreFacts {
 
 const SEARCH_TERMS_MEANING_ALL = new Set(["", "nail polish", "nail_polish", "nailpolish", "all", "*", "recent", "latest", "new"]);
 
+/** True for HTTP statuses worth retrying (timeouts, rate limits, 5xx). */
 function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+/** True for request errors worth retrying (aborts, timeouts and transient network failures). */
 function isRetryableRequestError(error: Error): boolean {
   if (error.name === "AbortError") return true;
   const message = error.message.toLowerCase();

@@ -58,6 +58,7 @@ import {
   SupportedConnectorSource,
 } from "./types.js";
 
+/** Parses an integer environment value, clamped to [min, max], or returns the fallback when it is not a number. */
 function parseIntEnv(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value || "", 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -119,6 +120,7 @@ export function parseRetryAfterMs(value: string | null | undefined, nowMs: numbe
   return Number.isFinite(at) ? Math.max(0, at - nowMs) : null;
 }
 
+/** Returns the origin of a URL, or null when it cannot be parsed. */
 function originOf(url: string): string | null {
   try {
     return new URL(url).origin;
@@ -171,6 +173,7 @@ export interface SitemapCrawlCheckpoint {
   generation: number;
 }
 
+/** Builds the checkpoint of a crawl that has not started: nothing discovered, fetched or failed yet. */
 function emptyCheckpoint(): SitemapCrawlCheckpoint {
   return {
     discovery: { rootRead: false, children: [], done: [], foreignSkipped: 0 },
@@ -186,10 +189,12 @@ function emptyCheckpoint(): SitemapCrawlCheckpoint {
   };
 }
 
+/** Type guard for a plain object (not null, not an array). */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Returns the string entries of an array value, or an empty list when it is not an array. */
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
@@ -235,6 +240,7 @@ export interface ParsedSitemap {
   entries: Array<{ url: string; lastmod: string | null }>;
 }
 
+/** Reads the text of a parsed XML node, which is a string or an object carrying `#text`; null when empty. */
 function xmlText(value: unknown): string | null {
   if (typeof value === "string") return value.trim() || null;
   if (isRecord(value)) return xmlText(value["#text"]);
@@ -251,6 +257,7 @@ export function parseSitemapXml(body: string): ParsedSitemap {
     isArray: (_name, jpath) => jpath === "urlset.url" || jpath === "sitemapindex.sitemap",
   });
   const document = parser.parse(body) as Record<string, unknown>;
+  /** Maps parsed sitemap elements to `{ url, lastmod }` entries, skipping elements without a `<loc>`. */
   const read = (elements: unknown) =>
     (Array.isArray(elements) ? elements : []).flatMap((element) => {
       if (!isRecord(element)) return [];
@@ -264,12 +271,14 @@ export function parseSitemapXml(body: string): ParsedSitemap {
 
 const LD_JSON_SCRIPT_REGEX = /<script\b[^>]*\btype\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi;
 
+/** Type guard for a JSON-LD node whose `@type` is (or includes) `Product`. */
 function isProductNode(value: unknown): value is JsonLdProduct {
   if (!isRecord(value)) return false;
   const type = value["@type"];
   return type === "Product" || (Array.isArray(type) && type.includes("Product"));
 }
 
+/** Finds the first JSON-LD `Product` node in a parsed block, searching arrays and `@graph` entries; null when there is none. */
 function findProduct(value: unknown): JsonLdProduct | null {
   if (Array.isArray(value)) {
     for (const entry of value) {
@@ -304,6 +313,7 @@ export function extractJsonLdProduct(html: string): JsonLdProduct | null {
  */
 export function jsonLdImageUrls(value: unknown): string[] {
   const urls: string[] = [];
+  /** Collects the URL of a string or `{ url | contentUrl }` image entry into `urls`. */
   const add = (entry: unknown) => {
     if (typeof entry === "string") {
       if (entry.trim()) urls.push(entry.trim());
@@ -315,12 +325,14 @@ export function jsonLdImageUrls(value: unknown): string[] {
   return [...new Set(urls)];
 }
 
+/** Normalizes a string (whitespace collapsed) or finite number to trimmed text; null for anything else or an empty result. */
 function text(value: unknown): string | null {
   if (typeof value === "string") return value.replace(/\s+/g, " ").trim() || null;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return null;
 }
 
+/** Picks the offer that carries a price, unwrapping an AggregateOffer's nested offers; null when none does. */
 function firstOffer(product: JsonLdProduct): Record<string, unknown> | null {
   const offers = product.offers;
   const list = Array.isArray(offers) ? offers : [offers];
@@ -349,6 +361,7 @@ export function parseJsonLdAvailability(value: unknown): boolean | null {
   return null;
 }
 
+/** Reads the brand name from a Product's `brand` (a string, a list, or a `{ name }` object); null when absent. */
 function brandOf(product: JsonLdProduct): string | null {
   const brand = product.brand;
   if (typeof brand === "string") return text(brand);
@@ -356,6 +369,7 @@ function brandOf(product: JsonLdProduct): string | null {
   return isRecord(brand) ? text(brand.name) : null;
 }
 
+/** Returns the path of a URL, or the input itself when it is not an absolute URL. */
 function urlPath(url: string): string {
   try {
     return new URL(url).pathname;
@@ -493,11 +507,13 @@ export function buildCrawledRecord(gated: GatedPage, settings: SourceSettings): 
 const SEARCH_TERMS_MEANING_ALL = new Set(["", "nail polish", "nail_polish", "nailpolish", "all", "*", "recent", "latest", "new"]);
 const DEFAULT_RECENT_DAYS = 120;
 
+/** Resolves the recent-pages window in days from an explicit value or the `recent`/`latest`/`new` search terms; null means no window. */
 function resolveRecentDays(searchTerm: string, recentDays?: number): number | null {
   if (typeof recentDays === "number" && Number.isFinite(recentDays) && recentDays > 0) return recentDays;
   return ["recent", "latest", "new"].includes(searchTerm.trim().toLowerCase()) ? DEFAULT_RECENT_DAYS : null;
 }
 
+/** Converts a sitemap `lastmod` string to epoch milliseconds, or 0 when it is missing or unparseable. */
 function lastmodEpoch(value: string | null): number {
   const parsed = value ? Date.parse(value) : Number.NaN;
   return Number.isFinite(parsed) ? parsed : 0;
@@ -562,10 +578,12 @@ function isPermanentRequestError(error: Error): boolean {
   return /invalid url|failed to parse url|unsupported protocol|unknown scheme/i.test(error.message);
 }
 
+/** True for HTTP statuses worth retrying (timeouts, rate limits, 5xx). */
 function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+/** True for request errors worth retrying (aborts, timeouts and transient network failures). */
 function isRetryableRequestError(error: Error): boolean {
   if (error.name === "AbortError") return true;
   const message = error.message.toLowerCase();
@@ -781,6 +799,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
   ): Promise<CrawlResult> {
     let requests = 0;
     const known = new Set(state.urls.map(({ url }) => url));
+    /** Adds sitemap entries under a configured product prefix to the crawl's URL list, skipping ones already known. */
     const addUrls = (entries: ParsedSitemap["entries"]) => {
       for (const entry of entries) {
         if (known.has(entry.url) || !this.prefixes.some((prefix) => entry.url.startsWith(prefix))) continue;
@@ -792,6 +811,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
     // robots.txt once per crawling pull, before discovery and any product page.
     const sitemapOrigin = originOf(this.sitemapUrl);
     if (!sitemapOrigin) throw new Error(`${this.source}: metadata.sitemapUrl is not an absolute URL`);
+    /** Refuses a redirect destination outside the sitemap's origin. */
     const sameOrigin = (destination: string): RedirectRefusal | null =>
       originOf(destination) === sitemapOrigin ? null : "out_of_scope";
     const robots = await this.requestFollowingRedirects(`${sitemapOrigin}/robots.txt`, stopAt, "robots", sameOrigin);
@@ -810,16 +830,20 @@ export class SitemapJsonLdConnector implements ProductConnector {
       // A missing robots.txt (any 4xx) allows everything (RFC 9309); a 5xx or network failure fails.
       throw new Error(`${this.source} robots.txt request failed: ${describeOutcome(robots)}`);
     }
+    /** True when robots.txt (if one was read) allows the URL for this crawler. */
     const allowed = (url: string) =>
       robotsBody === null || !isPathDisallowed(robotsBody, ROBOTS_AGENT_TOKEN, urlPath(url));
     // A sitemap or child sitemap follows only same-origin redirects robots.txt allows.
+    /** Redirect check for sitemap documents: same origin and allowed by robots.txt. */
     const sitemapRedirect = (destination: string): RedirectRefusal | null =>
       sameOrigin(destination) ?? (allowed(destination) ? null : "robots");
     // A product page's destination must also stay under a configured product prefix.
+    /** Redirect check for product pages: same origin, under a configured product prefix and allowed by robots.txt. */
     const pageRedirect = (destination: string): RedirectRefusal | null =>
       sameOrigin(destination) ??
       (this.prefixes.some((prefix) => destination.startsWith(prefix)) ? null : "out_of_scope") ??
       (allowed(destination) ? null : "robots");
+    /** Logs a warning to the job log when one is attached, else to the console. */
     const warn = (message: string, data: Record<string, unknown>) => {
       if (log) log("warn", message, data);
       else console.warn(`${this.source} ${message}`);
@@ -870,6 +894,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
 
     let pages = 0;
     const failed = new Set(state.failed);
+    /** Records a page as permanently failed for this crawl and logs why. */
     const giveUp = (url: string, reason: string) => {
       failed.add(url);
       state.failed.push(url);
@@ -881,6 +906,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
       if (log) log("warn", message, { url, reason });
       else console.warn(`${this.source} ${message}`);
     };
+    /** Counts one unanswered pull for a page and gives it up once the attempt limit is reached. */
     const countAttempt = (url: string, reason: string) => {
       const attempts = (state.attempts[url] ?? 0) + 1;
       state.attempts[url] = attempts;
@@ -890,6 +916,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
     let pendingRetry = false;
     // Product pages failing in a row; any answered page (200, 404, 410) resets it.
     let consecutiveFailures = 0;
+    /** Counts a failed page request and aborts the pull after too many consecutive failures. */
     const pageFailed = (status: string) => {
       consecutiveFailures += 1;
       if (consecutiveFailures >= SITEMAP_JSONLD_MAX_CONSECUTIVE_FAILURES) {
@@ -1084,6 +1111,7 @@ interface CrawlResult {
   requests: number;
 }
 
+/** Describes a failed request outcome for the job log without echoing a redirect destination in full. */
 function describeOutcome(outcome: FollowedOutcome): string {
   if (outcome.status === "http") return String(outcome.httpStatus);
   // Origin only: a redirect destination is never echoed in full.

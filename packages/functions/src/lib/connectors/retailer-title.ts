@@ -79,10 +79,12 @@ function trimCode(code: string): string {
   return code.replace(/\.+$/, "");
 }
 
+/** Collapses whitespace and lower-cases a string so brand and segment comparisons ignore spacing and case. */
 function normalizeSpace(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/** Drops a leading title segment that is one of the brand names (longest name first), leaving the rest of the segments. */
 function stripBrand(segments: string[], brands: readonly string[]): string[] {
   const first = segments[0];
   if (first === undefined) return segments;

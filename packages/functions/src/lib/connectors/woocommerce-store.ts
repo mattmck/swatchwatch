@@ -41,6 +41,7 @@ import {
   SupportedConnectorSource,
 } from "./types.js";
 
+/** Parses an integer environment value, clamped to [min, max], or returns the fallback when it is not a number. */
 function parseIntEnv(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(value || "", 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -111,6 +112,7 @@ export interface WooStoreProduct extends Record<string, unknown> {
   is_in_stock?: unknown;
 }
 
+/** Type guard for a plain object (not null, not an array). */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -129,6 +131,7 @@ function names(value: unknown): string[] {
   });
 }
 
+/** Reads a Store API product's attributes as `{ name, taxonomy, terms }` entries with names and terms as plain text. */
 function attributeList(product: WooStoreProduct): Array<{ name: string | null; taxonomy: string | null; terms: string[] }> {
   return (Array.isArray(product.attributes) ? product.attributes : []).filter(isRecord).map((attribute) => ({
     name: plain(attribute.name),
@@ -299,10 +302,12 @@ export function buildWooStoreRecord(gated: GatedProduct, settings: SourceSetting
 
 const SEARCH_TERMS_MEANING_ALL = new Set(["", "nail polish", "nail_polish", "nailpolish", "all", "*", "recent", "latest", "new"]);
 
+/** True for HTTP statuses worth retrying (timeouts, rate limits, 5xx). */
 function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+/** True for request errors worth retrying (aborts, timeouts and transient network failures). */
 function isRetryableRequestError(error: Error): boolean {
   if (error.name === "AbortError") return true;
   const message = error.message.toLowerCase();
