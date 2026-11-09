@@ -33,7 +33,7 @@ import { normalizeCurrencyCode, normalizePriceAmount } from "../product-price.js
 import { htmlToPlainText, normalizeDescriptors, PRODUCT_DESCRIPTION_MAX_CHARS } from "../product-text.js";
 import { isPathDisallowed } from "../robots.js";
 import type { SourceSettings } from "../source-settings.js";
-import { isRetailerSetSegment, parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
+import { isRetailerSetSegment, parseConnectorTitle, type RetailerTitle } from "./retailer-title.js";
 import { resolveConnectorBrand } from "./shopify-generic.js";
 import {
   ConnectorCatalogCache,
@@ -382,8 +382,9 @@ export function gateCrawledPage(
   if (!brand) return { accept: false, vendorless: true };
 
   // Enterprise titles may carry the line ("OPI Nail Lacquer - Big Apple Red"): the parser strips
-  // the brand and line in brand mode too. Without one, the matching URL prefix names the line.
-  const listing = parseRetailerTitle(title, brand);
+  // the brand and line in brand mode too, when the title starts with the brand or a line word
+  // (`parseBrandStoreTitle`). Without one, the matching URL prefix names the line.
+  const listing = parseConnectorTitle(title, brand, settings.kind, brandOf(page.product));
   const prefix = prefixes.find((candidate) => page.url.startsWith(candidate));
   const productLine = listing?.productLine ?? (prefix ? lineFromPrefix(prefix) : null);
   // Every crawled URL matched a configured product prefix, and the prefixes name polish lines

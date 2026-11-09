@@ -21,7 +21,7 @@ import { classifyIngestedProduct } from "../product-category.js";
 import { normalizeCurrencyCode, normalizePriceAmount, type ProductPrice } from "../product-price.js";
 import { htmlToPlainText, normalizeDescriptors, PRODUCT_DESCRIPTION_MAX_CHARS } from "../product-text.js";
 import type { SourceSettings } from "../source-settings.js";
-import { isRetailerSetSegment, parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
+import { isRetailerSetSegment, parseConnectorTitle, type RetailerTitle } from "./retailer-title.js";
 import { resolveConnectorBrand } from "./shopify-generic.js";
 import {
   ConnectorProductRecord,
@@ -329,7 +329,7 @@ interface GatedItem {
   title: string;
   brand: string;
   category: ProductCategory;
-  /** `parseRetailerTitle` of the title (every kind; a `feed`/`retailer` item without one is dropped). */
+  /** `parseConnectorTitle` of the title (every kind; a `feed`/`retailer` item without one is dropped). */
   listing: RetailerTitle | null;
 }
 
@@ -359,9 +359,10 @@ export function gateFeedItem(item: FeedItem, settings: SourceSettings): GateOutc
   if (!gate.accept || gate.evidence === "set") return { accept: false };
 
   // The title parser strips the brand, line and code in brand mode too ("Zoya Nail Polish -
-  // Aurora" -> "Aurora"). A brand feed relies on the generic gate's set evidence (its shade
+  // Aurora" -> "Aurora"), but only when the title starts with the brand or a line word
+  // (`parseBrandStoreTitle`: "Night Swim - Holo" stays whole). A brand feed relies on the generic gate's set evidence (its shade
   // "Jet Set" is a polish); a feed or retailer listing ending in a set word is a multi-item listing.
-  const listing = parseRetailerTitle(title, brand);
+  const listing = parseConnectorTitle(title, brand, settings.kind, first(item, "brand"));
   if (settings.kind !== "brand" && (isRetailerSetSegment(title) || !listing || listing.isSet)) {
     return { accept: false };
   }

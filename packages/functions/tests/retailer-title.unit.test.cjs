@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  parseBrandStoreTitle,
+  parseConnectorTitle,
   parseRetailerTitle,
   RETAILER_LINE_REGEX,
   RETAILER_SET_REGEX,
@@ -132,4 +134,35 @@ test("strips trailing notes, Refill, Mini and sizes anywhere in a segment (Hypno
   // Mini after a one-word name is part of the name.
   partial(p("Brand - Cooper Mini", "Brand"), { shadeName: "Cooper Mini" });
   partial(p("Brand - Ruby Red 0.5 fl oz", "Brand"), { shadeName: "Ruby Red" });
+});
+
+test("parseBrandStoreTitle parses only a title that starts with the brand, the raw vendor or a line word", () => {
+  // A first segment that is not the brand is part of the shade name.
+  partial(parseBrandStoreTitle("Night Swim - Holo", "Example Lacquer"), {
+    shadeName: "Night Swim - Holo", productLine: null, vendorCode: null,
+  });
+  partial(parseBrandStoreTitle("  Night Swim – Holo ", "Example Lacquer"), { shadeName: "Night Swim – Holo" });
+  partial(parseBrandStoreTitle("OPI Nail Lacquer - Big Apple Red", "OPI"), {
+    shadeName: "Big Apple Red", productLine: "Nail Lacquer",
+  });
+  partial(parseBrandStoreTitle("Zoya Nail Polish - Aurora", "Zoya"), { shadeName: "Aurora" });
+  // En and em dashes separate like a hyphen.
+  partial(parseBrandStoreTitle("Picture Polish – Atomic", "Picture Polish"), { shadeName: "Atomic" });
+  partial(parseBrandStoreTitle("Picture Polish — Atomic", "picture polish"), { shadeName: "Atomic" });
+  // The raw vendor when an alias renamed it.
+  partial(parseBrandStoreTitle("Lippmann - Celeste", "Deborah Lippmann", "Lippmann"), { shadeName: "Celeste" });
+  // A title starting with a line word.
+  partial(parseBrandStoreTitle("Nail Lacquer - Big Apple Red - #NLA16", "OPI"), {
+    shadeName: "Big Apple Red", vendorCode: "NLA16",
+  });
+  partial(parseBrandStoreTitle("Infinite Shine - Big Apple Red", "OPI"), { shadeName: "Big Apple Red" });
+  // A one-segment title still loses its size and code.
+  partial(parseBrandStoreTitle("Aurora 15ml #ZP123", "Zoya"), { shadeName: "Aurora", vendorCode: "ZP123" });
+  assert.equal(parseBrandStoreTitle("   ", "Zoya"), null);
+});
+
+test("parseConnectorTitle reads brand stores with parseBrandStoreTitle and everything else with parseRetailerTitle", () => {
+  partial(parseConnectorTitle("Night Swim - Holo", "Example Lacquer", "brand"), { shadeName: "Night Swim - Holo" });
+  partial(parseConnectorTitle("Night Swim - Holo", "Example Lacquer", "retailer"), { shadeName: "Holo" });
+  partial(parseConnectorTitle("Night Swim - Holo", "Example Lacquer", "feed"), { shadeName: "Holo" });
 });

@@ -238,6 +238,19 @@ describe("ProductFeedConnector: feed-kind pull", () => {
     assert.equal(record.normalized.listingTitle, undefined, "brand mode");
   });
 
+  it("keeps a brand-kind title whole when its first segment is not the brand or a line word", async () => {
+    const body = rss([
+      feedItem({ id: "B-1", title: "Night Swim - Holo", brand: "Example Lacquer" }),
+      feedItem({ id: "B-2", title: "Picture Polish – Atomic", brand: "Picture Polish" }),
+    ]);
+    const result = await connector(body, "application/xml", { kind: "brand" }).pullProducts(PULL);
+    const names = Object.fromEntries(result.records.map((record) => [record.externalId, record.normalized.name]));
+    assert.deepEqual(names, { "B-1": "Night Swim - Holo", "B-2": "Atomic" });
+    // A feed source still reads the first segment as the brand.
+    const feed = await connector(body, "application/xml", { kind: "feed" }).pullProducts(PULL);
+    assert.equal(feed.records.find((record) => record.externalId === "B-1").normalized.name, "Holo");
+  });
+
   it("maps g:brand through metadata.vendorAliases, in feed and brand mode", async () => {
     const body = rss([feedItem({ id: "A-1", title: "Atomic", brand: "piCture pOlish" })]);
     for (const kind of ["feed", "brand"]) {

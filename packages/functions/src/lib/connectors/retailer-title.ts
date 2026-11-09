@@ -5,6 +5,8 @@
  * line, shade, size and vendor code in one string. Pure, no I/O.
  */
 
+import type { SourceKind } from "../source-settings.js";
+
 export interface RetailerTitle {
   shadeName: string;
   productLine: string | null;
@@ -12,9 +14,14 @@ export interface RetailerTitle {
   isSet: boolean;
 }
 
+const RETAILER_LINE_WORDS =
+  "nail lacquer|nail polish|lacquer|polish|infinite shine|nature strong|vinylux|shellac|lakur|pure colour|patent shine|gel lab pro|gel couture|breathable|enhanced colour";
+
 /** Segments naming a product line ("Nail Lacquer", "Infinite Shine", "Lakur Enhanced Colour"). */
-export const RETAILER_LINE_REGEX =
-  /\b(?:nail lacquer|nail polish|lacquer|polish|infinite shine|nature strong|vinylux|shellac|lakur|pure colour|patent shine|gel lab pro|gel couture|breathable|enhanced colour)\b/i;
+export const RETAILER_LINE_REGEX = new RegExp(String.raw`\b(?:${RETAILER_LINE_WORDS})\b`, "i");
+
+/** A segment that starts with a product-line word ("Nail Lacquer", "Infinite Shine Gel"). */
+const LEADING_LINE_REGEX = new RegExp(String.raw`^(?:${RETAILER_LINE_WORDS})\b`, "i");
 
 /**
  * Words marking a multi-item listing (set, combo, duo, collection ...). A set word counts only as
@@ -143,4 +150,48 @@ export function parseRetailerTitle(
   if (!shadeName) return null;
 
   return { shadeName, productLine: lines.length ? lines.join(" ") : null, vendorCode, isSet };
+}
+
+/** " – " and " — " separate title segments like " - ". */
+function hyphenateTitleDashes(title: string): string {
+  return title.replace(/\s+[–—]\s+/g, " - ");
+}
+
+/**
+ * Parses a brand store's own title. A brand store's first segment is the brand, the raw vendor
+ * or a product line only sometimes ("OPI Nail Lacquer - Big Apple Red", "Zoya Nail Polish -
+ * Aurora", "Picture Polish – Atomic"); just as often it is part of the shade ("Night Swim - Holo"
+ * at Example Lacquer). So the title is parsed with `parseRetailerTitle` (dashes read as " - ")
+ * only when its first segment, case- and space-insensitively, is the brand or `rawVendor`, starts
+ * with one of them plus a space, starts with a product-line word (`RETAILER_LINE_REGEX`), or is
+ * the whole title; otherwise the trimmed title is the shade name, with no line or code.
+ */
+export function parseBrandStoreTitle(title: string, brand: string, rawVendor?: string | null): RetailerTitle | null {
+  const trimmed = title.trim();
+  const parseable = hyphenateTitleDashes(trimmed);
+  const segments = parseable.replace(PRE_ORDER_REGEX, "").split(" - ");
+  const prefixes = rawVendor && normalizeSpace(rawVendor) !== normalizeSpace(brand) ? [rawVendor] : [];
+  if (segments.length < 2) return parseRetailerTitle(parseable, brand, prefixes);
+
+  const first = normalizeSpace(segments[0]);
+  const startsWithName = [brand, ...prefixes].some((name) => {
+    const wanted = normalizeSpace(name);
+    return wanted !== "" && (first === wanted || first.startsWith(`${wanted} `));
+  });
+  if (startsWithName || LEADING_LINE_REGEX.test(first)) return parseRetailerTitle(parseable, brand, prefixes);
+  return { shadeName: trimmed, productLine: null, vendorCode: null, isSet: false };
+}
+
+/**
+ * The listing title of a non-Shopify connector record: a `brand` source through
+ * `parseBrandStoreTitle`, a `retailer` or `feed` source through `parseRetailerTitle` (whose first
+ * segment is always a brand).
+ */
+export function parseConnectorTitle(
+  title: string,
+  brand: string,
+  kind: SourceKind,
+  rawVendor?: string | null
+): RetailerTitle | null {
+  return kind === "brand" ? parseBrandStoreTitle(title, brand, rawVendor) : parseRetailerTitle(title, brand);
 }

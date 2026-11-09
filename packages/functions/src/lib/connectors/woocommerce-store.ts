@@ -22,7 +22,7 @@ import { normalizeCurrencyCode, normalizePriceAmount, type ProductPrice } from "
 import { htmlToPlainText, normalizeDescriptors, PRODUCT_DESCRIPTION_MAX_CHARS } from "../product-text.js";
 import { isPathDisallowed } from "../robots.js";
 import type { SourceSettings } from "../source-settings.js";
-import { isRetailerSetSegment, parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
+import { isRetailerSetSegment, parseConnectorTitle, type RetailerTitle } from "./retailer-title.js";
 import { isBundle, resolveConnectorBrand } from "./shopify-generic.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import { MYSTERY_TITLE_REGEX } from "./store-filters/shared.js";
@@ -220,7 +220,7 @@ export function gateWooStoreProduct(product: WooStoreProduct, source: string, se
       : gate.category;
 
   const parseable = hyphenateDashes(title);
-  const listing = parseRetailerTitle(parseable, brand);
+  const listing = parseConnectorTitle(parseable, brand, settings.kind, names(product.brands)[0] ?? brandAttribute(product));
   if (settings.kind !== "brand" && (isRetailerSetSegment(parseable) || !listing || listing.isSet)) {
     return { accept: false };
   }
