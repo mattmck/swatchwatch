@@ -138,6 +138,10 @@ test("strips trailing notes, Refill, Mini and sizes anywhere in a segment (Hypno
 
 test("parseBrandStoreTitle parses only a title that starts with the brand, the raw vendor or a line word", () => {
   // A first segment that is not the brand is part of the shade name.
+  partial(parseBrandStoreTitle("Polish Me Crazy - Pink", "Example Lacquer"), {
+    shadeName: "Polish Me Crazy - Pink", productLine: null, vendorCode: null,
+  });
+  partial(parseBrandStoreTitle("Nail Lacquer - Red", "Example Lacquer"), { shadeName: "Red" });
   partial(parseBrandStoreTitle("Night Swim - Holo", "Example Lacquer"), {
     shadeName: "Night Swim - Holo", productLine: null, vendorCode: null,
   });

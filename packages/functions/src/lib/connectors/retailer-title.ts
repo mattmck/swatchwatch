@@ -21,7 +21,9 @@ const RETAILER_LINE_WORDS =
 export const RETAILER_LINE_REGEX = new RegExp(String.raw`\b(?:${RETAILER_LINE_WORDS})\b`, "i");
 
 /** A segment that starts with a product-line word ("Nail Lacquer", "Infinite Shine Gel"). */
-const LEADING_LINE_REGEX = new RegExp(String.raw`^(?:${RETAILER_LINE_WORDS})\b`, "i");
+// The whole first segment must be line words ("Nail Lacquer", "Infinite Shine"): a shade whose
+// name merely starts with one ("Polish Me Crazy - Pink") is kept whole.
+const LEADING_LINE_REGEX = new RegExp(String.raw`^(?:${RETAILER_LINE_WORDS})(?:\s+(?:${RETAILER_LINE_WORDS}))*$`, "i");
 
 /**
  * Words marking a multi-item listing (set, combo, duo, collection ...). A set word counts only as
