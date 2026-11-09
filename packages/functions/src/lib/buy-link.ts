@@ -340,19 +340,30 @@ export async function withBuyUrls<T extends object>(
   });
 }
 
+/** A positive integer id, from a number or from the string node-postgres returns for `bigint`. */
+function toPositiveIntegerId(value: unknown): number | null {
+  const id = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 /**
  * Records (or refreshes) the link between a materialized shade and the connector product
  * it came from. Called by ingestion inside its transaction, after `upsertExternalProducts`
  * has stored the product. No-op when the product row is missing.
+ *
+ * `shade_id` and `data_source_id` are `bigint`, so ids read back from Postgres arrive as
+ * strings even where their TypeScript type says `number`; both forms are accepted.
  */
 export async function recordShadeSourceProduct(
   client: Pick<PoolClient, "query">,
-  shadeId: number,
-  dataSourceId: number,
+  shadeId: number | string,
+  dataSourceId: number | string,
   externalId: string | null | undefined
 ): Promise<void> {
   const trimmed = externalId?.trim();
-  if (!trimmed || !Number.isFinite(shadeId) || !Number.isFinite(dataSourceId)) return;
+  const shade = toPositiveIntegerId(shadeId);
+  const source = toPositiveIntegerId(dataSourceId);
+  if (!trimmed || shade === null || source === null) return;
   await client.query(
     `INSERT INTO shade_source_product (shade_id, external_product_id)
      SELECT $1, ep.external_product_id
@@ -361,6 +372,6 @@ export async function recordShadeSourceProduct(
        AND ep.external_id = $3
      ON CONFLICT (shade_id, external_product_id)
      DO UPDATE SET last_seen_at = now()`,
-    [shadeId, dataSourceId, trimmed]
+    [shade, source, trimmed]
   );
 }
