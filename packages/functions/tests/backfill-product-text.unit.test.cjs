@@ -51,6 +51,9 @@ describe("productTextFromRaw", () => {
     assert.equal(productTextFromRaw("MakeupAPI", { description: "Matte" }).descriptionText, "Matte");
     assert.equal(productTextFromRaw("OpenBeautyFacts", { generic_name: "Shimmer" }).descriptionText, "Shimmer");
     assert.equal(productTextFromRaw("SomethingElse", {}), null);
+    // The protocol decides, not the name: a …Feed source is not a Shopify products.json source.
+    assert.equal(productTextFromRaw("StellaChromaFeed", shopifyRaw), null);
+    assert.equal(productTextFromRaw("HoloTacoShopify", shopifyRaw).descriptionText, "A squishy jelly.");
   });
 });
 

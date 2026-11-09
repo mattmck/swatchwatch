@@ -909,6 +909,7 @@ export const SHOPIFY_RETAILER_SOURCES: ReadonlySet<string> = new Set([
   "HypnoticPolishShopify",
 ]);
 
+/** True when the Shopify source is a multi-brand retailer rather than a brand store. */
 export function isShopifyRetailerSource(source: string): boolean {
   return SHOPIFY_RETAILER_SOURCES.has(source);
 }
@@ -998,6 +999,29 @@ export function resolveRetailerVendor(
 }
 
 /**
+ * The brand of a record from a non-Shopify connector (product feed, sitemap, WooCommerce, Big
+ * Cartel), through the same helpers as a Shopify product: a brand source reads `itemBrand` with
+ * `resolveBrandStoreVendor` (the `vendorAliases` entry first, then the item's brand unless it is
+ * a placeholder, then `settings.brand`); a retailer or feed source with `resolveRetailerVendor` (alias, else the
+ * item's brand unless missing or a placeholder), then `settings.brand`. Null when neither names a
+ * brand (the connectors skip the record and count it as `vendorlessSkipped`).
+ */
+export function resolveConnectorBrand(itemBrand: unknown, settings: SourceSettings): string | null {
+  if (settings.kind === "brand") {
+    const item = asNonEmptyString(itemBrand);
+    const alias = vendorAliasFor(item, settings.vendorAliases);
+    if (alias) return alias;
+    // A placeholder item brand ("Vendor Unknown") never becomes the brand, not even as the fallback.
+    const usableItem = item && !PLACEHOLDER_VENDORS.has(item.toLowerCase()) ? item : null;
+    const fallback = settings.brand ?? usableItem;
+    return fallback ? resolveShopifyVendor(itemBrand, fallback) : null;
+  }
+  return (
+    resolveRetailerVendor(itemBrand, settings.vendorAliases, settings.brand ?? "", settings.kind) ?? settings.brand ?? null
+  );
+}
+
+/**
  * Whether `source` runs in retailer mode: its settings say it is not a brand store, and it has no
  * store title parser of its own (Polish Pickup's "Vendor | Shade" titles keep that parser).
  */
@@ -1037,6 +1061,7 @@ function shopifyBrandName(source: string): string {
   return source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
 }
 
+/** The source's store URL from `SHOPIFY_SOURCE_BASE_URLS`, else `https://<name without Shopify>.com`. */
 export function defaultShopifyBaseUrl(source: string): string {
   return (
     SHOPIFY_SOURCE_BASE_URLS[source] ||

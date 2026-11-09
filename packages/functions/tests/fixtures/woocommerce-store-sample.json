@@ -1,0 +1,212 @@
+[
+  {
+    "id": 4211,
+    "name": "Picture Polish &#8211; Atomic",
+    "slug": "atomic",
+    "parent": 0,
+    "type": "simple",
+    "variation": "",
+    "permalink": "https://picturepolish.com.au/product/atomic/",
+    "sku": "PP-ATOMIC",
+    "short_description": "<p>A vivid orange crème with a glossy finish.</p>",
+    "description": "<p>Atomic is a <strong>vivid orange</strong> creme. Two coats for full opacity.</p>",
+    "on_sale": false,
+    "prices": {
+      "price": "1200",
+      "regular_price": "1200",
+      "sale_price": "1200",
+      "price_range": null,
+      "currency_code": "AUD",
+      "currency_symbol": "$",
+      "currency_minor_unit": 2,
+      "currency_decimal_separator": ".",
+      "currency_thousand_separator": ",",
+      "currency_prefix": "$",
+      "currency_suffix": ""
+    },
+    "average_rating": "0",
+    "review_count": 0,
+    "images": [
+      { "id": 9001, "src": "https://picturepolish.com.au/wp-content/uploads/2026/03/atomic.jpg", "thumbnail": "https://picturepolish.com.au/wp-content/uploads/2026/03/atomic-300x300.jpg", "name": "atomic", "alt": "Atomic" },
+      { "id": 9002, "src": "https://picturepolish.com.au/wp-content/uploads/2026/03/atomic-swatch.jpg", "thumbnail": "https://picturepolish.com.au/wp-content/uploads/2026/03/atomic-swatch-300x300.jpg", "name": "atomic-swatch", "alt": "" }
+    ],
+    "categories": [
+      { "id": 15, "name": "Nail Polish", "slug": "nail-polish", "link": "https://picturepolish.com.au/product-category/nail-polish/" },
+      { "id": 22, "name": "Cremes", "slug": "cremes", "link": "https://picturepolish.com.au/product-category/cremes/" }
+    ],
+    "tags": [
+      { "id": 31, "name": "Orange", "slug": "orange", "link": "https://picturepolish.com.au/product-tag/orange/" }
+    ],
+    "brands": [],
+    "attributes": [
+      { "id": 3, "name": "Finish", "taxonomy": "pa_finish", "has_variations": false, "terms": [{ "id": 41, "name": "Creme", "slug": "creme" }] }
+    ],
+    "variations": [],
+    "has_options": false,
+    "is_purchasable": true,
+    "is_in_stock": true,
+    "is_on_backorder": false,
+    "low_stock_remaining": null,
+    "sold_individually": false,
+    "add_to_cart": { "text": "Add to cart", "description": "Add &ldquo;Atomic&rdquo; to your cart", "url": "?add-to-cart=4211", "minimum": 1, "maximum": 9999, "multiple_of": 1 }
+  },
+  {
+    "id": 4212,
+    "name": "Picture Polish &#8211; Moonlight",
+    "slug": "moonlight",
+    "parent": 0,
+    "type": "simple",
+    "variation": "",
+    "permalink": "https://picturepolish.com.au/product/moonlight/",
+    "sku": "PP-MOONLIGHT",
+    "short_description": "",
+    "description": "<p>A silver <em>holographic</em> polish that throws rainbows in the sun.</p>",
+    "on_sale": true,
+    "prices": {
+      "price": "1050",
+      "regular_price": "1400",
+      "sale_price": "1050",
+      "price_range": null,
+      "currency_code": "AUD",
+      "currency_symbol": "$",
+      "currency_minor_unit": 2,
+      "currency_decimal_separator": ".",
+      "currency_thousand_separator": ",",
+      "currency_prefix": "$",
+      "currency_suffix": ""
+    },
+    "images": [
+      { "id": 9003, "src": "https://picturepolish.com.au/wp-content/uploads/2026/04/moonlight.jpg", "thumbnail": "https://picturepolish.com.au/wp-content/uploads/2026/04/moonlight-300x300.jpg", "name": "moonlight", "alt": "Moonlight" }
+    ],
+    "categories": [
+      { "id": 15, "name": "Nail Polish", "slug": "nail-polish", "link": "https://picturepolish.com.au/product-category/nail-polish/" },
+      { "id": 23, "name": "Holographic", "slug": "holographic", "link": "https://picturepolish.com.au/product-category/holographic/" }
+    ],
+    "tags": [
+      { "id": 32, "name": "Silver", "slug": "silver", "link": "https://picturepolish.com.au/product-tag/silver/" }
+    ],
+    "attributes": [],
+    "variations": [],
+    "has_options": false,
+    "is_purchasable": false,
+    "is_in_stock": false,
+    "is_on_backorder": false
+  },
+  {
+    "id": 4213,
+    "name": "Picture Polish &#8211; Stamping Plate 05",
+    "slug": "stamping-plate-05",
+    "parent": 0,
+    "type": "simple",
+    "variation": "",
+    "permalink": "https://picturepolish.com.au/product/stamping-plate-05/",
+    "sku": "PP-PLATE-05",
+    "short_description": "<p>Steel stamping plate with 12 designs.</p>",
+    "description": "",
+    "prices": {
+      "price": "900",
+      "regular_price": "900",
+      "sale_price": "900",
+      "price_range": null,
+      "currency_code": "AUD",
+      "currency_symbol": "$",
+      "currency_minor_unit": 2,
+      "currency_decimal_separator": ".",
+      "currency_thousand_separator": ",",
+      "currency_prefix": "$",
+      "currency_suffix": ""
+    },
+    "images": [
+      { "id": 9004, "src": "https://picturepolish.com.au/wp-content/uploads/2026/02/plate-05.jpg", "thumbnail": "https://picturepolish.com.au/wp-content/uploads/2026/02/plate-05-300x300.jpg", "name": "plate-05", "alt": "" }
+    ],
+    "categories": [
+      { "id": 40, "name": "Nail Art", "slug": "nail-art", "link": "https://picturepolish.com.au/product-category/nail-art/" }
+    ],
+    "tags": [],
+    "attributes": [],
+    "variations": [],
+    "has_options": false,
+    "is_purchasable": true,
+    "is_in_stock": true,
+    "is_on_backorder": false
+  },
+  {
+    "id": 4214,
+    "name": "Picture Polish &#8211; Neon Trio",
+    "slug": "neon-trio",
+    "parent": 0,
+    "type": "simple",
+    "variation": "",
+    "permalink": "https://picturepolish.com.au/product/neon-trio/",
+    "sku": "PP-NEON-TRIO",
+    "short_description": "<p>Three neon polishes in one box.</p>",
+    "description": "",
+    "prices": {
+      "price": "3300",
+      "regular_price": "3300",
+      "sale_price": "3300",
+      "price_range": null,
+      "currency_code": "AUD",
+      "currency_symbol": "$",
+      "currency_minor_unit": 2,
+      "currency_decimal_separator": ".",
+      "currency_thousand_separator": ",",
+      "currency_prefix": "$",
+      "currency_suffix": ""
+    },
+    "images": [
+      { "id": 9005, "src": "https://picturepolish.com.au/wp-content/uploads/2026/01/neon-trio.jpg", "thumbnail": "https://picturepolish.com.au/wp-content/uploads/2026/01/neon-trio-300x300.jpg", "name": "neon-trio", "alt": "" }
+    ],
+    "categories": [
+      { "id": 15, "name": "Nail Polish", "slug": "nail-polish", "link": "https://picturepolish.com.au/product-category/nail-polish/" }
+    ],
+    "tags": [],
+    "attributes": [],
+    "variations": [],
+    "has_options": false,
+    "is_purchasable": true,
+    "is_in_stock": true,
+    "is_on_backorder": false
+  },
+  {
+    "id": 4215,
+    "name": "Picture Polish &#8211; Aurora",
+    "slug": "aurora",
+    "parent": 0,
+    "type": "variable",
+    "variation": "",
+    "permalink": "https://picturepolish.com.au/product/aurora/",
+    "sku": "",
+    "short_description": "<p>Multichrome flakies in a clear base.</p>",
+    "description": "<p>Aurora shifts from green to purple.</p>",
+    "prices": {
+      "price": "1300",
+      "regular_price": "1300",
+      "sale_price": "1300",
+      "price_range": { "min_amount": "1300", "max_amount": "2400" },
+      "currency_code": "AUD",
+      "currency_symbol": "$",
+      "currency_minor_unit": 2,
+      "currency_decimal_separator": ".",
+      "currency_thousand_separator": ",",
+      "currency_prefix": "$",
+      "currency_suffix": ""
+    },
+    "images": [],
+    "categories": [
+      { "id": 15, "name": "Nail Polish", "slug": "nail-polish", "link": "https://picturepolish.com.au/product-category/nail-polish/" }
+    ],
+    "tags": [
+      { "id": 33, "name": "Multichrome", "slug": "multichrome", "link": "https://picturepolish.com.au/product-tag/multichrome/" }
+    ],
+    "attributes": [
+      { "id": 4, "name": "Size", "taxonomy": "pa_size", "has_variations": true, "terms": [{ "id": 51, "name": "11ml", "slug": "11ml" }, { "id": 52, "name": "Mini 5ml", "slug": "mini-5ml" }] },
+      { "id": 5, "name": "Brand", "taxonomy": "pa_brand", "has_variations": false, "terms": [{ "id": 61, "name": "Picture Polish", "slug": "picture-polish" }] }
+    ],
+    "variations": [{ "id": 4216, "attributes": [{ "name": "Size", "value": "11ml" }] }, { "id": 4217, "attributes": [{ "name": "Size", "value": "mini-5ml" }] }],
+    "has_options": true,
+    "is_purchasable": true,
+    "is_in_stock": true,
+    "is_on_backorder": false
+  }
+]

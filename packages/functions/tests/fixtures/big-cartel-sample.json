@@ -1,0 +1,103 @@
+[
+  {
+    "id": 91000001,
+    "name": "Pumpkin Spice Crelly",
+    "permalink": "pumpkin-spice-crelly",
+    "url": "/product/pumpkin-spice-crelly",
+    "description": "<p>A warm orange <strong>crelly</strong> packed with copper flakies.</p>\r\n<p>15 ml.</p>",
+    "price": 12.0,
+    "default_price": 12.0,
+    "on_sale": false,
+    "status": "active",
+    "position": 1,
+    "created_at": "2026-09-14T15:02:11-04:00",
+    "has_option_groups": false,
+    "options": [
+      { "id": 300001, "name": "Full Size (15 ml)", "price": 12.0, "sold_out": false, "has_custom_price": false },
+      { "id": 300002, "name": "Mini (5 ml)", "price": 6.5, "sold_out": false, "has_custom_price": true }
+    ],
+    "images": [
+      {
+        "url": "http://images.bigcartel.com/product_images/400000001/pumpkin-spice.jpg",
+        "secure_url": "https://images.bigcartel.com/product_images/400000001/pumpkin-spice.jpg",
+        "width": 1200,
+        "height": 1200
+      },
+      {
+        "url": "http://images.bigcartel.com/product_images/400000002/pumpkin-spice-swatch.jpg",
+        "secure_url": "https://images.bigcartel.com/product_images/400000002/pumpkin-spice-swatch.jpg",
+        "width": 1200,
+        "height": 900
+      }
+    ],
+    "categories": [
+      { "id": 5001, "name": "Nail Polish", "permalink": "nail-polish", "url": "/category/nail-polish" },
+      { "id": 5002, "name": "Crellies", "permalink": "crellies", "url": "/category/crellies" }
+    ]
+  },
+  {
+    "id": 91000002,
+    "name": "Midnight Orchard",
+    "permalink": "midnight-orchard",
+    "url": "https://shop.example-polish.com/product/midnight-orchard",
+    "description": "Deep plum jelly with a blue shimmer.",
+    "price": 11.5,
+    "default_price": 11.5,
+    "on_sale": false,
+    "status": "sold-out",
+    "position": 2,
+    "created_at": "2026-08-02T10:20:00-04:00",
+    "has_option_groups": false,
+    "options": [{ "id": 300003, "name": "Default", "price": 11.5, "sold_out": true, "has_custom_price": false }],
+    "images": [
+      {
+        "url": "http://images.bigcartel.com/product_images/400000003/midnight-orchard.jpg",
+        "secure_url": "https://images.bigcartel.com/product_images/400000003/midnight-orchard.jpg",
+        "width": 1000,
+        "height": 1000
+      }
+    ],
+    "categories": [{ "id": 5001, "name": "Nail Polish", "permalink": "nail-polish", "url": "/category/nail-polish" }]
+  },
+  {
+    "id": 91000003,
+    "name": "Mystery Bag",
+    "permalink": "mystery-bag",
+    "url": "/product/mystery-bag",
+    "description": "Three random polishes from our back stock.",
+    "price": 25.0,
+    "default_price": 25.0,
+    "on_sale": false,
+    "status": "active",
+    "position": 3,
+    "created_at": "2026-07-01T09:00:00-04:00",
+    "has_option_groups": false,
+    "options": [{ "id": 300004, "name": "Default", "price": 25.0, "sold_out": false, "has_custom_price": false }],
+    "images": [],
+    "categories": [{ "id": 5001, "name": "Nail Polish", "permalink": "nail-polish", "url": "/category/nail-polish" }]
+  },
+  {
+    "id": 91000004,
+    "name": "Stamping Plate SP-01",
+    "permalink": "stamping-plate-sp-01",
+    "url": "/product/stamping-plate-sp-01",
+    "description": "Stainless steel stamping plate with 12 designs.",
+    "price": 9.0,
+    "default_price": 9.0,
+    "on_sale": false,
+    "status": "active",
+    "position": 4,
+    "created_at": "2026-06-11T12:00:00-04:00",
+    "has_option_groups": false,
+    "options": [{ "id": 300005, "name": "Default", "price": 9.0, "sold_out": false, "has_custom_price": false }],
+    "images": [
+      {
+        "url": "http://images.bigcartel.com/product_images/400000005/plate.jpg",
+        "secure_url": "https://images.bigcartel.com/product_images/400000005/plate.jpg",
+        "width": 800,
+        "height": 800
+      }
+    ],
+    "categories": [{ "id": 5003, "name": "Accessories", "permalink": "accessories", "url": "/category/accessories" }]
+  }
+]

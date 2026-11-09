@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written Google Merchant Center product feed (RSS 2.0, g: namespace) for the
+     ProductFeed connector tests; no store data. 7 items: UPC-12, EAN-13, wrong check digit,
+     id only, out of stock, a "Duo" set and a stamping plate. -->
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+  <channel>
+    <title>Example Lacquer feed</title>
+    <link>https://lacquer.example</link>
+    <description>Example products</description>
+    <item>
+      <g:id>EX-001</g:id>
+      <g:title>Moonlit Garden</g:title>
+      <g:description>&lt;p&gt;A deep blue &lt;b&gt;holo&lt;/b&gt; polish.&lt;/p&gt;</g:description>
+      <g:link>https://lacquer.example/products/moonlit-garden</g:link>
+      <g:image_link>https://cdn.lacquer.example/moonlit-garden.jpg</g:image_link>
+      <g:additional_image_link>https://cdn.lacquer.example/moonlit-garden-2.jpg</g:additional_image_link>
+      <g:additional_image_link>https://cdn.lacquer.example/moonlit-garden-3.jpg</g:additional_image_link>
+      <g:availability>in stock</g:availability>
+      <g:price>12.50 USD</g:price>
+      <g:brand>Example Lacquer</g:brand>
+      <g:gtin>096200010000</g:gtin>
+      <g:product_type>Nail Polish</g:product_type>
+      <g:color>Blue</g:color>
+      <g:item_group_id>EX-G1</g:item_group_id>
+    </item>
+    <item>
+      <g:id>EX-002</g:id>
+      <g:title>Copper Comet</g:title>
+      <g:description>Copper shimmer.</g:description>
+      <g:link>https://lacquer.example/products/copper-comet</g:link>
+      <g:image_link>https://cdn.lacquer.example/copper-comet.jpg</g:image_link>
+      <g:availability>in stock</g:availability>
+      <g:price>14.00 USD</g:price>
+      <g:brand>Example Lacquer</g:brand>
+      <g:gtin>5012345678900</g:gtin>
+      <g:product_type>Nail Polish</g:product_type>
+      <g:color>Orange</g:color>
+    </item>
+    <item>
+      <g:id>EX-003</g:id>
+      <g:title>Velvet Fog</g:title>
+      <g:link>https://lacquer.example/products/velvet-fog</g:link>
+      <g:image_link>https://cdn.lacquer.example/velvet-fog.jpg</g:image_link>
+      <g:availability>in stock</g:availability>
+      <g:price>12.50 USD</g:price>
+      <g:brand>Example Lacquer</g:brand>
+      <g:gtin>4006381333932</g:gtin>
+      <g:product_type>Nail Polish</g:product_type>
+      <g:color>Grey</g:color>
+    </item>
+    <item>
+      <g:id>EX-004</g:id>
+      <g:title>Plain Jane</g:title>
+      <g:link>https://lacquer.example/products/plain-jane</g:link>
+      <g:availability>in stock</g:availability>
+      <g:price>12.50 USD</g:price>
+      <g:brand>Example Lacquer</g:brand>
+      <g:product_type>Nail Polish</g:product_type>
+    </item>
+    <item>
+      <g:id>EX-005</g:id>
+      <g:title>Sold Out Sunset</g:title>
+      <g:link>https://lacquer.example/products/sold-out-sunset</g:link>
+      <g:image_link>https://cdn.lacquer.example/sold-out-sunset.jpg</g:image_link>
+      <g:availability>out of stock</g:availability>
+      <g:price>12.50 USD</g:price>
+      <g:brand>Example Lacquer</g:brand>
+      <g:product_type>Nail Polish</g:product_type>
+      <g:color>Red</g:color>
+    </item>
+    <item>
+      <g:id>EX-006</g:id>
+      <g:title>Galaxy Duo</g:title>
+      <g:link>https://lacquer.example/products/galaxy-duo</g:link>
+      <g:availability>in stock</g:availability>
+      <g:price>24.00 USD</g:price>
+      <g:brand>Example Lacquer</g:brand>
+      <g:product_type>Nail Polish</g:product_type>
+    </item>
+    <item>
+      <g:id>EX-007</g:id>
+      <g:title>Celestial Stamping Plate</g:title>
+      <g:link>https://lacquer.example/products/celestial-plate</g:link>
+      <g:availability>in stock</g:availability>
+      <g:price>9.00 USD</g:price>
+      <g:brand>Example Lacquer</g:brand>
+      <g:product_type>Nail Art &gt; Stamping Plates</g:product_type>
+    </item>
+  </channel>
+</rss>

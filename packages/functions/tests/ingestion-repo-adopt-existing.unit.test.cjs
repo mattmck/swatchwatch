@@ -293,6 +293,32 @@ describe("materializeHoloTacoRecords — retailer source adopts the brand's shad
     assert.ok(aliases.every((c) => c.sql.includes("ON CONFLICT DO NOTHING")));
   });
 
+  it("aliases a title-parsed #CODE from a connector record, never the store SKU it carries", async () => {
+    // As the sitemap / WooCommerce connectors emit it: the store's numeric SKU in `sku`,
+    // `vendorCode` only from the title.
+    shades = [{ shadeId: 11, name: "Big Apple Red", finish: "creme", collection: null, finishes: ["creme"] }];
+    const { buildCrawledRecord, gateCrawledPage } = require("../dist/lib/connectors/sitemap-jsonld");
+    const { readSourceSettings } = require("../dist/lib/source-settings");
+    const prefixes = ["https://www.opi.com/products/nail-lacquer-"];
+    const settings = readSourceSettings({ brand: "OPI", sitemapUrl: "https://www.opi.com/sitemap.xml", productUrlPrefixes: prefixes }, "OpiSitemap");
+    const crawled = (name) => {
+      const outcome = gateCrawledPage(
+        { url: `${prefixes[0]}big-apple-red`, lastmod: null, product: { "@type": "Product", name, brand: "OPI", sku: "99350098453" } },
+        settings,
+        prefixes
+      );
+      const rec = buildCrawledRecord(outcome.gated, settings).record;
+      return { ...record({ name: "Big Apple Red", finishes: ["creme"] }), normalized: { ...rec.normalized, finishes: ["creme"], tags: ["creme"] } };
+    };
+
+    await materialize(crawled("Big Apple Red"), BRAND);
+    assert.equal(aliasInserts().length, 0, "no alias for the numeric SKU");
+
+    calls = [];
+    await materialize(crawled("Big Apple Red #NLB83"), BRAND);
+    assert.deepEqual(aliasInserts().map((c) => [c.params[0], c.params[1]]), [[11, "NLB83"]]);
+  });
+
   it("adds no alias for a record without a code, and never one equal to the shade name", async () => {
     shades = [{ shadeId: 11, name: "Big Apple Red", finish: "creme", collection: null, finishes: ["creme"] }];
     await materialize(record({ name: "Big Apple Red", finishes: ["creme"] }), RETAILER);

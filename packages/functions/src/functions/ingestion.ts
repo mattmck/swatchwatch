@@ -35,7 +35,12 @@ import {
   updateGlobalSettings,
   upsertExternalProducts,
 } from "../lib/ingestion-repo";
-import { partitionDisabledSources, refuseIfDisabled } from "../lib/ingestion-run-guard";
+import {
+  partitionBlockedSources,
+  partitionDisabledSources,
+  refuseIfDisabled,
+  sourceBlockedReason,
+} from "../lib/ingestion-run-guard";
 
 
 import {
@@ -67,8 +72,13 @@ import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
+import { assertAuthedFeedUsesHttps, ProductFeedConnector } from "../lib/connectors/product-feed";
+import { WooCommerceStoreConnector } from "../lib/connectors/woocommerce-store";
+import { SitemapJsonLdConnector } from "../lib/connectors/sitemap-jsonld";
+import { BigCartelConnector } from "../lib/connectors/big-cartel";
 import { isFeatureEnabled } from "../lib/feature-flags";
 import {
+  ConnectorCheckpointSupersededError,
   ProductConnector,
   SOURCE_PROTOCOL_MAP,
   SupportedConnectorSource,
@@ -169,6 +179,34 @@ const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> 
   HoloTaco: (_source, baseUrl, settings) => new HoloTacoShopifyConnector(baseUrl, { currency: settings.currency }),
   Shopify: (source, baseUrl, settings) =>
     new ShopifyGenericConnector(source, baseUrl, { currency: settings.currency, settings }),
+  // The feed URL is data_source.base_url unless metadata.feedUrl overrides it.
+  ProductFeed: (source, baseUrl, settings) => {
+    const feedUrl = settings.feedUrl ?? baseUrl?.trim();
+    if (!feedUrl) {
+      throw new Error(`${source}: no feed URL (set data_source.base_url or metadata.feedUrl)`);
+    }
+    assertAuthedFeedUsesHttps(source, feedUrl, settings);
+    return new ProductFeedConnector(source, feedUrl, settings);
+  },
+  // metadata.sitemapUrl + metadata.productUrlPrefixes; the crawl is checkpointed in the job's
+  // catalog cache, which must be durable (CONNECTOR_RAW_CONTAINER).
+  SitemapJsonLd: (source, baseUrl, settings) => {
+    if (!settings.sitemapUrl || settings.productUrlPrefixes.length === 0) {
+      throw new Error(`${source}: metadata.sitemapUrl and metadata.productUrlPrefixes are required`);
+    }
+    return new SitemapJsonLdConnector(source, baseUrl, settings, {
+      sitemapUrl: settings.sitemapUrl,
+      productUrlPrefixes: settings.productUrlPrefixes,
+    });
+  },
+  // The Store API under data_source.base_url; robots.txt is checked before any product request.
+  WooCommerce: (source, baseUrl, settings) => new WooCommerceStoreConnector(source, baseUrl, settings),
+  // The v0 API at api.bigcartel.com/{metadata.subdomain}. A Big Cartel product names no maker, so
+  // metadata.brand is required: a record is never given another brand (no Holo Taco fallback).
+  BigCartel: (source, baseUrl, settings) => {
+    if (!settings.brand) throw new Error(`BigCartel source ${source} has no metadata.brand`);
+    return new BigCartelConnector(source, baseUrl, settings);
+  },
 };
 
 function hasRunnableConnector(source: SupportedConnectorSource): boolean {
@@ -179,12 +217,23 @@ function isRunnableConnectorSource(value: string): value is SupportedConnectorSo
   return isSupportedSource(value) && hasRunnableConnector(value);
 }
 
-function createConnector(
+/** The connector for a source (exported for tests); throws when its protocol has none or its settings are incomplete. */
+export function createConnector(
   source: SupportedConnectorSource,
   baseUrl: string | null | undefined,
   settings: SourceSettings
 ): ProductConnector {
-  const factory = CONNECTOR_FACTORIES[protocolOf(source)];
+  return createConnectorForProtocol(protocolOf(source), source, baseUrl, settings);
+}
+
+/** `createConnector` for an explicit protocol (exported for tests of protocols no seeded source uses yet). */
+export function createConnectorForProtocol(
+  protocol: ConnectorProtocol,
+  source: SupportedConnectorSource,
+  baseUrl: string | null | undefined,
+  settings: SourceSettings
+): ProductConnector {
+  const factory = CONNECTOR_FACTORIES[protocol];
   if (!factory) {
     throw new Error(`No connector available for source: ${source}`);
   }
@@ -394,6 +443,7 @@ function withPipelineMetrics(
   };
 }
 
+/** The job's `metrics.pipeline.stage` (e.g. `awaiting_ai`), or null when unset or blank. */
 export function getPipelineStage(metrics: Record<string, unknown> | undefined): string | null {
   if (!metrics || typeof metrics !== "object") {
     return null;
@@ -538,6 +588,7 @@ async function enqueueIngestionJob(
   }
 }
 
+/** Runs one ingestion queue message within the worker time budget, checkpointing and enqueuing a continuation when it is spent. */
 export async function processIngestionJobQueueMessage(
   payload: IngestionJobQueueMessage,
   context: InvocationContext
@@ -652,6 +703,13 @@ export async function processIngestionJobQueueMessage(
     if (!source) {
       throw new Error(`Data source '${payload.request.source}' not found in data_source table`);
     }
+    // A source marked known-blocked after this job was queued stops here, before any pull.
+    const blockedReason = sourceBlockedReason(source);
+    if (blockedReason) {
+      stage = "source_blocked";
+      logger.warn(`Job ${payload.jobId} not run: source ${source.name} is known-blocked (${blockedReason})`);
+      throw new Error(`Source ${source.name} is known-blocked (${blockedReason}); the job was not run`);
+    }
     // A source disabled after this job was queued stops here, before any connector pull.
     if (source.enabled === false) {
       stage = "source_disabled";
@@ -705,8 +763,11 @@ export async function processIngestionJobQueueMessage(
       ? toMetricsRecord(existingMetrics[WORKER_TOTALS_METRICS_KEY])
       : {};
     let connectorMetadata: Record<string, unknown> = {};
-    let listingFreshnessDone = false;
     const persistenceMetricsAggregate: Record<string, unknown> = toMetricsRecord(priorTotals.persistence);
+    // Listing freshness runs once per job, on the first pull that reports a catalog: a fresh
+    // start's download (Shopify, feeds), or the pull that finds a crawl complete (sitemap), which
+    // may be in a continuation. An earlier invocation's run is in the carried persistence totals.
+    let listingFreshnessDone = typeof persistenceMetricsAggregate.listingsMarkedMissing === "number";
     let materializationMetricsAggregate: Record<string, unknown> | null =
       priorTotals.materialization ? toMetricsRecord(priorTotals.materialization) : null;
     let totalRecordsProcessed = startCheckpoint?.recordsProcessed ?? 0;
@@ -1100,38 +1161,82 @@ export async function processIngestionJobQueueMessage(
       }
 
       const pageNumber = checkpoint.nextPage;
-      const pageResult = await connector.pullProducts({
-        searchTerm: payload.request.searchTerm,
-        page: pageNumber,
-        pageSize: payload.request.pageSize,
-        maxRecords: exhaustive ? payload.request.pageSize : payload.request.maxRecords,
-        recentDays: payload.request.recentDays,
-        catalogCache,
-      });
+      let pageResult: Awaited<ReturnType<ProductConnector["pullProducts"]>>;
+      try {
+        pageResult = await connector.pullProducts({
+          searchTerm: payload.request.searchTerm,
+          page: pageNumber,
+          pageSize: payload.request.pageSize,
+          maxRecords: exhaustive ? payload.request.pageSize : payload.request.maxRecords,
+          recentDays: payload.request.recentDays,
+          catalogCache,
+          // A crawling connector (sitemap) stops its request loop in time to save and hand off.
+          deadlineMs: invocationStartedAt + timeBudgetMs,
+          // Events the connector logs as they happen (a crawl giving up on a page).
+          log: (level, message, data) => (level === "warn" ? logger.warn(message, data) : logger.info(message, data)),
+        });
+      } catch (pullError) {
+        // A newer invocation saved the crawl checkpoint first: it owns the job. Stop like a
+        // lost-ownership stop, without processing, writing the job row or queueing anything.
+        if (pullError instanceof ConnectorCheckpointSupersededError) {
+          context.warn(`Job ${payload.jobId} ${pullError.message}; stopping worker without updating it`);
+          await logger.dispose({ flush: false });
+          return;
+        }
+        throw pullError;
+      }
       const records = pageResult.records;
 
-      // Once per job: the first pull of a fresh start downloaded the catalog itself (a
-      // continuation's snapshot carries no completeness flag), so only that pull reports it.
-      if (!startCheckpoint && !listingFreshnessDone) {
+      // Every pull, partial crawls included: stop before persisting anything (listing freshness,
+      // records, progress) or pulling again when the job was cancelled or taken over.
+      if (!(await stillOwnsJob())) {
+        await logger.dispose({ flush: false });
+        return;
+      }
+
+      // Pages a crawling connector gave up on in this pull: already logged through `log` when
+      // recorded; the list stays out of the job metrics (the running `failedPages` count stays).
+      if (pageResult.metadata && "failedThisPull" in pageResult.metadata) {
+        const { failedThisPull: _failedThisPull, ...metadataWithoutFailures } = pageResult.metadata;
+        pageResult = { ...pageResult, metadata: metadataWithoutFailures };
+      }
+
+      // A crawling connector still reading its catalog: no records yet, and an empty partial
+      // result never ends the job. Call again with the same page number; each partial pull
+      // counts against the time budget, and the job hands off when another pull would not fit.
+      if (pageResult.metadata?.catalogComplete === false) {
+        connectorMetadata = { ...connectorMetadata, ...pageResult.metadata };
+        logger.info(
+          `Crawled ${String(pageResult.metadata.crawledPages ?? "?")} of ${String(pageResult.metadata.totalPages ?? "?")} pages (checkpoint ${String(pageResult.metadata.checkpointGeneration ?? "?")})`,
+          { page: pageNumber, ...pageResult.metadata }
+        );
+        await saveProgress();
+        const nextPullEstimateMs = asFinitePositiveNumber(pageResult.metadata.crawlPullEstimateMs) ?? 0;
+        if (Date.now() - invocationStartedAt + nextPullEstimateMs >= timeBudgetMs) {
+          await handOffToContinuation();
+          return;
+        }
+        continue;
+      }
+
+      if (!listingFreshnessDone && pageResult.catalog) {
         listingFreshnessDone = true;
-        if (pageResult.catalog) {
-          try {
-            const freshness = await transaction((client) =>
-              markExternalProductsMissing(client, source.dataSourceId, pageResult.catalog!)
-            );
-            persistenceMetricsAggregate.listingsMarkedMissing = freshness.marked;
-            persistenceMetricsAggregate.listingsCleared = freshness.cleared;
-            logger.info(
-              freshness.skipped
-                ? "Listing freshness skipped: the catalog fetch was incomplete or empty"
-                : `Listing freshness: ${freshness.marked} marked missing, ${freshness.cleared} cleared`,
-              { ...freshness }
-            );
-          } catch (freshnessError) {
-            logger.warn("Listing freshness update failed; continuing ingestion", {
-              error: getErrorMessage(freshnessError),
-            });
-          }
+        try {
+          const freshness = await transaction((client) =>
+            markExternalProductsMissing(client, source.dataSourceId, pageResult.catalog!)
+          );
+          persistenceMetricsAggregate.listingsMarkedMissing = freshness.marked;
+          persistenceMetricsAggregate.listingsCleared = freshness.cleared;
+          logger.info(
+            freshness.skipped
+              ? "Listing freshness skipped: the catalog fetch was incomplete or empty"
+              : `Listing freshness: ${freshness.marked} marked missing, ${freshness.cleared} cleared`,
+            { ...freshness }
+          );
+        } catch (freshnessError) {
+          logger.warn("Listing freshness update failed; continuing ingestion", {
+            error: getErrorMessage(freshnessError),
+          });
         }
       }
 
@@ -1734,6 +1839,17 @@ async function bulkIngestionHandler(
     }
   } catch (error) {
     return internalServerError(context, error, "Bulk ingestion: provisioning data sources failed", "ingestion.bulk");
+  }
+  const blockedSources = partitionBlockedSources([...ensuredRows.values()]);
+  if (blockedSources.length > 0) {
+    return {
+      status: 409,
+      jsonBody: {
+        error: "source_blocked",
+        message: `Known-blocked sources (metadata.blocked): ${blockedSources.join(", ")}`,
+        sources: blockedSources,
+      },
+    };
   }
   const disabledSources = partitionDisabledSources([...ensuredRows.values()]);
   if (disabledSources.length > 0) {

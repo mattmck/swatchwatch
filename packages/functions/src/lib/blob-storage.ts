@@ -71,6 +71,7 @@ function assertAllowedImageType(contentType: string): string {
   return normalizedType;
 }
 
+/** Checks an upload's content type and size against `UPLOAD_LIMITS` and returns the normalized type; throws when either is not allowed. */
 export function validateImageUpload(contentType: string, sizeBytes: number): string {
   const normalizedType = assertAllowedImageType(contentType);
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
@@ -224,6 +225,7 @@ async function readResponseCapped(response: Response, maxBytes: number): Promise
   return Buffer.concat(chunks, total);
 }
 
+/** Re-encodes image bytes with sharp (orientation applied, metadata dropped); returns the original bytes when sharp fails. */
 export async function stripImageMetadata(bytes: Buffer): Promise<Buffer> {
   try {
     const sharpModule = await import("sharp");
@@ -676,6 +678,7 @@ export interface ReadBlobOptions {
   retry?: boolean;
 }
 
+/** Containers the public image proxy may read: the catalog source-image container only. */
 export function defaultReadableContainers(): string[] {
   return [normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER)];
 }
@@ -837,6 +840,7 @@ export async function deleteBlobFromStorageUrl(
   throw new Error(`Blob delete failed: ${response.status} ${response.statusText} ${details}`.trim());
 }
 
+/** True when the blob exists (Get Blob Metadata, not HEAD, so the pooled socket is kept). */
 export async function blobExists(
   connectionString: string,
   containerName: string,
@@ -867,6 +871,7 @@ export async function blobExists(
   );
 }
 
+/** Creates the blob container when it does not exist yet. */
 export async function ensureContainer(
   connectionString: string,
   containerName: string
@@ -1193,4 +1198,87 @@ export async function uploadBytesToBlob(params: {
     throw new Error(`Blob upload failed for '${container}/${params.blobName}': ${response.status} ${details}`);
   }
   return blobUrl.toString();
+}
+
+export type ConditionalUploadResult = { written: true; etag: string | null; url: string } | { written: false };
+
+/**
+ * Put Blob with an access condition: `ifMatch` (the ETag the caller read; the write lands only
+ * while the blob is unchanged) or `ifNoneMatch: "*"` (the blob must not exist yet). A failed
+ * condition (412, or 409 BlobAlreadyExists for `If-None-Match: *`) is `{ written: false }`, not
+ * an error, so a caller can tell "someone else wrote first" from a storage failure. Used for the
+ * fenced crawl checkpoints in `lib/ingestion-catalog-cache.ts`.
+ *
+ * The PUT is retried on transient errors like every storage PUT; a retry after a lost success
+ * response reads as a failed condition, which the caller resolves by re-reading the blob.
+ */
+export async function uploadBytesToBlobConditional(params: {
+  connectionString: string;
+  containerName: string;
+  blobName: string;
+  bytes: Buffer;
+  contentType: string;
+  ifMatch?: string | null;
+  ifNoneMatch?: "*";
+  skipContainerEnsure?: boolean;
+}): Promise<ConditionalUploadResult> {
+  if (params.ifMatch && params.ifNoneMatch) {
+    throw new Error("Conditional blob upload takes either ifMatch or ifNoneMatch, not both");
+  }
+  const config = parseStorageConnectionString(params.connectionString);
+  const container = normalizeContainerName(params.containerName);
+  if (!params.skipContainerEnsure) {
+    await ensureContainer(params.connectionString, params.containerName);
+  }
+  const blobUrl = new URL(`${config.blobEndpoint}/${container}/${encodeBlobPath(params.blobName)}`);
+  const response = await sendStorageRequest(
+    config,
+    "PUT",
+    blobUrl,
+    {
+      "Content-Type": params.contentType,
+      "Content-Length": String(params.bytes.length),
+      "x-ms-blob-type": "BlockBlob",
+      ...(params.ifMatch ? { "If-Match": params.ifMatch } : {}),
+      ...(params.ifNoneMatch ? { "If-None-Match": params.ifNoneMatch } : {}),
+    },
+    params.bytes
+  );
+  if (response.status === 201) {
+    return { written: true, etag: response.headers.get("etag"), url: blobUrl.toString() };
+  }
+  if (response.status === 412 || (response.status === 409 && params.ifNoneMatch)) {
+    return { written: false };
+  }
+  const details = await response.text().catch(() => "");
+  throw new Error(
+    `Conditional blob upload failed for '${container}/${params.blobName}': ${response.status} ${details}`.trim()
+  );
+}
+
+/**
+ * Get Blob by container + name on the configured account, with its ETag; `null` when the blob
+ * (or its container) does not exist. Any other failure throws.
+ */
+export async function readBlobByName(params: {
+  connectionString: string;
+  containerName: string;
+  blobName: string;
+}): Promise<{ bytes: Buffer; etag: string | null } | null> {
+  const config = parseStorageConnectionString(params.connectionString);
+  const container = normalizeContainerName(params.containerName);
+  const blobUrl = new URL(`${config.blobEndpoint}/${container}/${encodeBlobPath(params.blobName)}`);
+  const response = await sendStorageRequest(config, "GET", blobUrl, {}, undefined, { retry: true });
+  if (response.status === 404) {
+    await response.arrayBuffer().catch(() => undefined);
+    return null;
+  }
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new BlobReadError(
+      `Blob read failed for '${container}/${params.blobName}': ${response.status} ${details}`.trim(),
+      response.status
+    );
+  }
+  return { bytes: Buffer.from(await response.arrayBuffer()), etag: response.headers.get("etag") };
 }

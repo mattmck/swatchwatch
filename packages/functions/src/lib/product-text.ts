@@ -15,6 +15,8 @@
  * helpers, so connectors and the backfill cannot drift apart.
  */
 
+import { isShopifyProductsSource } from "./connectors/registry";
+
 /** Longest `descriptionText` stored in `normalized_json` (characters, ellipsis included). */
 export const PRODUCT_DESCRIPTION_MAX_CHARS = 2000;
 /** Most `descriptors` stored per product. */
@@ -270,14 +272,15 @@ export function openBeautyFactsProductText(product: Record<string, unknown> | nu
 
 /**
  * Product text for a raw connector payload by data source name (the same extractor the
- * connector uses): `OpenBeautyFacts`, `MakeupAPI`, or any `*Shopify` source. Returns `null` for
+ * connector uses): `OpenBeautyFacts`, `MakeupAPI`, or a Shopify `products.json` source
+ * (`isShopifyProductsSource`). Returns `null` for
  * an unknown source so callers leave its rows alone.
  */
 export function productTextFromRaw(sourceName: string, raw: unknown): ProductText | null {
   const product = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
   if (sourceName === "OpenBeautyFacts") return openBeautyFactsProductText(product);
   if (sourceName === "MakeupAPI") return makeupApiProductText(product);
-  if (sourceName.endsWith("Shopify")) return shopifyProductText(product);
+  if (isShopifyProductsSource(sourceName)) return shopifyProductText(product);
   return null;
 }
 
