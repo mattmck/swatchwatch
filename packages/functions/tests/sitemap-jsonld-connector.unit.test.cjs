@@ -922,3 +922,128 @@ describe("SitemapJsonLdConnector: PR #506 review follow-ups", () => {
     assert.equal(log.length, 0);
   });
 });
+
+describe("SitemapJsonLdConnector: redirects", () => {
+  const ORIGINAL = `${PREFIXES[0]}moved-shade`;
+  const oneUrlSitemap = (loc = ORIGINAL) => `<urlset><url><loc>${loc}</loc></url></urlset>`;
+  const redirectTo = (location, status = 301) => () => ({ status, body: "", headers: { location } });
+  const product = ldPage({ "@type": "Product", name: "Moved Shade", brand: "OPI", sku: "M-1" });
+
+  async function crawl(routes) {
+    const clock = fakeClock();
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    const logs = [];
+    const cache = memoryCache();
+    const result = await connector(clock, fetchImpl).pullProducts({
+      ...PULL,
+      catalogCache: cache,
+      deadlineMs: clock.t + 120000,
+      log: (level, message, data) => logs.push({ level, message, data }),
+    });
+    return { result, log, logs, cache };
+  }
+
+  it("fetches with redirect: manual and attributes an in-scope destination's JSON-LD to the original URL", async () => {
+    const destination = `${PREFIXES[0]}moved-shade-v2`;
+    const { result, log, cache } = await crawl({
+      [SITEMAP_URL]: oneUrlSitemap(),
+      [ORIGINAL]: redirectTo("/products/nail-lacquer-moved-shade-v2"),
+      [destination]: product,
+    });
+    assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, ORIGINAL, destination]);
+    for (let i = 1; i < log.length; i += 1) assert.ok(log[i].at - log[i - 1].at >= 1000, `hop ${i} paced`);
+    assert.equal(result.metadata.catalogComplete, true);
+    assert.equal(result.metadata.redirectedOutOfScope, 0);
+    assert.deepEqual(result.records.map((record) => record.externalId), ["/products/nail-lacquer-moved-shade"]);
+    assert.equal(cache.peek().pages[ORIGINAL].name, "Moved Shade");
+    assert.equal(cache.peek().pages[destination], undefined);
+  });
+
+  it("passes redirect: manual on every request", async () => {
+    const clock = fakeClock();
+    const inits = [];
+    const { fetchImpl } = stubFetch(clock, { [SITEMAP_URL]: oneUrlSitemap(), [ORIGINAL]: product });
+    const spy = async (url, init) => {
+      inits.push(init);
+      return fetchImpl(url, init);
+    };
+    await connector(clock, spy).pullProducts({ ...PULL, catalogCache: memoryCache(), deadlineMs: clock.t + 120000 });
+    assert.ok(inits.length >= 3);
+    assert.ok(inits.every((init) => init.redirect === "manual"));
+  });
+
+  for (const [label, location] of [
+    ["an out-of-prefix page on the same origin", "https://www.opi.com/collections/all"],
+    ["another origin", "https://evil.example/products/nail-lacquer-moved-shade"],
+  ]) {
+    it(`ends a product page redirecting to ${label} as gone, counted, never requested`, async () => {
+      const { result, log, logs, cache } = await crawl({
+        [SITEMAP_URL]: oneUrlSitemap(),
+        [ORIGINAL]: redirectTo(location, 302),
+        [location]: product,
+      });
+      assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, ORIGINAL]);
+      assert.equal(result.metadata.catalogComplete, true);
+      assert.equal(result.metadata.redirectedOutOfScope, 1);
+      assert.equal(result.records.length, 0);
+      assert.deepEqual(result.catalog.externalIds, []);
+      assert.deepEqual(cache.peek().gone, [ORIGINAL]);
+      assert.equal(cache.peek().pages[ORIGINAL], null);
+      assert.equal(logs.filter((entry) => entry.level === "warn" && entry.message.includes(ORIGINAL)).length, 1);
+    });
+  }
+
+  it("handles a redirect to a path robots.txt disallows like a disallowed page", async () => {
+    const destination = `${PREFIXES[0]}private-moved`;
+    const { result, log, cache } = await crawl({
+      [SITEMAP_URL]: oneUrlSitemap(),
+      [ORIGINAL]: redirectTo(destination),
+      [destination]: product,
+      "https://www.opi.com/robots.txt": "User-agent: *\nDisallow: /products/nail-lacquer-private-\n",
+    });
+    assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, ORIGINAL]);
+    assert.equal(result.metadata.robotsDisallowedPages, 1);
+    assert.equal(result.metadata.redirectedOutOfScope, 0);
+    assert.deepEqual(cache.peek().robotsDisallowed, [ORIGINAL]);
+    assert.deepEqual(result.catalog.externalIds, []);
+    assert.equal(result.records.length, 0);
+  });
+
+  it("treats more than three hops as a failed attempt", async () => {
+    const hop = (n) => `${PREFIXES[0]}moved-shade-hop-${n}`;
+    const { result, log, cache } = await crawl({
+      [SITEMAP_URL]: oneUrlSitemap(),
+      [ORIGINAL]: redirectTo(hop(1)),
+      [hop(1)]: redirectTo(hop(2)),
+      [hop(2)]: redirectTo(hop(3)),
+      [hop(3)]: redirectTo(hop(4)),
+      [hop(4)]: product,
+    });
+    assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, ORIGINAL, hop(1), hop(2), hop(3)]);
+    assert.equal(result.metadata.catalogComplete, false);
+    assert.equal(cache.peek().attempts[ORIGINAL], 1);
+    assert.equal(cache.peek().pages[ORIGINAL], undefined);
+  });
+
+  it("follows a same-origin sitemap redirect and refuses one to another origin or a disallowed path", async () => {
+    const moved = "https://www.opi.com/sitemaps/products.xml";
+    const ok = await crawl({ [SITEMAP_URL]: redirectTo(moved), [moved]: oneUrlSitemap(), [ORIGINAL]: product });
+    assert.deepEqual(ok.log.map((entry) => entry.url), [SITEMAP_URL, moved, ORIGINAL]);
+    assert.equal(ok.result.records.length, 1);
+
+    for (const [location, robots] of [
+      ["https://cdn.example/sitemap.xml", undefined],
+      [moved, "User-agent: *\nDisallow: /sitemaps/\n"],
+    ]) {
+      const clock = fakeClock();
+      const routes = { [SITEMAP_URL]: redirectTo(location), [location]: oneUrlSitemap(), [ORIGINAL]: product };
+      if (robots) routes["https://www.opi.com/robots.txt"] = robots;
+      const { fetchImpl, log } = stubFetch(clock, routes);
+      await assert.rejects(
+        connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: memoryCache(), deadlineMs: clock.t + 120000 }),
+        /sitemap request failed: redirected out of scope/
+      );
+      assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL]);
+    }
+  });
+});

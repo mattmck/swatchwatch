@@ -330,6 +330,52 @@ describe("ProductFeedConnector: fetch", () => {
   });
 });
 
+describe("ProductFeedConnector: feed URL never leaks through an error", () => {
+  const FEED = "https://feed.example/x?token=SECRET";
+  const feedWith = (fetchImpl) =>
+    new ProductFeedConnector("ExampleLacquerFeed", FEED, readSourceSettings({}, "ExampleLacquerFeed"), { fetchImpl });
+
+  it("redacts the full URL from a rethrown error's message and stack, keeping its class", async () => {
+    class ConnectError extends Error {}
+    let count = 0;
+    const feed = feedWith(async () => {
+      count += 1;
+      throw new ConnectError(`connect failed for ${FEED}`);
+    });
+    await assert.rejects(feed.pullProducts(PULL), (error) => {
+      assert.ok(error instanceof ConnectError);
+      assert.equal(error.message, "connect failed for https://feed.example");
+      assert.doesNotMatch(String(error.stack), /SECRET/);
+      return true;
+    });
+    assert.equal(count, 1);
+  });
+
+  it("redacts the URL-encoded form and the cause from retry warnings and the final error", async () => {
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => warnings.push(args.map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg))).join(" "));
+    let count = 0;
+    try {
+      const feed = feedWith(async () => {
+        count += 1;
+        if (count === 1) throw new Error(`fetch failed (${encodeURIComponent(FEED)})`, { cause: new Error(`ECONNRESET ${FEED}`) });
+        throw new Error(`socket closed while reading ${FEED}`, { cause: new Error(`at ${FEED}`) });
+      });
+      await assert.rejects(feed.pullProducts(PULL), (error) => {
+        assert.doesNotMatch(`${error.message} ${error.stack} ${error.cause?.message} ${error.cause?.stack}`, /SECRET/);
+        assert.match(error.message, /https:\/\/feed\.example$/);
+        return true;
+      });
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.equal(count, 2, "the retryable first error is still retried");
+    assert.ok(warnings.length >= 1);
+    assert.doesNotMatch(warnings.join("\n"), /SECRET/);
+  });
+});
+
 describe("product feed helpers", () => {
   it("parseFeedPrice reads amount + ISO code in either order", () => {
     assert.deepEqual(parseFeedPrice("12.50 USD"), { price: "12.50", currency: "USD" });

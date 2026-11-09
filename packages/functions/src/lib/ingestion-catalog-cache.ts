@@ -65,6 +65,7 @@ export function readCatalogSnapshotFromMetrics(
   return { url, productCount, savedAt };
 }
 
+/** The connector catalog cache for one ingestion job, backed by the job's raw-container snapshot and checkpoint blobs. */
 export function createIngestionCatalogCache(params: {
   jobId: number;
   source: string;

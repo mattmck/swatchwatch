@@ -909,6 +909,7 @@ export const SHOPIFY_RETAILER_SOURCES: ReadonlySet<string> = new Set([
   "HypnoticPolishShopify",
 ]);
 
+/** True when the Shopify source is a multi-brand retailer rather than a brand store. */
 export function isShopifyRetailerSource(source: string): boolean {
   return SHOPIFY_RETAILER_SOURCES.has(source);
 }
@@ -1060,6 +1061,7 @@ function shopifyBrandName(source: string): string {
   return source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
 }
 
+/** The source's store URL from `SHOPIFY_SOURCE_BASE_URLS`, else `https://<name without Shopify>.com`. */
 export function defaultShopifyBaseUrl(source: string): string {
   return (
     SHOPIFY_SOURCE_BASE_URLS[source] ||

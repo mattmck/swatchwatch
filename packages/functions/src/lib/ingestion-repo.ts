@@ -517,6 +517,7 @@ export async function findIngestedBrandId(client: IngestedShadeQuery, brandName:
   return result.rows[0]?.brandId ?? null;
 }
 
+/** Reads a stored Shopify-style `normalized_json` back into its typed product shape. */
 export function parseHoloTacoNormalized(
   normalized: Record<string, unknown>
 ): HoloTacoProductNormalized {
@@ -1996,6 +1997,7 @@ async function prepareHoloTacoImageData(
   };
 }
 
+/** The `data_source` row with this name, or null. */
 export async function getDataSourceByName(name: string): Promise<DataSourceRecord | null> {
   const result = await query<{
     dataSourceId: number;
@@ -2068,6 +2070,7 @@ async function createDataSourceIfMissing(name: string): Promise<DataSourceRecord
   return getDataSourceByName(name);
 }
 
+/** The `data_source` row with this name, created first when it is missing and auto-provisionable. */
 export async function ensureDataSourceByName(name: string): Promise<DataSourceRecord | null> {
   const existing = await getDataSourceByName(name);
   if (existing) {
@@ -2076,6 +2079,7 @@ export async function ensureDataSourceByName(name: string): Promise<DataSourceRe
   return createDataSourceIfMissing(name);
 }
 
+/** Creates the missing `data_source` rows of every auto-provisionable supported source. */
 export async function ensureSupportedShopifyDataSources(): Promise<void> {
   const shopifySources = SUPPORTED_SOURCES.filter((source) => isAutoProvisionableSource(source));
   for (const source of shopifySources) {
@@ -2094,6 +2098,7 @@ export interface DataSourceRecordWithSettings extends DataSourceRecord {
   enabled: boolean;
 }
 
+/** Data sources (enabled ones only by default). */
 export async function listDataSources(enabledOnly = true): Promise<DataSourceRecord[]> {
   const whereClause = enabledOnly ? "WHERE enabled = true" : "";
   const result = await query<{
@@ -2114,6 +2119,7 @@ export async function listDataSources(enabledOnly = true): Promise<DataSourceRec
   return result.rows;
 }
 
+/** Data sources with their ingestion settings from `metadata` (enabled ones only by default). */
 export async function listDataSourcesWithSettings(enabledOnly = true): Promise<DataSourceRecordWithSettings[]> {
   const whereClause = enabledOnly ? "WHERE enabled = true" : "";
   const result = await query<{
@@ -2151,6 +2157,7 @@ export async function listDataSourcesWithSettings(enabledOnly = true): Promise<D
   }));
 }
 
+/** Merges ingestion settings into a data source's `metadata`. */
 export async function updateDataSourceSettings(
   dataSourceId: number,
   settings: Partial<DataSourceSettings>
@@ -2182,6 +2189,7 @@ export interface GlobalSettings {
   detectHex: boolean;
 }
 
+/** The global ingestion settings (`app_settings` key `ingestion`), with defaults when unset. */
 export async function getGlobalSettings(): Promise<GlobalSettings> {
   const result = await query<{ setting_value: Record<string, unknown> }>(
     `SELECT setting_value FROM app_settings WHERE setting_key = 'ingestion'`,
@@ -2195,6 +2203,7 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
   return result.rows[0].setting_value as unknown as GlobalSettings;
 }
 
+/** Merges into the global ingestion settings and upserts them. */
 export async function updateGlobalSettings(settings: Partial<GlobalSettings>): Promise<void> {
   const current = await getGlobalSettings();
   const newValue = { ...current, ...settings };
@@ -2211,6 +2220,7 @@ export async function updateGlobalSettings(settings: Partial<GlobalSettings>): P
 
 
 
+/** Inserts an `ingestion_job` row (queued by default) and returns its id and start time. */
 export async function createIngestionJob(
   dataSourceId: number,
   jobType: string,
@@ -2227,6 +2237,7 @@ export async function createIngestionJob(
   return result.rows[0];
 }
 
+/** Sets a job to `running`, clearing its error, with the given metrics. */
 export async function markIngestionJobRunning(
   jobId: number,
   metrics: Record<string, unknown>
@@ -2241,6 +2252,7 @@ export async function markIngestionJobRunning(
   );
 }
 
+/** Replaces a job's `metrics_json`. */
 export async function updateIngestionJobMetrics(
   jobId: number,
   metrics: Record<string, unknown>
@@ -2272,6 +2284,7 @@ export async function updateRunningIngestionJobMetrics(
   return (result.rowCount ?? 0) > 0;
 }
 
+/** Sets a job to `succeeded` with its final metrics. */
 export async function markIngestionJobSucceeded(
   jobId: number,
   metrics: Record<string, unknown>
@@ -2286,6 +2299,7 @@ export async function markIngestionJobSucceeded(
   );
 }
 
+/** Sets a job to `failed` with its error and metrics, and emits `ingestion.job_failed` for the alert. */
 export async function markIngestionJobFailed(
   jobId: number,
   errorMessage: string,
@@ -2304,6 +2318,7 @@ export async function markIngestionJobFailed(
   trackEvent("ingestion.job_failed", { jobId, error: errorMessage.slice(0, 500) });
 }
 
+/** Sets a job to `cancelled` with the reason. */
 export async function cancelIngestionJob(
   jobId: number,
   cancelReason: string
@@ -2319,6 +2334,7 @@ export async function cancelIngestionJob(
   );
 }
 
+/** Inserts or updates the connector records as `external_product` rows of the data source, in one transaction. */
 export async function upsertExternalProducts(
   dataSourceId: number,
   records: ConnectorProductRecord[]
@@ -2378,6 +2394,7 @@ export async function upsertExternalProducts(
   });
 }
 
+/** One ingestion job with its source name, or null. */
 export async function getIngestionJobById(jobId: number): Promise<IngestionJobRecord | null> {
   const result = await query<{
     jobId: string;
@@ -2432,6 +2449,7 @@ export interface AwaitingAiBatchJobRecord {
   startedAt: string;
 }
 
+/** Running jobs paused in `awaiting_ai` with a submitted AI batch, oldest first. */
 export async function listIngestionJobsAwaitingAiBatch(
   limit = 20
 ): Promise<AwaitingAiBatchJobRecord[]> {
@@ -2505,6 +2523,7 @@ export const BATCH_OVERWRITE_SQL =
 export const BATCH_HEX_OVERWRITE_SQL =
   "(src.is_brand_store AND ($5::boolean OR sh.catalog_authority = 'retailer'))";
 
+/** Writes AI batch hex/finish detections to the shades behind the data source's products. */
 export async function applyAiBatchShadeDetections(
   dataSourceId: number,
   detections: AiBatchShadeDetectionInput[],
@@ -2676,6 +2695,7 @@ export async function applyAiBatchShadeDetections(
   };
 }
 
+/** The newest ingestion jobs (optionally for one source) and the total count. */
 export async function listIngestionJobs(
   limit: number,
   source?: string
@@ -2807,6 +2827,7 @@ async function findMakeupApiShade(
   return { kind: "match", shadeId: Number(eligible.rows[0].shadeId) };
 }
 
+/** Materializes MakeupAPI records into catalog shades (see the MakeupAPI rules in CLAUDE.md). */
 export async function materializeMakeupApiRecords(
   records: ConnectorProductRecord[],
   /** MakeupAPI data_source id; when set, each shade is linked to its product (buy links, #267). */
@@ -3959,6 +3980,7 @@ async function loadDataSourceKind(dataSourceId: number): Promise<SourceKind> {
   return readSourceKind(kind);
 }
 
+/** Materializes Shopify-style connector records into catalog shades and their listings for the data source. */
 export async function materializeHoloTacoRecords(
   dataSourceId: number,
   records: ConnectorProductRecord[],

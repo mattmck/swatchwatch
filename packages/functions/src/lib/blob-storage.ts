@@ -71,6 +71,7 @@ function assertAllowedImageType(contentType: string): string {
   return normalizedType;
 }
 
+/** Checks an upload's content type and size against `UPLOAD_LIMITS` and returns the normalized type; throws when either is not allowed. */
 export function validateImageUpload(contentType: string, sizeBytes: number): string {
   const normalizedType = assertAllowedImageType(contentType);
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
@@ -224,6 +225,7 @@ async function readResponseCapped(response: Response, maxBytes: number): Promise
   return Buffer.concat(chunks, total);
 }
 
+/** Re-encodes image bytes with sharp (orientation applied, metadata dropped); returns the original bytes when sharp fails. */
 export async function stripImageMetadata(bytes: Buffer): Promise<Buffer> {
   try {
     const sharpModule = await import("sharp");
@@ -676,6 +678,7 @@ export interface ReadBlobOptions {
   retry?: boolean;
 }
 
+/** Containers the public image proxy may read: the catalog source-image container only. */
 export function defaultReadableContainers(): string[] {
   return [normalizeContainerName(process.env.SOURCE_IMAGE_CONTAINER)];
 }
@@ -837,6 +840,7 @@ export async function deleteBlobFromStorageUrl(
   throw new Error(`Blob delete failed: ${response.status} ${response.statusText} ${details}`.trim());
 }
 
+/** True when the blob exists (Get Blob Metadata, not HEAD, so the pooled socket is kept). */
 export async function blobExists(
   connectionString: string,
   containerName: string,
@@ -867,6 +871,7 @@ export async function blobExists(
   );
 }
 
+/** Creates the blob container when it does not exist yet. */
 export async function ensureContainer(
   connectionString: string,
   containerName: string

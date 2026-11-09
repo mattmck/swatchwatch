@@ -10,6 +10,11 @@
  * rule) the pull throws `WooCommerce Store API disallowed by robots.txt`; a missing robots.txt
  * (any 4xx) allows, a 5xx or network failure after retries fails the pull.
  *
+ * Redirects are followed by hand (`redirect: "manual"`, at most `WOOCOMMERCE_MAX_REDIRECTS`
+ * hops, each paced): a destination must be on the `base_url` origin and, after robots.txt was
+ * read, not disallowed by it, before it is requested; otherwise the pull throws `WooCommerce
+ * Store API redirected out of scope: <destination origin>`.
+ *
  * The whole catalog is one download per job, cached through `catalogCache`; `pullProducts`
  * windows it by page like the Shopify connector, and the pull that downloaded it reports every
  * product id as the `catalog` (complete only when the last page was reached). The Store API has
@@ -67,7 +72,7 @@ function defaultPageDelayMs(): number {
 
 type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; signal: AbortSignal }
+  init: { method: string; headers: Record<string, string>; signal: AbortSignal; redirect?: "manual" }
 ) => Promise<{
   ok: boolean;
   status: number;
@@ -75,6 +80,18 @@ type FetchLike = (
   headers?: { get(name: string): string | null };
   text(): Promise<string>;
 }>;
+
+/** Redirect hops followed per request; one more redirect fails the pull. */
+export const WOOCOMMERCE_MAX_REDIRECTS = 3;
+
+/** The origin of an absolute URL, or null. */
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
 
 /** One Store API product as returned (the record's `raw`); only the fields read are typed. */
 export interface WooStoreProduct extends Record<string, unknown> {
@@ -404,13 +421,13 @@ export class WooCommerceStoreConnector implements ProductConnector {
    * exists, the error fails the pull (a truncated catalog would mark the rest missing).
    */
   private async fetchCatalog(): Promise<FetchedCatalog> {
-    await this.assertRobotsAllow();
+    const robotsBody = await this.assertRobotsAllow();
     const maxPages = this.settings.maxPages ?? defaultMaxPages();
     const products: WooStoreProduct[] = [];
     let totalPages: number | null = null;
     for (let page = 1; page <= maxPages; page += 1) {
       const url = `${this.baseUrl}${WOOCOMMERCE_STORE_API_PATH}?per_page=${WOOCOMMERCE_PAGE_SIZE}&page=${page}`;
-      const response = await this.request(url, "application/json");
+      const response = await this.requestFollowingRedirects(url, "application/json", robotsBody);
       if (!response.ok && page > 1 && (response.status === 400 || response.status === 404)) {
         if (totalPages !== null && page <= totalPages) {
           throw new Error(
@@ -441,12 +458,47 @@ export class WooCommerceStoreConnector implements ProductConnector {
     return { products, complete: false, pagesFetched: maxPages };
   }
 
-  private async assertRobotsAllow(): Promise<void> {
-    const response = await this.request(`${this.baseUrl}/robots.txt`, "text/plain, */*;q=0.5");
+  /** Reads robots.txt (same-origin redirects only) and returns its body; null when missing. */
+  private async assertRobotsAllow(): Promise<string | null> {
+    const response = await this.requestFollowingRedirects(`${this.baseUrl}/robots.txt`, "text/plain, */*;q=0.5", null);
     // A missing robots.txt (404, or any other 4xx) allows everything (RFC 9309).
-    if (!response.ok) return;
+    if (!response.ok) return null;
     if (isPathDisallowed(response.body, ROBOTS_AGENT_TOKEN, WOOCOMMERCE_STORE_API_PATH)) {
       throw new Error("WooCommerce Store API disallowed by robots.txt");
+    }
+    return response.body;
+  }
+
+  /**
+   * `request`, following up to `WOOCOMMERCE_MAX_REDIRECTS` redirects by hand. A destination must
+   * share the `base_url` origin and pass `robotsBody` (null = allow) before it is requested;
+   * otherwise, or after one hop too many, the pull fails. Errors name the destination's origin only.
+   */
+  private async requestFollowingRedirects(
+    url: string,
+    accept: string,
+    robotsBody: string | null
+  ): Promise<{ ok: boolean; status: number; body: string; totalPages: number | null }> {
+    const baseOrigin = originOf(this.baseUrl);
+    let current = url;
+    for (let hops = 0; ; hops += 1) {
+      const response = await this.request(current, accept);
+      if (!response.location) return response;
+      let destination: URL;
+      try {
+        destination = new URL(response.location, current);
+      } catch {
+        throw new Error(`${this.source} Store API request failed: HTTP ${response.status} with an unreadable Location`);
+      }
+      if (hops >= WOOCOMMERCE_MAX_REDIRECTS) {
+        throw new Error(`WooCommerce Store API: more than ${WOOCOMMERCE_MAX_REDIRECTS} redirects`);
+      }
+      const inScope =
+        baseOrigin !== null &&
+        destination.origin === baseOrigin &&
+        (robotsBody === null || !isPathDisallowed(robotsBody, ROBOTS_AGENT_TOKEN, destination.pathname));
+      if (!inScope) throw new Error(`WooCommerce Store API redirected out of scope: ${destination.origin}`);
+      current = destination.toString();
     }
   }
 
@@ -458,7 +510,7 @@ export class WooCommerceStoreConnector implements ProductConnector {
   private async request(
     url: string,
     accept: string
-  ): Promise<{ ok: boolean; status: number; body: string; totalPages: number | null }> {
+  ): Promise<{ ok: boolean; status: number; body: string; totalPages: number | null; location: string | null }> {
     const attemptCount = MAX_REQUEST_RETRIES + 1;
     let backoffMs = 0;
     let lastError: Error | null = null;
@@ -475,8 +527,11 @@ export class WooCommerceStoreConnector implements ProductConnector {
           method: "GET",
           headers: { Accept: accept, "User-Agent": USER_AGENT },
           signal: controller.signal,
+          redirect: "manual",
         });
         if (response.ok || !isRetryableStatus(response.status)) {
+          const location =
+            response.status >= 300 && response.status < 400 ? (response.headers?.get("location") ?? null) : null;
           const totalPagesHeader = response.headers?.get("x-wp-totalpages") ?? null;
           const totalPages = totalPagesHeader && /^\d+$/.test(totalPagesHeader.trim()) ? Number(totalPagesHeader.trim()) : null;
           return {
@@ -484,6 +539,7 @@ export class WooCommerceStoreConnector implements ProductConnector {
             status: response.status,
             body: response.ok ? await response.text() : "",
             totalPages: totalPages && totalPages > 0 ? totalPages : null,
+            location: location || null,
           };
         }
         retryReason = `HTTP ${response.status}`;

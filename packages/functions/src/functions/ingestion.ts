@@ -443,6 +443,7 @@ function withPipelineMetrics(
   };
 }
 
+/** The job's `metrics.pipeline.stage` (e.g. `awaiting_ai`), or null when unset or blank. */
 export function getPipelineStage(metrics: Record<string, unknown> | undefined): string | null {
   if (!metrics || typeof metrics !== "object") {
     return null;
@@ -587,6 +588,7 @@ async function enqueueIngestionJob(
   }
 }
 
+/** Runs one ingestion queue message within the worker time budget, checkpointing and enqueuing a continuation when it is spent. */
 export async function processIngestionJobQueueMessage(
   payload: IngestionJobQueueMessage,
   context: InvocationContext

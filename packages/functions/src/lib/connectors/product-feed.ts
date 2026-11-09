@@ -423,6 +423,49 @@ export function buildFeedRecord(gated: GatedItem, settings: SourceSettings): Fee
 
 const SEARCH_TERMS_MEANING_ALL = new Set(["", "nail polish", "nail_polish", "nailpolish", "all", "*", "recent", "latest", "new"]);
 
+/**
+ * `error` with every occurrence of `feedUrl` (as configured, normalized, and URL-encoded) in its
+ * message, stack and `cause` chain replaced by `shown` (`displayUrl`), so a token in the feed URL
+ * never reaches a log, `lastError` or a rethrow. The same error object (class, `noRetry`) is kept
+ * when its fields are writable, else a plain copy is returned.
+ */
+export function redactFeedUrl(error: Error, feedUrl: string, shown: string): Error {
+  const forms = new Set([feedUrl, encodeURI(feedUrl), encodeURIComponent(feedUrl)]);
+  try {
+    const href = new URL(feedUrl).href;
+    forms.add(href).add(encodeURI(href)).add(encodeURIComponent(href));
+  } catch {
+    // Not an absolute URL: the configured forms are enough.
+  }
+  const ordered = [...forms].filter((form) => form.length > 0).sort((a, b) => b.length - a.length);
+  const scrub = (text: string) => ordered.reduce((acc, form) => acc.split(form).join(shown), text);
+  const scrubOne = (target: Error): Error => {
+    try {
+      target.message = scrub(target.message);
+      if (typeof target.stack === "string") target.stack = scrub(target.stack);
+      return target;
+    } catch {
+      const copy = new Error(scrub(target.message));
+      copy.name = target.name;
+      return Object.assign(copy, { noRetry: (target as { noRetry?: unknown }).noRetry });
+    }
+  };
+  const result = scrubOne(error);
+  let current: Error = result;
+  for (let depth = 0; depth < 3; depth += 1) {
+    const cause = (current as { cause?: unknown }).cause;
+    if (!(cause instanceof Error)) break;
+    const scrubbed = scrubOne(cause);
+    try {
+      (current as { cause?: unknown }).cause = scrubbed;
+    } catch {
+      break;
+    }
+    current = scrubbed;
+  }
+  return result;
+}
+
 /** The feed URL without its query string or credentials (for job metadata). */
 /**
  * What the job log may show of the feed URL: the origin only. A feed token can sit in the query
@@ -597,6 +640,8 @@ export class ProductFeedConnector implements ProductConnector {
         if (normalized.name === "AbortError") {
           normalized = new Error(`${this.source} feed request timed out after ${REQUEST_TIMEOUT_MS}ms`);
         }
+        // Before it is logged, kept as lastError or rethrown: the full URL may carry a token.
+        normalized = redactFeedUrl(normalized, this.feedUrl, shownUrl);
         const noRetry = (normalized as { noRetry?: boolean }).noRetry === true;
         if (!noRetry && attempt < attemptCount && isRetryableRequestError(normalized)) {
           const backoffMs = RETRY_BASE_DELAY_MS * attempt;

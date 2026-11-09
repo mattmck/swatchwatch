@@ -112,6 +112,7 @@ export interface StoreCurrencyResolver {
   readonly currencies: Record<string, { currency: string | null; origin: CurrencyOrigin }>;
 }
 
+/** A per-run resolver of each source's store currency (source metadata, stored rows, then the shop's /meta.json). */
 export function createStoreCurrencyResolver(
   query: BackfillQueryFn,
   options: { fetchCurrency: boolean; fetchStoreCurrency?: FetchStoreCurrency }
@@ -176,6 +177,7 @@ export interface ProductPriceBatchResult {
   nextAfterExternalProductId: string | null;
 }
 
+/** Recomputes price/currency for one keyset page of `external_product` rows, writing only when `write` is set. */
 export async function runProductPriceBatch(
   query: BackfillQueryFn,
   currencies: StoreCurrencyResolver,

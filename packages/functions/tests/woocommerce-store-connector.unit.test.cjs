@@ -352,3 +352,60 @@ describe("WooCommerce Store API helpers", () => {
     });
   });
 });
+
+describe("WooCommerceStoreConnector: redirects", () => {
+  const redirectTo = (location, status = 301) => ({ status, body: "", headers: { location } });
+  const ROBOTS = "User-agent: *\nDisallow: /private/\n";
+
+  it("fetches with redirect: manual and follows a same-origin redirect robots.txt allows", async () => {
+    const moved = `${BASE}/shop/wp-json/wc/store/v1/products?per_page=100&page=1`;
+    const inits = [];
+    const { fetchImpl, log } = stubFetch({
+      [`${BASE}/robots.txt`]: ROBOTS,
+      [pageUrl(1)]: redirectTo("/shop/wp-json/wc/store/v1/products?per_page=100&page=1", 308),
+      [moved]: JSON.stringify(SAMPLE),
+    });
+    const spy = async (url, init) => {
+      inits.push(init);
+      return fetchImpl(url, init);
+    };
+    const { instance, sleeps } = connector(spy);
+    const result = await instance.pullProducts(PULL);
+    assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1), moved]);
+    assert.deepEqual(sleeps, [1000, 1000], "every hop is paced");
+    assert.ok(inits.every((init) => init.redirect === "manual"));
+    assert.deepEqual(result.records.map((record) => record.externalId), ["4211", "4212", "4215"]);
+  });
+
+  for (const [label, location, origin] of [
+    ["to another origin", "https://cdn.example/products.json?token=SECRET", "https://cdn.example"],
+    ["to a path robots.txt disallows", `${BASE}/private/products?token=SECRET`, BASE],
+  ]) {
+    it(`refuses a redirect ${label} without requesting it`, async () => {
+      const { fetchImpl, log } = stubFetch({
+        [`${BASE}/robots.txt`]: ROBOTS,
+        [pageUrl(1)]: redirectTo(location, 302),
+        [location]: JSON.stringify(SAMPLE),
+      });
+      await assert.rejects(connector(fetchImpl).instance.pullProducts(PULL), (error) => {
+        assert.equal(error.message, `WooCommerce Store API redirected out of scope: ${origin}`);
+        return true;
+      });
+      assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1)]);
+    });
+  }
+
+  it("fails after more than three hops", async () => {
+    const hop = (n) => `${BASE}/hop-${n}`;
+    const { fetchImpl, log } = stubFetch({
+      [`${BASE}/robots.txt`]: ROBOTS,
+      [pageUrl(1)]: redirectTo(hop(1)),
+      [hop(1)]: redirectTo(hop(2)),
+      [hop(2)]: redirectTo(hop(3)),
+      [hop(3)]: redirectTo(hop(4)),
+      [hop(4)]: JSON.stringify(SAMPLE),
+    });
+    await assert.rejects(connector(fetchImpl).instance.pullProducts(PULL), /more than 3 redirects/);
+    assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1), hop(1), hop(2), hop(3)]);
+  });
+});

@@ -59,10 +59,12 @@ export const CONNECTOR_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   "PoetryCowgirlBigCartel",
 ]);
 
+/** The connector protocol a source runs on (`Custom` when it is not mapped). */
 export function protocolOf(source: SupportedConnectorSource): ConnectorProtocol {
   return SOURCE_PROTOCOL_MAP[source] ?? "Custom";
 }
 
+/** True when the ingestion worker has a connector for the protocol. */
 export function isRunnableProtocol(protocol: ConnectorProtocol): boolean {
   return RUNNABLE_PROTOCOLS.has(protocol);
 }

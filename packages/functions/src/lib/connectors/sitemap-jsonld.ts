@@ -26,6 +26,15 @@
  * `SITEMAP_JSONLD_MAX_CONSECUTIVE_FAILURES` product pages fail in a row saves its checkpoint and
  * fails (a store blocking us must not burn through the whole catalog). A 429 or 503 with
  * `Retry-After` waits that long when it fits before the save margin, else the page is deferred.
+ *
+ * Redirects are followed by hand (`redirect: "manual"`, at most `SITEMAP_JSONLD_MAX_REDIRECTS`
+ * hops, each paced like any request), and every destination is checked before it is requested:
+ * robots.txt, the sitemap and its children follow only redirects on the sitemap's origin that
+ * robots.txt allows (anything else fails the pull). A product page's destination must be on the
+ * sitemap's origin and under a configured product prefix, else the page ends as gone
+ * (`metadata.redirectedOutOfScope`, one log line per URL); a destination robots.txt disallows
+ * is handled like a disallowed page; one more hop than allowed is a failed attempt. The page's
+ * content is stored under its original (sitemap) URL.
  */
 
 import { XMLParser } from "fast-xml-parser";
@@ -92,7 +101,7 @@ export function resolveSitemapPageDelayMs(): number {
 
 type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; signal: AbortSignal }
+  init: { method: string; headers: Record<string, string>; signal: AbortSignal; redirect?: "manual" }
 ) => Promise<{
   ok: boolean;
   status: number;
@@ -151,6 +160,12 @@ export interface SitemapCrawlCheckpoint {
    * ids like `gone`, counted in `metadata.robotsDisallowedPages`.
    */
   robotsDisallowed: string[];
+  /**
+   * Pages whose redirect left the sitemap's origin or the product prefixes (also in `gone`, and
+   * in `pages` as null; the destination is never requested), counted in
+   * `metadata.redirectedOutOfScope`.
+   */
+  redirectedOutOfScope: string[];
   complete: boolean;
   /** Incremented on every save (log line only). */
   generation: number;
@@ -165,6 +180,7 @@ function emptyCheckpoint(): SitemapCrawlCheckpoint {
     failed: [],
     gone: [],
     robotsDisallowed: [],
+    redirectedOutOfScope: [],
     complete: false,
     generation: 0,
   };
@@ -206,6 +222,7 @@ export function readCrawlCheckpoint(value: unknown): SitemapCrawlCheckpoint {
     failed: stringList(value.failed),
     gone: stringList(value.gone),
     robotsDisallowed: stringList(value.robotsDisallowed),
+    redirectedOutOfScope: stringList(value.redirectedOutOfScope),
     complete: value.complete === true,
     generation: typeof value.generation === "number" ? value.generation : 0,
   };
@@ -517,7 +534,21 @@ type RequestOutcome =
    * Not attempted (`attempted: false`) or not retried (`attempted: true`, with the last failure)
    * because it would not fit before the save margin.
    */
-  | { status: "deferred"; attempted: boolean; reason?: string };
+  | { status: "deferred"; attempted: boolean; reason?: string }
+  /** A 3xx with a `Location` (resolved against the request URL); never followed by `request`. */
+  | { status: "redirect"; httpStatus: number; location: string };
+
+/** Why a redirect destination is not requested. */
+type RedirectRefusal = "out_of_scope" | "robots";
+
+/** `request` after `requestFollowingRedirects`: a redirect is followed, refused or one hop too many. */
+type FollowedOutcome =
+  | Exclude<RequestOutcome, { status: "redirect" }>
+  | { status: "redirect_refused"; refusal: RedirectRefusal; destination: string }
+  | { status: "too_many_redirects"; destination: string };
+
+/** Redirect hops followed per request; one more redirect is a failure. */
+export const SITEMAP_JSONLD_MAX_REDIRECTS = 3;
 
 /** A page the crawl gave up on in this pull (logged through the pull's `log` when recorded). */
 export interface FailedPage {
@@ -656,6 +687,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
       sitemapChildrenRead: state.discovery.done.length,
       foreignSitemapsSkipped: state.discovery.foreignSkipped,
       robotsDisallowedPages: state.robotsDisallowed.length,
+      redirectedOutOfScope: state.redirectedOutOfScope.length,
     };
 
     if (!state.complete) {
@@ -760,8 +792,10 @@ export class SitemapJsonLdConnector implements ProductConnector {
     // robots.txt once per crawling pull, before discovery and any product page.
     const sitemapOrigin = originOf(this.sitemapUrl);
     if (!sitemapOrigin) throw new Error(`${this.source}: metadata.sitemapUrl is not an absolute URL`);
-    const robots = await this.request(`${sitemapOrigin}/robots.txt`, stopAt, "robots");
-    requests += 1;
+    const sameOrigin = (destination: string): RedirectRefusal | null =>
+      originOf(destination) === sitemapOrigin ? null : "out_of_scope";
+    const robots = await this.requestFollowingRedirects(`${sitemapOrigin}/robots.txt`, stopAt, "robots", sameOrigin);
+    requests += robots.requests;
     if (robots.status === "deferred") return { pages: 0, requests };
     // The body is kept for this pull: every sitemap and product page URL is checked against it
     // before it is requested. Null (a missing robots.txt) allows everything.
@@ -778,6 +812,14 @@ export class SitemapJsonLdConnector implements ProductConnector {
     }
     const allowed = (url: string) =>
       robotsBody === null || !isPathDisallowed(robotsBody, ROBOTS_AGENT_TOKEN, urlPath(url));
+    // A sitemap or child sitemap follows only same-origin redirects robots.txt allows.
+    const sitemapRedirect = (destination: string): RedirectRefusal | null =>
+      sameOrigin(destination) ?? (allowed(destination) ? null : "robots");
+    // A product page's destination must also stay under a configured product prefix.
+    const pageRedirect = (destination: string): RedirectRefusal | null =>
+      sameOrigin(destination) ??
+      (this.prefixes.some((prefix) => destination.startsWith(prefix)) ? null : "out_of_scope") ??
+      (allowed(destination) ? null : "robots");
     const warn = (message: string, data: Record<string, unknown>) => {
       if (log) log("warn", message, data);
       else console.warn(`${this.source} ${message}`);
@@ -785,8 +827,8 @@ export class SitemapJsonLdConnector implements ProductConnector {
 
     if (!state.discovery.rootRead) {
       if (!allowed(this.sitemapUrl)) throw new Error("SitemapJsonLd disallowed by robots.txt");
-      const outcome = await this.request(this.sitemapUrl, stopAt, "sitemap");
-      requests += 1;
+      const outcome = await this.requestFollowingRedirects(this.sitemapUrl, stopAt, "sitemap", sitemapRedirect);
+      requests += outcome.requests;
       if (outcome.status === "deferred") return { pages: 0, requests };
       if (outcome.status !== "ok") throw new Error(`${this.source} sitemap request failed: ${describeOutcome(outcome)}`);
       const root = parseSitemapXml(outcome.body);
@@ -816,8 +858,8 @@ export class SitemapJsonLdConnector implements ProductConnector {
         warn(`Skipped a child sitemap disallowed by robots.txt: ${child}`, { url: child });
         continue;
       }
-      const outcome = await this.request(child, stopAt, "sitemap");
-      requests += 1;
+      const outcome = await this.requestFollowingRedirects(child, stopAt, "sitemap", sitemapRedirect);
+      requests += outcome.requests;
       if (outcome.status === "deferred") return { pages: 0, requests };
       if (outcome.status !== "ok") throw new Error(`${this.source} child sitemap request failed: ${describeOutcome(outcome)}`);
       const parsed = parseSitemapXml(outcome.body);
@@ -865,8 +907,8 @@ export class SitemapJsonLdConnector implements ProductConnector {
         continue;
       }
       if (pages >= this.maxPagesPerRun) return { pages, requests };
-      const outcome = await this.request(url, stopAt, "page");
-      requests += 1;
+      const outcome = await this.requestFollowingRedirects(url, stopAt, "page", pageRedirect);
+      requests += outcome.requests;
       if (outcome.status === "deferred") {
         // Out of time. A page tried in this pull counts one attempt; after
         // SITEMAP_JSONLD_MAX_URL_ATTEMPTS pulls it is given up on, so a dead page never stalls the crawl.
@@ -874,6 +916,28 @@ export class SitemapJsonLdConnector implements ProductConnector {
         return { pages, requests };
       }
       pages += 1;
+      if (outcome.status === "redirect_refused") {
+        // The destination is never requested; the page answered, so it is settled for this crawl.
+        state.pages[url] = null;
+        delete state.attempts[url];
+        consecutiveFailures = 0;
+        if (outcome.refusal === "robots") {
+          state.robotsDisallowed.push(url);
+          warn(`Skipped a page whose redirect robots.txt disallows: ${url}`, { url, destination: outcome.destination });
+        } else {
+          state.gone.push(url);
+          state.redirectedOutOfScope.push(url);
+          warn(`A page redirected out of scope, treated as gone: ${url}`, { url, destination: outcome.destination });
+        }
+        continue;
+      }
+      if (outcome.status === "too_many_redirects") {
+        const reason = `more than ${SITEMAP_JSONLD_MAX_REDIRECTS} redirects`;
+        countAttempt(url, reason);
+        if (!failed.has(url)) pendingRetry = true;
+        pageFailed(reason);
+        continue;
+      }
       if (outcome.status === "error") {
         // One attempt for this page in this pull; the crawl moves on to the next page.
         if (outcome.permanent) {
@@ -906,6 +970,41 @@ export class SitemapJsonLdConnector implements ProductConnector {
     }
     if (!pendingRetry) state.complete = true;
     return { pages, requests };
+  }
+
+  /**
+   * `request`, following up to `SITEMAP_JSONLD_MAX_REDIRECTS` redirects by hand. Every
+   * destination goes through `admit` before it is requested (a refusal is returned, never
+   * fetched); each hop is its own paced request. `requests` counts the GETs made.
+   */
+  private async requestFollowingRedirects(
+    url: string,
+    stopAt: number,
+    kind: "robots" | "sitemap" | "page",
+    admit: (destination: string) => RedirectRefusal | null
+  ): Promise<FollowedOutcome & { requests: number }> {
+    let current = url;
+    for (let hops = 0; ; hops += 1) {
+      const outcome = await this.request(current, stopAt, kind);
+      const requests = hops + 1;
+      if (outcome.status === "deferred") {
+        // A redirect already answered in this pull counts as an attempt of the page.
+        return { ...outcome, attempted: outcome.attempted || hops > 0, requests };
+      }
+      if (outcome.status !== "redirect") return { ...outcome, requests };
+      let destination: string;
+      try {
+        destination = new URL(outcome.location, current).toString();
+      } catch {
+        const reason = `HTTP ${outcome.httpStatus} with an unreadable Location`;
+        if (kind !== "page") throw new Error(`${this.source} ${kind} request failed: ${reason}`);
+        return { status: "error", reason, permanent: true, requests };
+      }
+      if (hops >= SITEMAP_JSONLD_MAX_REDIRECTS) return { status: "too_many_redirects", destination, requests };
+      const refusal = admit(destination);
+      if (refusal) return { status: "redirect_refused", refusal, destination, requests };
+      current = destination;
+    }
   }
 
   /**
@@ -947,8 +1046,11 @@ export class SitemapJsonLdConnector implements ProductConnector {
             "User-Agent": USER_AGENT,
           },
           signal: controller.signal,
+          redirect: "manual",
         });
         if (response.ok) return { status: "ok", body: await response.text() };
+        const location = response.status >= 300 && response.status < 400 ? response.headers?.get("location") : null;
+        if (location) return { status: "redirect", httpStatus: response.status, location };
         if (!isRetryableStatus(response.status)) return { status: "http", httpStatus: response.status };
         retryReason = `HTTP ${response.status}`;
         retryAfterMs = parseRetryAfterMs(response.headers?.get("retry-after"), this.now());
@@ -982,8 +1084,13 @@ interface CrawlResult {
   requests: number;
 }
 
-function describeOutcome(outcome: RequestOutcome): string {
+function describeOutcome(outcome: FollowedOutcome): string {
   if (outcome.status === "http") return String(outcome.httpStatus);
+  // Origin only: a redirect destination is never echoed in full.
+  if (outcome.status === "redirect_refused") {
+    return `redirected out of scope (${originOf(outcome.destination) ?? "unreadable destination"})`;
+  }
+  if (outcome.status === "too_many_redirects") return `more than ${SITEMAP_JSONLD_MAX_REDIRECTS} redirects`;
   if (outcome.status === "exhausted" || outcome.status === "error") return outcome.reason;
   return outcome.status;
 }
