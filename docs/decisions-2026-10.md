@@ -38,6 +38,8 @@ recommendation in place for the record.
 | D22 | How feature flags work | Decided 2026-10-23: option 2, thin env-backed wrapper ([#313](https://github.com/mattmck/swatchwatch/issues/313)) | Shipped: `lib/feature-flags.ts`, `GET /api/config/flags` |
 | D23 | Product categories and non-polish cleanup | Decided | #349, #347 |
 | D24 | Expo app and Looks started early; overnight merge-to-dev rule | Decided | #109, #384, #385, Looks follow-ups |
+| D25 | Azure OpenAI APIM gateway removed | Decided | #158, #228 (closed as won't-do) |
+| D26 | Retailer sources, brand-store registrations and gel scope | Decided | Enabling the retailer and brand-store sources ([brand sources plan](superpowers/plans/2026-11-08-brand-sources-ingestion.md)) |
 
 ---
 
@@ -403,3 +405,62 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
   from this branch.
 - **Date:** 2026-10-23
 - **Ticket:** [#158](https://github.com/mattmck/swatchwatch/issues/158), [#228](https://github.com/mattmck/swatchwatch/issues/228) (both closed as won't-do)
+
+## G. Catalog sources
+
+### D26 — Retailer sources, brand-store registrations and gel scope (2026-11-08)
+- **Status:** Decided
+- **Context:** The indie Shopify route was close to exhausted without store agreements
+  ([indie-sources-2026-10.md](indie-sources-2026-10.md)), and the roadmap §4 catalog target is +10k active shades.
+  The [brand sources evaluation](brand-sources-evaluation-2026-11.md) measured the other routes on 2026-11-08:
+  §4 lists the ingestion strategies S1–S8 (retailer mode for multi-brand stores, brand Shopify stores, the Polish
+  Pickup roster, sitemap + JSON-LD, WooCommerce and Big Cartel connectors, affiliate and brand-supplied feeds), §5
+  the order and expected yield, and §6 the owner decisions. Three of those decide what the
+  [implementation plan](superpowers/plans/2026-11-08-brand-sources-ingestion.md) builds: how multi-brand retailers
+  may write to shared shades, which buy link wins, and whether gel polish is in scope. Beyond Polish alone lists
+  5,577 gel listings next to about 3,070 lacquer ones.
+- **Options:** (1) retailer sources: (a) ingest them like brand stores · (b) ingest them fill-only, images off on a
+  plain "no objection" and on only with an explicit OK (recommended) · (c) do not ingest retailers. (2) buy-link
+  priority: (a) the brand store wins over a retailer listing (recommended) · (b) the newest `last_seen_at` wins, as
+  before. (3) gel in scope: (a) out of scope, filtered out (recommended for now: the collector research is
+  lacquer-centric and gel shades would crowd dupes and color search) · (b) in scope with a `shade.system` column
+  (`lacquer | gel | dip`) and a filter chip · (c) in scope as a finish family.
+- **Recommendation:** 1b, 2a, 3a, as in the evaluation §6.
+- **Decision:** 1b, 2a and 3a, built in PRs #502–#505 and the Phase E PR:
+  - **Retailer mode is fill-only, with an authority takeover.** A `retailer` or `feed` source
+    (`data_source.metadata.kind`) adopts the brand's existing shade and only fills empty catalog data (finishes,
+    color name, name hex), never overwrites a detected hex or finishes, never changes the category of a shade it did
+    not create, and links images only to a shade without a product image. A shade a retailer creates gets
+    `catalog_authority = 'retailer'`; the first brand-store listing that matches it takes it over for good
+    (finishes, category, color name and detected hex rewritten as if the brand had created it).
+  - **Images are off for every non-brand source until a written OK.** `imagesPermitted` defaults to true for a brand
+    store only; Harlow & Co, Beyond Polish, Hypnotic Polish and Polish Pickup store no pictures until the owner
+    records a store's OK that names images and sets `imagesPermitted: true`. A store that withdraws its OK gets its
+    pictures removed by the source image removal job.
+  - **Buy links:** brand store before feed before retailer (`SOURCE_KIND_RANK`), after the existing rules (disabled
+    or missing listings dropped, buyable before sold out), then newest seen as before.
+  - **Brand stores:** the ten whose terms carry no automated-access clause are registered enabled like Night Owl
+    (D2) with the probe facts in `metadata.verification` (Deborah Lippmann, Londontown, Côte, Manucurist, Olive &
+    June, Piggy Paint, wet n wild, Alchemy Lacquers, Penelope Luz, Noodles); Mavala, CND and Barry M, whose terms
+    could not be read, and the 20 stores with a Shopify-default or own clause are registered disabled and pending
+    until the store's written OK is in `metadata.notes`. Modelones stays pending although its clause is narrow (an
+    email costs nothing and the evaluation classed it "own clause"). Piggy Paint's grown-up SOPHi line stays its own
+    brand (`SOPHi`), not folded into Piggy Paint. The nine non-Shopify registrations (OPI sitemap, three
+    WooCommerce, five Big Cartel stores) are pending or known-blocked (ILNP robots.txt, KBShimmer Cloudflare).
+  - **Gel is deferred.** `includeGel` is off for every source; the Beyond Polish, Londontown, Manucurist, Olive & June
+    and CND store filters keep gel lines out unless it is set to `true`, so the owner can reverse this without code.
+    No `shade.system` column is added.
+- **Consequences:** Retailers bring the majors (OPI, Zoya, Essie, CND, ILNP, KBShimmer) in two sources without
+  changing any brand store's data, and a brand store that comes later still wins its shades back. By 19 Dec the
+  plan expects about 4,300 new lacquer shades (about 8,300 if gel is ever let in); the lacquer-only +10k is not
+  reachable by December and needs either decision 3 reversed or many more indie permissions. Retailer shades
+  carry no pictures until the stores agree, so their display hex comes from vendor data or the name until then.
+  Most of the added sources stay disabled until the owner's outreach (evaluation §7) gets answers.
+- **Follow-ups:** (1) **lastmod reuse:** the sitemap crawl's checkpoint is per job, so every OPI run refetches all
+  ~575 pages; reuse the previous job's pages whose sitemap `lastmod` did not change. (2) **Barry M full-catalog
+  name check:** before enabling `BarryMShopify`, check the full catalog for shade names reused across lines (the
+  parsed name drops the line, so two lines' "Black Cherry" would collide). (3) **PotionPolishBigCartel
+  supersession:** when `PotionPolishBigCartel` is enabled, retire the disabled `PotionPolishShopify` row (its notes
+  already say it is superseded) so the two never run side by side. Owner steps: the plan's "Owner checklist".
+- **Date:** 2026-11-08
+- **Ticket:** none (plan `docs/superpowers/plans/2026-11-08-brand-sources-ingestion.md`)
