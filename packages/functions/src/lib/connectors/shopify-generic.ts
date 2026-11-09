@@ -1000,15 +1000,20 @@ export function resolveRetailerVendor(
 /**
  * The brand of a record from a non-Shopify connector (product feed, sitemap, WooCommerce, Big
  * Cartel), through the same helpers as a Shopify product: a brand source reads `itemBrand` with
- * `resolveBrandStoreVendor` (the `vendorAliases` entry first, then the item's brand, then
- * `settings.brand`); a retailer or feed source with `resolveRetailerVendor` (alias, else the
+ * `resolveBrandStoreVendor` (the `vendorAliases` entry first, then the item's brand unless it is
+ * a placeholder, then `settings.brand`); a retailer or feed source with `resolveRetailerVendor` (alias, else the
  * item's brand unless missing or a placeholder), then `settings.brand`. Null when neither names a
  * brand (the connectors skip the record and count it as `vendorlessSkipped`).
  */
 export function resolveConnectorBrand(itemBrand: unknown, settings: SourceSettings): string | null {
   if (settings.kind === "brand") {
-    const fallback = settings.brand ?? asNonEmptyString(itemBrand);
-    return fallback ? resolveBrandStoreVendor(itemBrand, settings.vendorAliases, fallback) : null;
+    const item = asNonEmptyString(itemBrand);
+    const alias = vendorAliasFor(item, settings.vendorAliases);
+    if (alias) return alias;
+    // A placeholder item brand ("Vendor Unknown") never becomes the brand, not even as the fallback.
+    const usableItem = item && !PLACEHOLDER_VENDORS.has(item.toLowerCase()) ? item : null;
+    const fallback = settings.brand ?? usableItem;
+    return fallback ? resolveShopifyVendor(itemBrand, fallback) : null;
   }
   return (
     resolveRetailerVendor(itemBrand, settings.vendorAliases, settings.brand ?? "", settings.kind) ?? settings.brand ?? null

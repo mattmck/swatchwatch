@@ -143,3 +143,30 @@ describe("resolveRetailerVendor", () => {
     assert.equal(resolveRetailerVendor(null, {}, "Night Owl Lacquer", "brand"), "Night Owl Lacquer");
   });
 });
+
+describe("resolveConnectorBrand: placeholder item brands in brand mode (PR #506 review)", () => {
+  const { resolveConnectorBrand } = require("../dist/lib/connectors/shopify-generic");
+  const { readSourceSettings } = require("../dist/lib/source-settings");
+
+  it("a placeholder item brand with no settings.brand is no brand (vendorless)", () => {
+    const settings = readSourceSettings({}, "ExampleSitemap");
+    assert.equal(settings.kind, "brand");
+    for (const placeholder of ["Vendor Unknown", "vendor-unknown", "DEFAULT VENDOR"]) {
+      assert.equal(resolveConnectorBrand(placeholder, settings), null, placeholder);
+    }
+    assert.equal(resolveConnectorBrand(null, settings), null);
+  });
+
+  it("an aliased placeholder takes the alias", () => {
+    const settings = readSourceSettings({ vendorAliases: { "vendor unknown": "Example Lacquer" } }, "ExampleSitemap");
+    assert.equal(resolveConnectorBrand("Vendor Unknown", settings), "Example Lacquer");
+  });
+
+  it("a normal item brand is kept; settings.brand is the fallback for a placeholder", () => {
+    assert.equal(resolveConnectorBrand("Example Lacquer", readSourceSettings({}, "ExampleSitemap")), "Example Lacquer");
+    const branded = readSourceSettings({ brand: "OPI" }, "ExampleSitemap");
+    assert.equal(resolveConnectorBrand("Vendor Unknown", branded), "OPI");
+    assert.equal(resolveConnectorBrand("OPI", branded), "OPI");
+    assert.equal(resolveConnectorBrand(null, branded), "OPI");
+  });
+});

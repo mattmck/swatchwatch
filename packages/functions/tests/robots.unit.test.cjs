@@ -71,3 +71,29 @@ describe("isPathDisallowed", () => {
     assert.equal(isPathDisallowed(body, "SwatchWatch", STORE_API), true);
   });
 });
+
+describe("isPathDisallowed: glob matcher without regex backtracking (PR #506 review)", () => {
+  const { isPathDisallowed: disallowed } = require("../dist/lib/robots");
+
+  it("a rule with 30 '*'s against a 2,000-character path answers promptly", () => {
+    const rule = `/${"a*".repeat(30)}b`;
+    const miss = `/${"a".repeat(2000)}`;
+    const hit = `/${"a".repeat(1999)}b`;
+    const started = performance.now();
+    assert.equal(disallowed(`User-agent: *\nDisallow: ${rule}\n`, "SwatchWatch", miss), false);
+    assert.equal(disallowed(`User-agent: *\nDisallow: ${rule}\n`, "SwatchWatch", hit), true);
+    assert.equal(disallowed(`User-agent: *\nDisallow: ${rule}$\n`, "SwatchWatch", `${hit}c`), false);
+    assert.ok(performance.now() - started < 50, `took ${performance.now() - started} ms`);
+  });
+
+  it("keeps '*' and '$' semantics", () => {
+    const body = "User-agent: *\nDisallow: /*.pdf$\nDisallow: /private*/x\nDisallow: /exact$\n";
+    assert.equal(disallowed(body, "SwatchWatch", "/docs/a.pdf"), true);
+    assert.equal(disallowed(body, "SwatchWatch", "/docs/a.pdf?x=1"), false);
+    assert.equal(disallowed(body, "SwatchWatch", "/private-area/x/y"), true);
+    assert.equal(disallowed(body, "SwatchWatch", "/privatex"), false);
+    assert.equal(disallowed(body, "SwatchWatch", "/exact"), true);
+    assert.equal(disallowed(body, "SwatchWatch", "/exact/more"), false);
+    assert.equal(disallowed("User-agent: *\nDisallow: /a.b\n", "SwatchWatch", "/aXb"), false, "'.' is literal");
+  });
+});

@@ -18,8 +18,11 @@
  *
  * Every crawling pull first reads `<sitemap origin>/robots.txt` (`lib/robots.ts`): a `Disallow`
  * covering a configured product prefix's path (or `/`) throws `SitemapJsonLd disallowed by
- * robots.txt`; a missing robots.txt (any 4xx) allows. Child sitemaps of a `<sitemapindex>` on
- * another origin are skipped (`metadata.foreignSitemapsSkipped`). A pull that sees
+ * robots.txt`; a missing robots.txt (any 4xx) allows. The same body is then checked before
+ * every request of the pull: a disallowed root sitemap throws the same error, a disallowed
+ * product page is never fetched and left out of the catalog ids like a gone page
+ * (`metadata.robotsDisallowedPages`, one log line per URL). Child sitemaps of a `<sitemapindex>`
+ * on another origin, or disallowed, are skipped (`metadata.foreignSitemapsSkipped`). A pull that sees
  * `SITEMAP_JSONLD_MAX_CONSECUTIVE_FAILURES` product pages fail in a row saves its checkpoint and
  * fails (a store blocking us must not burn through the whole catalog). A 429 or 503 with
  * `Retry-After` waits that long when it fits before the save margin, else the page is deferred.
@@ -143,6 +146,11 @@ export interface SitemapCrawlCheckpoint {
   failed: string[];
   /** Pages that answered 404 or 410 (also in `pages` as null): left out of the catalog ids. */
   gone: string[];
+  /**
+   * Pages robots.txt disallows (never fetched; also in `pages` as null): left out of the catalog
+   * ids like `gone`, counted in `metadata.robotsDisallowedPages`.
+   */
+  robotsDisallowed: string[];
   complete: boolean;
   /** Incremented on every save (log line only). */
   generation: number;
@@ -156,6 +164,7 @@ function emptyCheckpoint(): SitemapCrawlCheckpoint {
     attempts: {},
     failed: [],
     gone: [],
+    robotsDisallowed: [],
     complete: false,
     generation: 0,
   };
@@ -196,6 +205,7 @@ export function readCrawlCheckpoint(value: unknown): SitemapCrawlCheckpoint {
       : {},
     failed: stringList(value.failed),
     gone: stringList(value.gone),
+    robotsDisallowed: stringList(value.robotsDisallowed),
     complete: value.complete === true,
     generation: typeof value.generation === "number" ? value.generation : 0,
   };
@@ -569,9 +579,16 @@ export class SitemapJsonLdConnector implements ProductConnector {
     this.pageDelayMs = options.pageDelayMs ?? resolveSitemapPageDelayMs();
   }
 
-  /** Worst-case length of one crawling pull: its page budget of pacing plus one request timeout. */
+  /**
+   * Worst-case length of one crawling pull: its page budget of pacing plus one request timeout,
+   * and never less than the save margin plus one request (below that `pullProducts` throws
+   * "worker budget too small", so the worker must hand off instead).
+   */
   crawlPullEstimateMs(): number {
-    return this.maxPagesPerRun * this.pageDelayMs + REQUEST_TIMEOUT_MS;
+    return Math.max(
+      this.maxPagesPerRun * this.pageDelayMs + REQUEST_TIMEOUT_MS,
+      this.saveMarginMs + SITEMAP_JSONLD_MIN_REQUEST_MS
+    );
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
@@ -638,6 +655,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
       sitemapChildren: state.discovery.children.length,
       sitemapChildrenRead: state.discovery.done.length,
       foreignSitemapsSkipped: state.discovery.foreignSkipped,
+      robotsDisallowedPages: state.robotsDisallowed.length,
     };
 
     if (!state.complete) {
@@ -651,8 +669,9 @@ export class SitemapJsonLdConnector implements ProductConnector {
     const gated: GatedPage[] = [];
     let vendorlessSkipped = 0;
     let pagesWithoutProduct = 0;
+    const disallowed = new Set(state.robotsDisallowed);
     for (const { url, lastmod } of state.urls) {
-      if (failed.has(url)) continue;
+      if (failed.has(url) || disallowed.has(url)) continue;
       const product = state.pages[url];
       if (!product) {
         pagesWithoutProduct += 1;
@@ -682,7 +701,8 @@ export class SitemapJsonLdConnector implements ProductConnector {
     const built = windowed.map((entry) => buildCrawledRecord(entry, this.settings));
     // A failed (flaky) page keeps its listing; a page that answered 404/410 is left out so a
     // delisted product lingering in a lagging sitemap gets missing_since.
-    const gone = new Set(state.gone);
+    // A page robots.txt disallows is left out the same way (never fetched, so never confirmed).
+    const gone = new Set([...state.gone, ...state.robotsDisallowed]);
     const externalIds = [...new Set(state.urls.filter(({ url }) => !gone.has(url)).map(({ url }) => urlPath(url)))];
 
     return {
@@ -697,7 +717,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
         responsePageSize: options.pageSize,
         sourceCount: filtered.length,
         sourcePageCount: options.pageSize > 0 ? Math.ceil(filtered.length / options.pageSize) : null,
-        fetchedProductCount: totalPages - pagesWithoutProduct - state.failed.length,
+        fetchedProductCount: totalPages - pagesWithoutProduct - state.failed.length - disallowed.size,
         pagesWithoutProduct,
         recentDays,
         textFilter,
@@ -743,7 +763,11 @@ export class SitemapJsonLdConnector implements ProductConnector {
     const robots = await this.request(`${sitemapOrigin}/robots.txt`, stopAt, "robots");
     requests += 1;
     if (robots.status === "deferred") return { pages: 0, requests };
+    // The body is kept for this pull: every sitemap and product page URL is checked against it
+    // before it is requested. Null (a missing robots.txt) allows everything.
+    let robotsBody: string | null = null;
     if (robots.status === "ok") {
+      robotsBody = robots.body;
       const paths = this.prefixes.map(urlPath);
       if (paths.some((prefixPath) => isPathDisallowed(robots.body, ROBOTS_AGENT_TOKEN, prefixPath))) {
         throw new Error("SitemapJsonLd disallowed by robots.txt");
@@ -752,23 +776,31 @@ export class SitemapJsonLdConnector implements ProductConnector {
       // A missing robots.txt (any 4xx) allows everything (RFC 9309); a 5xx or network failure fails.
       throw new Error(`${this.source} robots.txt request failed: ${describeOutcome(robots)}`);
     }
+    const allowed = (url: string) =>
+      robotsBody === null || !isPathDisallowed(robotsBody, ROBOTS_AGENT_TOKEN, urlPath(url));
+    const warn = (message: string, data: Record<string, unknown>) => {
+      if (log) log("warn", message, data);
+      else console.warn(`${this.source} ${message}`);
+    };
 
     if (!state.discovery.rootRead) {
+      if (!allowed(this.sitemapUrl)) throw new Error("SitemapJsonLd disallowed by robots.txt");
       const outcome = await this.request(this.sitemapUrl, stopAt, "sitemap");
       requests += 1;
       if (outcome.status === "deferred") return { pages: 0, requests };
       if (outcome.status !== "ok") throw new Error(`${this.source} sitemap request failed: ${describeOutcome(outcome)}`);
       const root = parseSitemapXml(outcome.body);
       if (root.kind === "index") {
-        // Only child sitemaps on the sitemap's own origin are read.
+        // Only child sitemaps on the sitemap's own origin that robots.txt allows are read.
         const children = [...new Set(root.entries.map((entry) => entry.url))];
-        const sameOrigin = children.filter((child) => originOf(child) === sitemapOrigin);
-        state.discovery.children = sameOrigin;
-        state.discovery.foreignSkipped = children.length - sameOrigin.length;
+        const readable = children.filter((child) => originOf(child) === sitemapOrigin && allowed(child));
+        state.discovery.children = readable;
+        state.discovery.foreignSkipped = children.length - readable.length;
         if (state.discovery.foreignSkipped > 0) {
-          const message = `Skipped ${state.discovery.foreignSkipped} child sitemap(s) on another origin than ${sitemapOrigin}`;
-          if (log) log("warn", message, { foreignSitemapsSkipped: state.discovery.foreignSkipped });
-          else console.warn(`${this.source} ${message}`);
+          warn(
+            `Skipped ${state.discovery.foreignSkipped} child sitemap(s) on another origin than ${sitemapOrigin} or disallowed by robots.txt`,
+            { foreignSitemapsSkipped: state.discovery.foreignSkipped }
+          );
         }
       } else {
         addUrls(root.entries);
@@ -777,6 +809,13 @@ export class SitemapJsonLdConnector implements ProductConnector {
     }
     for (const child of state.discovery.children) {
       if (state.discovery.done.includes(child)) continue;
+      if (!allowed(child)) {
+        // Listed by an earlier pull, disallowed by this pull's robots.txt: skipped like a foreign one.
+        state.discovery.done.push(child);
+        state.discovery.foreignSkipped += 1;
+        warn(`Skipped a child sitemap disallowed by robots.txt: ${child}`, { url: child });
+        continue;
+      }
       const outcome = await this.request(child, stopAt, "sitemap");
       requests += 1;
       if (outcome.status === "deferred") return { pages: 0, requests };
@@ -817,6 +856,14 @@ export class SitemapJsonLdConnector implements ProductConnector {
     };
     for (const { url } of state.urls) {
       if (url in state.pages || failed.has(url)) continue;
+      if (!allowed(url)) {
+        // Never requested; recorded like a gone page (left out of the catalog ids), logged once.
+        state.robotsDisallowed.push(url);
+        state.pages[url] = null;
+        delete state.attempts[url];
+        warn(`Skipped a page disallowed by robots.txt: ${url}`, { url });
+        continue;
+      }
       if (pages >= this.maxPagesPerRun) return { pages, requests };
       const outcome = await this.request(url, stopAt, "page");
       requests += 1;

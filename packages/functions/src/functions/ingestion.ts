@@ -72,7 +72,7 @@ import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
 import { MakeupApiConnector } from "../lib/connectors/makeup-api";
 import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
 import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
-import { ProductFeedConnector } from "../lib/connectors/product-feed";
+import { assertAuthedFeedUsesHttps, ProductFeedConnector } from "../lib/connectors/product-feed";
 import { WooCommerceStoreConnector } from "../lib/connectors/woocommerce-store";
 import { SitemapJsonLdConnector } from "../lib/connectors/sitemap-jsonld";
 import { BigCartelConnector } from "../lib/connectors/big-cartel";
@@ -185,6 +185,7 @@ const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> 
     if (!feedUrl) {
       throw new Error(`${source}: no feed URL (set data_source.base_url or metadata.feedUrl)`);
     }
+    assertAuthedFeedUsesHttps(source, feedUrl, settings);
     return new ProductFeedConnector(source, feedUrl, settings);
   },
   // metadata.sitemapUrl + metadata.productUrlPrefixes; the crawl is checkpointed in the job's
@@ -222,7 +223,17 @@ export function createConnector(
   baseUrl: string | null | undefined,
   settings: SourceSettings
 ): ProductConnector {
-  const factory = CONNECTOR_FACTORIES[protocolOf(source)];
+  return createConnectorForProtocol(protocolOf(source), source, baseUrl, settings);
+}
+
+/** `createConnector` for an explicit protocol (exported for tests of protocols no seeded source uses yet). */
+export function createConnectorForProtocol(
+  protocol: ConnectorProtocol,
+  source: SupportedConnectorSource,
+  baseUrl: string | null | undefined,
+  settings: SourceSettings
+): ProductConnector {
+  const factory = CONNECTOR_FACTORIES[protocol];
   if (!factory) {
     throw new Error(`No connector available for source: ${source}`);
   }

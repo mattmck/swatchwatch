@@ -839,3 +839,86 @@ describe("sitemap + JSON-LD helpers", () => {
     assert.equal(parseJsonLdAvailability(undefined), null);
   });
 });
+
+describe("SitemapJsonLdConnector: PR #506 review follow-ups", () => {
+  it("the crawl pull estimate never drops below the save margin plus one request", () => {
+    const clock = fakeClock();
+    const { fetchImpl } = stubFetch(clock, {});
+    const small = connector(clock, fetchImpl, { maxPagesPerRun: 10, saveMarginMs: 60000, pageDelayMs: 1000 });
+    assert.ok(small.crawlPullEstimateMs() >= 65000, String(small.crawlPullEstimateMs()));
+  });
+
+  it("checks robots.txt before every product page: a disallowed page is skipped, the others crawl", async () => {
+    const clock = fakeClock();
+    const giftUrl = "https://www.opi.com/products/nail-lacquer-gift-set-trio";
+    const routes = {
+      ...fixtureRoutes(),
+      [SITEMAP_URL]: SITEMAP.replace("</urlset>", `<url><loc>${giftUrl}</loc></url></urlset>`),
+      [giftUrl]: ldPage({ "@type": "Product", name: "Gift", brand: "OPI" }),
+      "https://www.opi.com/robots.txt": "User-agent: *\nDisallow: /products/nail-lacquer-gift-\n",
+    };
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    const logs = [];
+    const cache = memoryCache();
+    const result = await connector(clock, fetchImpl).pullProducts({
+      ...PULL,
+      catalogCache: cache,
+      deadlineMs: clock.t + 120000,
+      log: (level, message, data) => logs.push({ level, message, data }),
+    });
+    assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, PINK_URL, FLAME_URL, SNOW_URL]);
+    assert.equal(result.metadata.catalogComplete, true);
+    assert.equal(result.metadata.robotsDisallowedPages, 1);
+    assert.equal(result.records.length, 3);
+    assert.ok(!result.catalog.externalIds.includes("/products/nail-lacquer-gift-set-trio"));
+    assert.equal(result.catalog.externalIds.length, 3);
+    assert.deepEqual(cache.peek().robotsDisallowed, [giftUrl]);
+    const warnings = logs.filter((entry) => entry.level === "warn" && entry.message.includes(giftUrl));
+    assert.equal(warnings.length, 1);
+
+    // A later pull of the complete crawl neither fetches nor logs it again.
+    logs.length = 0;
+    log.length = 0;
+    await connector(clock, fetchImpl).pullProducts({
+      ...PULL,
+      catalogCache: cache,
+      deadlineMs: clock.t + 120000,
+      log: (level, message, data) => logs.push({ level, message, data }),
+    });
+    assert.equal(log.length, 0);
+    assert.equal(logs.filter((entry) => entry.message.includes(giftUrl)).length, 0);
+  });
+
+  it("skips a child sitemap robots.txt disallows and counts it with the foreign ones", async () => {
+    const clock = fakeClock();
+    const own = "https://www.opi.com/sitemap-products-1.xml";
+    const blocked = "https://www.opi.com/private-sitemaps/sitemap-2.xml";
+    const routes = {
+      [SITEMAP_URL]: `<?xml version="1.0"?><sitemapindex>${[own, blocked]
+        .map((loc) => `<sitemap><loc>${loc}</loc></sitemap>`)
+        .join("")}</sitemapindex>`,
+      [own]: `<urlset><url><loc>${PREFIXES[0]}own</loc></url></urlset>`,
+      [blocked]: `<urlset><url><loc>${PREFIXES[0]}hidden</loc></url></urlset>`,
+      [`${PREFIXES[0]}own`]: ldPage({ "@type": "Product", name: "Own", brand: "OPI" }),
+      "https://www.opi.com/robots.txt": "User-agent: *\nDisallow: /private-sitemaps/\n",
+    };
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    const cache = memoryCache();
+    const result = await connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: cache, deadlineMs: clock.t + 120000 });
+    assert.deepEqual(log.map((entry) => entry.url), [SITEMAP_URL, own, `${PREFIXES[0]}own`]);
+    assert.equal(result.metadata.foreignSitemapsSkipped, 1);
+    assert.deepEqual(cache.peek().discovery.children, [own]);
+    assert.equal(result.records.length, 1);
+  });
+
+  it("refuses when robots.txt disallows the root sitemap itself", async () => {
+    const clock = fakeClock();
+    const routes = { ...fixtureRoutes(), "https://www.opi.com/robots.txt": "User-agent: *\nDisallow: /sitemap.xml$\n" };
+    const { fetchImpl, log } = stubFetch(clock, routes);
+    await assert.rejects(
+      connector(clock, fetchImpl).pullProducts({ ...PULL, catalogCache: memoryCache(), deadlineMs: clock.t + 120000 }),
+      /^Error: SitemapJsonLd disallowed by robots\.txt$/
+    );
+    assert.equal(log.length, 0);
+  });
+});

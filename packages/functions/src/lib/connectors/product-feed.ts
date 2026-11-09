@@ -443,6 +443,16 @@ interface CachedFeed {
   items: FeedItem[];
 }
 
+/**
+ * Basic auth credentials are only ever sent over TLS: a source with `metadata.feedAuthEnv` whose
+ * feed URL is not `https://` (any case) throws before any request.
+ */
+export function assertAuthedFeedUsesHttps(source: string, feedUrl: string, settings: SourceSettings): void {
+  if (settings.feedAuthEnv && !/^https:\/\//i.test(feedUrl.trim())) {
+    throw new Error(`${source}: the feed URL must use https when metadata.feedAuthEnv is set`);
+  }
+}
+
 export class ProductFeedConnector implements ProductConnector {
   readonly source: SupportedConnectorSource;
   private readonly feedUrl: string;
@@ -456,6 +466,7 @@ export class ProductFeedConnector implements ProductConnector {
     settings: SourceSettings,
     options: ProductFeedConnectorOptions = {}
   ) {
+    assertAuthedFeedUsesHttps(source, feedUrl, settings);
     this.source = source;
     this.feedUrl = feedUrl;
     this.settings = settings;

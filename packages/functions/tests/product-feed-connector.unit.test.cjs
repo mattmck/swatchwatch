@@ -360,3 +360,36 @@ describe("product feed helpers", () => {
     assert.deepEqual(items, [{ id: "C-1", title: "Shade, with comma", price: "9.00 USD", brand: "Example Lacquer", product_type: "Nail Polish" }]);
   });
 });
+
+describe("ProductFeedConnector: authed feeds use https (PR #506 review)", () => {
+  const ENV = "PRODUCT_FEED_AUTH_EXAMPLELACQUERFEED";
+
+  it("the constructor refuses a non-https feed URL when metadata.feedAuthEnv is set", () => {
+    const settings = readSourceSettings({ feedAuthEnv: ENV }, "ExampleLacquerFeed");
+    for (const url of ["http://lacquer.example/feed", "ftp://lacquer.example/feed", "lacquer.example/feed"]) {
+      assert.throws(
+        () => new ProductFeedConnector("ExampleLacquerFeed", url, settings, { fetchImpl: stubFetch(XML, "application/xml") }),
+        /^Error: ExampleLacquerFeed: the feed URL must use https when metadata\.feedAuthEnv is set$/,
+        url
+      );
+    }
+    // https in any case is fine; so is http without credentials.
+    assert.ok(new ProductFeedConnector("ExampleLacquerFeed", "HTTPS://lacquer.example/feed", settings));
+    assert.ok(new ProductFeedConnector("ExampleLacquerFeed", "http://lacquer.example/feed", readSourceSettings({}, "ExampleLacquerFeed")));
+  });
+
+  it("the ProductFeed factory refuses it too, before any request", () => {
+    const { createConnectorForProtocol } = require("../dist/functions/ingestion");
+    const authed = readSourceSettings({ feedAuthEnv: ENV }, "ExampleLacquerFeed");
+    assert.throws(
+      () => createConnectorForProtocol("ProductFeed", "ExampleLacquerFeed", "http://lacquer.example/feed", authed),
+      /the feed URL must use https when metadata\.feedAuthEnv is set/
+    );
+    const viaFeedUrl = readSourceSettings({ feedAuthEnv: ENV, feedUrl: "http://lacquer.example/other" }, "ExampleLacquerFeed");
+    assert.throws(
+      () => createConnectorForProtocol("ProductFeed", "ExampleLacquerFeed", "https://lacquer.example/feed", viaFeedUrl),
+      /the feed URL must use https/
+    );
+    assert.ok(createConnectorForProtocol("ProductFeed", "ExampleLacquerFeed", "https://lacquer.example/feed", authed) instanceof ProductFeedConnector);
+  });
+});

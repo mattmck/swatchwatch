@@ -48,13 +48,44 @@ export function parseRobotsTxt(body: string): RobotsGroup[] {
   return groups;
 }
 
+/**
+ * Whether `rule` matches `path`: `*` matches any run of characters (empty included), a trailing
+ * `$` anchors the end, and without it the rule only has to match a prefix of the path. An
+ * iterative glob match (greedy with one backtrack point, O(rule × path) at worst), so a remote
+ * rule with many `*`s can never cause regex backtracking.
+ */
 function ruleMatches(rule: string, path: string): boolean {
   const anchored = rule.endsWith("$");
-  const pattern = (anchored ? rule.slice(0, -1) : rule)
-    .split("*")
-    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
-    .join(".*");
-  return new RegExp(`^${pattern}${anchored ? "$" : ""}`).test(path);
+  const pattern = anchored ? rule.slice(0, -1) : rule;
+  let p = 0;
+  let s = 0;
+  let star = -1;
+  let mark = 0;
+  while (s < path.length) {
+    if (p < pattern.length && pattern[p] === "*") {
+      star = p;
+      p += 1;
+      mark = s;
+      continue;
+    }
+    // The whole rule matched a prefix of the path.
+    if (p === pattern.length && !anchored) return true;
+    if (p < pattern.length && pattern[p] === path[s]) {
+      p += 1;
+      s += 1;
+      continue;
+    }
+    if (star >= 0) {
+      // Let the last `*` take one more character and retry from there.
+      p = star + 1;
+      mark += 1;
+      s = mark;
+      continue;
+    }
+    return false;
+  }
+  while (p < pattern.length && pattern[p] === "*") p += 1;
+  return p === pattern.length;
 }
 
 /**
