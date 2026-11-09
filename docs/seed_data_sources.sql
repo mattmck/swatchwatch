@@ -413,6 +413,303 @@ VALUES
     '{"kind": "retailer", "currency": "EUR", "vendorAliases": {"Cuticula Nail Lacquer": "Cuticula"}, "pendingApproval": true, "priority": "medium", "mvp": "no", "notes": "Hypnotic Polish Shopify store (EU multi-brand retailer, EUR). Verified 2026-11-08: /products.json returns 200 with Shopify products (998 over 4 pages of 250, 16 vendors). robots.txt is the Shopify default (products.json not disallowed). /policies/terms-of-service carries the Shopify default template, whose prohibited uses include: spider, crawl, or scrape. REGISTERED DISABLED AND PENDING: needs the store''s written OK before it is enabled; record it here as ''Acceptable use confirmed by <name, role> at Hypnotic Polish on <date> via <channel>: <summary>'', then set enabled = true and remove pendingApproval. The generic polish gate accepts 977 of the 998; headline brands (accepted listings): ILNP 308, Cirque Colors 201, KBShimmer 110, Cosmic Polish 73, Cuticula 68, Emily de Molly 58, Bee''s Knees 49, Starrily 49, Cadillacquer 40. The store filter connectors/store-filters/hypnotic-polish.ts drops the Cuticle Treatment and Accessories product types and grab bag / mystery listings; coats and toppers go through the generic gate with their category. Registered as a retailer (metadata.kind = retailer): listings adopt the brand stores'' shades and only fill empty data; vendorAliases map the store''s vendor spellings to brands; images stay off until metadata.imagesPermitted is set after the store''s OK.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 998, "vendors": 16, "genericGateAccepts": 977, "robotsTxt": "shopify-default-allows-products-json", "termsScrapingClause": true, "writtenPermission": null}}'::jsonb
   ),
   (
+    'DeborahLippmannShopify',
+    'api',
+    'https://deborahlippmann.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://deborahlippmann.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "notes": "Deborah Lippmann Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (54: Nail Polish 25, Set 14, Treatment 7, Tools 5). The generic connector polish filter applies unchanged; sets are dropped by the set rule. Terms (6,300 characters) carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 54, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'LondontownShopify',
+    'api',
+    'https://londontownusa.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://londontownusa.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "notes": "Londontown Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250+ over several pages; first page: Nail Color 68, Gels 65, Sets 39, Nail Care 30, Tools 27). Store filter connectors/store-filters/londontown.ts keeps Nail Color (and Nail Veils / Concealers), drops gels (unless includeGel), sets and the other non-polish types, and defers Nail Care to the generic gate, which keeps its coats and treatments with their category. Terms carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'CoteShopify',
+    'api',
+    'https://coteshop.co',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://coteshop.co/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "vendorAliases": {"Côte Beauty": "Côte"}, "priority": "medium", "mvp": "no", "notes": "Cote Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (129: Nail Polishes 66, gift set 11, lip shine 9, treatment 8, body 8). The generic gate handles the page except for the lip treatment it reads as a nail treatment; the store filter connectors/store-filters/cote.ts drops lip-typed products and defers the rest to it. Vendor Côte Beauty is aliased to the catalog brand Côte. Terms carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 129, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'ManucuristShopify',
+    'api',
+    'https://manucurist.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://manucurist.com/policies/terms-of-service',
+    true,
+    '{"currency": "EUR", "priority": "medium", "mvp": "no", "notes": "Manucurist Shopify store (France, EUR). Verified 2026-11-08: /products.json returns 200 with Shopify products (250+; first page: product_type Vernis a ongles Green 68, Semi-permanent LED Green Flash 59, Soins 36, French product_type values). Store filter connectors/store-filters/manucurist.ts maps the French types. Terms carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'OliveAndJuneShopify',
+    'api',
+    'https://oliveandjune.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://oliveandjune.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "vendorAliases": {"Olive and June": "Olive & June", "Olive-and-June": "Olive & June", "Olive & June Gel": "Olive & June"}, "priority": "medium", "mvp": "no", "notes": "Olive & June Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250+; first page: Press-On 51, Tab Press-On 30, Nail Polish 28, Pressies 22, Gel Polish 20, Dip). Store filter connectors/store-filters/olive-and-june.ts keeps Nail Polish and drops press-ons, gel and dip. Terms carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'PiggyPaintShopify',
+    'api',
+    'https://piggypaint.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://piggypaint.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "notes": "Piggy Paint Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250+; first page: empty product_type 110, Nail Art Kits & Accessories 92, Nail Polishes 24, Wholesale 12). Store filter connectors/store-filters/piggy-paint.ts handles the empty types. Terms carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'MavalaShopify',
+    'api',
+    'https://mavala.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://mavala.com/policies/terms-of-service',
+    false,
+    '{"currency": "CHF", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Mavala Shopify store (Switzerland, CHF). Verified 2026-11-08: /products.json returns 200 with Shopify products (150: Nail Care 34, Skincare 27, Make-Up 26, Instruments 19, Nail Polish 19). The generic connector polish filter applies unchanged. The terms page answered HTTP 500 on 2026-11-08, so the terms are unknown. robots.txt does not disallow products.json. REGISTERED DISABLED AND PENDING: the terms page answered HTTP 500, so whether automated access is allowed is unknown. The owner reads the site terms (or gets the store''s written OK) and records it here as ''Acceptable use confirmed by <name, role> at Mavala on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 150, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'WetNWildShopify',
+    'api',
+    'https://wetnwildbeauty.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://wetnwildbeauty.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "vendorAliases": {"Markwins WNW": "Wet n Wild", "wet n wild Beauty": "Wet n Wild"}, "priority": "medium", "mvp": "no", "notes": "wet n wild Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250+ cosmetics; polish is not on page 1). Store filter connectors/store-filters/wet-n-wild.ts keeps title/type Nail Color. Terms carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'AlchemyLacquersShopify',
+    'api',
+    'https://alchemylacquers.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://alchemylacquers.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "vendorAliases": {"My Store": "Alchemy Lacquers"}, "priority": "medium", "mvp": "no", "notes": "Alchemy Lacquers Shopify store (US indie, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (228: Nail Lacquer 198, empty product_type 30). The generic gate handles the page except for blind listings (Mystery Overpours); the store filter connectors/store-filters/alchemy-lacquers.ts drops mystery, grab bag, sample and pick-N listings and defers the rest to it. Vendor My Store (12 coats and toppers) is aliased to Alchemy Lacquers. Terms (2,100 characters) carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 228, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'PenelopeLuzShopify',
+    'api',
+    'https://penelopeluz.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://penelopeluz.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "notes": "Penelope Luz Shopify store (US indie, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (216; product_type is empty on all). Store filter connectors/store-filters/penelope-luz.ts (title blocklist + description check). Terms (2,000 characters) carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 216, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'NoodlesNailPolishShopify',
+    'api',
+    'https://noodlesnailpolish.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://noodlesnailpolish.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "notes": "Noodles Nail Polish Shopify store (US indie, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (57; product_type is empty). Store filter connectors/store-filters/noodles.ts (title blocklist + description check). Terms (600 characters) carry no automated-access clause. robots.txt does not disallow products.json. Registered as a brand store (no metadata.kind). Enabled 2026-11-08 under decision D2 (no automated-access clause); the store''s written OK has not been requested.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 57, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": false}}'::jsonb
+  ),
+  (
+    'CndShopify',
+    'api',
+    'https://cnd.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://cnd.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "CND Shopify store (US, Vinylux and Shellac, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (117: empty product_type 111, Gel Polish 6). Store filter connectors/store-filters/cnd.ts handles the empty types. There is no terms page at /policies/terms-of-service (404). robots.txt does not disallow products.json. REGISTERED DISABLED AND PENDING: there is no terms page at the Shopify path, so whether automated access is allowed is unknown. The owner reads the site terms (or gets the store''s written OK) and records it here as ''Acceptable use confirmed by <name, role> at CND on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "products": 117, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'BarryMShopify',
+    'api',
+    'https://barrym.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://barrym.com/policies/terms-of-service',
+    false,
+    '{"currency": "GBP", "vendorAliases": {"barry m store": "Barry M", "barrym-cosmetics": "Barry M"}, "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Barry M Shopify store (UK, GBP). Verified 2026-11-08: /products.json returns 200 with Shopify products (250+; first page: Nail Paint 106, plus lip and eye cosmetics). Store filter connectors/store-filters/barry-m.ts; Nail Paint is the polish signal. The terms page at the Shopify path is a 404. robots.txt does not disallow products.json. REGISTERED DISABLED AND PENDING: the terms page at the Shopify path is a 404, so whether automated access is allowed is unknown. The owner reads the site terms (or gets the store''s written OK) and records it here as ''Acceptable use confirmed by <name, role> at Barry M on <date> via <channel>: <summary>'', then sets enabled = true and removes pendingApproval.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": null}}'::jsonb
+  ),
+  (
+    'DazzleDryShopify',
+    'api',
+    'https://dazzledry.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://dazzledry.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Dazzle Dry Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250 on page 1; Nail Lacquer 83, (empty) 75, Mini Lacquer 61, Mini Flight 10). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'SundaysShopify',
+    'api',
+    'https://dearsundays.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://dearsundays.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Sundays Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (94 on page 1; types empty on 89, bundles 3, gift cards 1, Nail Polishes 1; needs a store filter). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 94, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'JinsoonShopify',
+    'api',
+    'https://jinsoon.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://jinsoon.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "JINsoon Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (135 on page 1; types empty on 115, Nail Polishes 15, gift cards 4, tool 1; needs a store filter). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 135, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'TenovertenShopify',
+    'api',
+    'https://tenoverten.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://tenoverten.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Tenoverten Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (79 on page 1; 28 of them polishes). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 79, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'NailberryShopify',
+    'api',
+    'https://nailberry.co.uk',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://nailberry.co.uk/policies/terms-of-service',
+    false,
+    '{"currency": "GBP", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Nailberry Shopify store (UK, GBP). Verified 2026-11-08: /products.json returns 200 with Shopify products (133 on page 1; L''Oxygene 71, Outlet 13, BioGlow 11, gift sets 7, base and top coat 7). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 133, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'DndShopify',
+    'api',
+    'https://dndgel.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://dndgel.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "DND Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250 on page 1; a gel system: (empty) 239, nondiscount 11). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''. DND is a gel system, gel only: it needs a store filter that honours includeGel before it can be enabled (the generic gate has no gel rule, so includeGel alone changes nothing).", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'GlamPolishShopify',
+    'api',
+    'https://glampolish.com.au',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://glampolish.com.au/policies/terms-of-service',
+    false,
+    '{"currency": "AUD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Glam Polish Shopify store (Australia, AUD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250 on page 1; types empty or \"What''s New?\"; more pages follow). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'NailHootShopify',
+    'api',
+    'https://nailhoot.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://nailhoot.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Nail Hoot Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (230 on page 1; types empty on 128, Bath and Beauty 92, Books 6, Merch 4). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 230, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'MoonShineManiShopify',
+    'api',
+    'https://moonshinemani.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://moonshinemani.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Moon Shine Mani Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (199 on page 1; types empty). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 199, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'FunLacquerShopify',
+    'api',
+    'https://funlacquer.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://funlacquer.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "FUN Lacquer Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250 on page 1; NAIL POLISH 88, GEL POLISH 84). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'AnchorAndHeartShopify',
+    'api',
+    'https://anchorandheartlacquer.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://anchorandheartlacquer.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Anchor & Heart Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (25 on page 1; Hand Care 8, Top coat 7, Nail Polish 5, Base Coat 4, Body Care 1). robots.txt does not disallow products.json. Terms: Shopify clause (the stock Shopify terms prohibit using a spider, crawl or scrape) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 25, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'ButterLondonShopify',
+    'api',
+    'https://butterlondon.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://butterlondon.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "butter LONDON Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (185 on page 1; Nail Polish 41, Lipstick 21, (empty) 11, Lip Gloss 9, Custom Bundle 8). robots.txt does not disallow products.json. Terms: own clause (no \"software robots, spiders, crawlers, or similar data gathering\") — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 185, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'EllaMilaShopify',
+    'api',
+    'https://ellamila.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://ellamila.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Ella+Mila Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250 on page 1; Nail Polishes 162, (empty) 44, Nail Sticker 29, Cuticle Cream & Oil 6). robots.txt does not disallow products.json. Terms: own clause (automated access only for search engines that honour robots.txt) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'KiaraSkyShopify',
+    'api',
+    'https://kiarasky.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://kiarasky.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Kiara Sky Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250 on page 1; gel-heavy: HF Gel Polish 149, Fixed Bundle 34, Gel Extensions 34, SERVICE 14). robots.txt does not disallow products.json. Terms: own clause (no \"software robots, spiders, crawlers, or similar data gathering\") — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'StaticNailsShopify',
+    'api',
+    'https://staticnails.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://staticnails.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Static Nails Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250 on page 1; Reusable Pop-On Manicures 97, Liquid Glass Lacquer 70). robots.txt does not disallow products.json. Terms: own clause (no \"software robots, spiders, crawlers, or similar data gathering\") — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'PacificaShopify',
+    'api',
+    'https://pacificabeauty.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://pacificabeauty.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Pacifica Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250 on page 1; mostly cosmetics: Skin Care 60, Perfume 46, Makeup 33, Haircare 32; polish is a small share). robots.txt does not disallow products.json. Terms: own clause (no \"software robots, spiders, crawlers, or similar data gathering\") — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'RevlonShopify',
+    'api',
+    'https://revlon.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://revlon.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Revlon Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (147 on page 1; a makeup store, polish not on page 1: Tweezers 11, Eyeliner 8, Eye Shadow 7, Foundation 7). robots.txt does not disallow products.json. Terms: own clause (no \"deep link\", \"page-scrape\", \"robot\", \"spider\" or other automatic device) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 147, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'ModelonesShopify',
+    'api',
+    'https://modelones.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://modelones.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Modelones Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (250 on page 1; PL 212, Gel Polish Set 8, press on nails 5, Top&Base Coat 5, Nail Tools 4). robots.txt does not disallow products.json. Terms: own clause (no harvesting, scraping, crawling or collecting information about other users) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 250, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'DreamlandLacquerShopify',
+    'api',
+    'https://dreamlandlacquer.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://dreamlandlacquer.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Dreamland Lacquer Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (72 on page 1; Nail Polishes 50, (empty) 11, Whimsy Wares 8, Accessories 3). robots.txt does not disallow products.json. Terms: own clause (no \"any robot, spider, scraping, data gathering and extraction\" tool) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 72, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
+    'EtherealLacquerShopify',
+    'api',
+    'https://ethereallacquer.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://ethereallacquer.com/policies/terms-of-service',
+    false,
+    '{"currency": "USD", "priority": "medium", "mvp": "no", "pendingApproval": true, "notes": "Ethereal Lacquer Shopify store (US, USD). Verified 2026-11-08: /products.json returns 200 with Shopify products (9 on page 1; types empty on all 9). robots.txt does not disallow products.json. Terms: own clause (no \"any robot, spider, scraping, data gathering and extraction\" tool) — registered disabled, pending the owner''s email (spec §7); enable per README ''Enabling a pending store''.", "verification": {"checkedAt": "2026-11-08", "productsJson": true, "firstPageProducts": 9, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
     'CosIng',
     'api',
     'https://ec.europa.eu/growth/sectors/cosmetics/cosing',

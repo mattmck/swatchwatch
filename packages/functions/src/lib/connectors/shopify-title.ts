@@ -1,15 +1,42 @@
+import {
+  parseAlchemyLacquersTitle,
+  parseBarryMTitle,
+  parseCoteTitle,
+  parsePiggyPaintTitle,
+  parseWetNWildTitle,
+} from "./store-filters/brand-store-titles.js";
 import { parsePolishPickupTitle } from "./store-filters/polish-pickup-title.js";
 import type { StoreFilterProduct, StoreTitleParser } from "./store-filters/types.js";
 
-export { parsePolishPickupTitle };
+export {
+  parseAlchemyLacquersTitle,
+  parseBarryMTitle,
+  parseCoteTitle,
+  parsePiggyPaintTitle,
+  parsePolishPickupTitle,
+  parseWetNWildTitle,
+};
+export { parseLineAndShadeTitle } from "./store-filters/brand-store-titles.js";
 
-/** Per-source shade-name parsers for stores whose product title is not the shade name. */
+/**
+ * Per-source shade-name parsers for stores whose product title is not the shade name: the
+ * Polish Pickup retailer, and brand stores whose titles carry a line prefix or a descriptor
+ * suffix (wet n wild, Barry M, Piggy Paint, Côte, Alchemy Lacquers).
+ */
 export const SHOPIFY_STORE_TITLE_PARSERS: Readonly<Record<string, StoreTitleParser>> = {
   PolishPickupShopify: parsePolishPickupTitle,
+  WetNWildShopify: parseWetNWildTitle,
+  BarryMShopify: parseBarryMTitle,
+  PiggyPaintShopify: parsePiggyPaintTitle,
+  CoteShopify: parseCoteTitle,
+  AlchemyLacquersShopify: parseAlchemyLacquersTitle,
 };
 
-/** Sources whose parser also yields release tags (retailers with monthly drops). */
-export const SHOPIFY_TITLE_PARSER_SOURCES: readonly string[] = Object.keys(SHOPIFY_STORE_TITLE_PARSERS);
+/**
+ * Retailer sources whose own title parser stands in for retailer-mode titles and also yields
+ * release tags (monthly drops). Brand-store parsers are not listed: their stores have no drops.
+ */
+export const SHOPIFY_TITLE_PARSER_SOURCES: readonly string[] = ["PolishPickupShopify"];
 
 /** The store's shade name for `product`, or null when `source` has no parser or it declined. */
 export function shopifyStoreShadeName(

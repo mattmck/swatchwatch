@@ -17,6 +17,7 @@ import {
   cancelIngestionJob,
   createIngestionJob,
   ensureDataSourceByName,
+  type DataSourceRecord,
   ensureSupportedShopifyDataSources,
   getDataSourceByName,
   getGlobalSettings,
@@ -34,6 +35,7 @@ import {
   updateGlobalSettings,
   upsertExternalProducts,
 } from "../lib/ingestion-repo";
+import { partitionDisabledSources, refuseIfDisabled } from "../lib/ingestion-run-guard";
 
 
 import {
@@ -467,6 +469,11 @@ async function enqueueIngestionJob(
         jsonBody: { error: `Data source '${normalizedRequest.source}' not found in data_source table` },
       };
     }
+    // After provisioning: a pending Shopify source is auto-created disabled and must be refused too.
+    const disabledResponse = refuseIfDisabled(normalizedRequest.source, source);
+    if (disabledResponse) {
+      return disabledResponse;
+    }
 
     const queuedMetrics = withPipelineMetrics(requestedMetrics, "queued", "queued", {
       queuedAt,
@@ -644,6 +651,12 @@ export async function processIngestionJobQueueMessage(
     const source = await getDataSourceByName(payload.request.source);
     if (!source) {
       throw new Error(`Data source '${payload.request.source}' not found in data_source table`);
+    }
+    // A source disabled after this job was queued stops here, before any connector pull.
+    if (source.enabled === false) {
+      stage = "source_disabled";
+      logger.warn(`Job ${payload.jobId} not run: source ${source.name} is disabled`);
+      throw new Error(`Source ${source.name} is disabled; the job was not run`);
     }
     // Source kind, image permission and connector keys, read once per job (lib/source-settings.ts).
     const sourceSettings = readSourceSettings(source.metadata, source.name);
@@ -1713,6 +1726,26 @@ async function bulkIngestionHandler(
       jsonBody: { error: `No ingestion connector available for: ${nonRunnableSources.join(", ")}` },
     };
   }
+  // Provision first (a pending Shopify source is created disabled), then check, so nothing is queued.
+  const ensuredRows = new Map<string, DataSourceRecord | null>();
+  try {
+    for (const source of sources) {
+      ensuredRows.set(source, await ensureDataSourceByName(source));
+    }
+  } catch (error) {
+    return internalServerError(context, error, "Bulk ingestion: provisioning data sources failed", "ingestion.bulk");
+  }
+  const disabledSources = partitionDisabledSources([...ensuredRows.values()]);
+  if (disabledSources.length > 0) {
+    return {
+      status: 409,
+      jsonBody: {
+        error: "source_disabled",
+        message: `Disabled sources (pending approval or switched off): ${disabledSources.join(", ")}`,
+        sources: disabledSources,
+      },
+    };
+  }
   const options = body.options ?? {};
   const queuedAt = new Date().toISOString();
   const queueMessages: string[] = [];
@@ -1741,7 +1774,7 @@ async function bulkIngestionHandler(
 
       const requestedMetrics = buildRequestedMetrics(normalizedRequest, userId);
 
-      const dataSource = await ensureDataSourceByName(source);
+      const dataSource = ensuredRows.get(source) ?? null;
       if (!dataSource) {
         context.warn(`Bulk: data source '${source}' not found, skipping`);
         continue;

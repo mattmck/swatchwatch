@@ -330,6 +330,169 @@ describe("Phase B retailer migrations", () => {
   });
 });
 
+describe("clause-free brand stores (brand sources plan, Task 10)", () => {
+  const ENABLED = {
+    DeborahLippmannShopify: "https://deborahlippmann.com",
+    LondontownShopify: "https://londontownusa.com",
+    CoteShopify: "https://coteshop.co",
+    ManucuristShopify: "https://manucurist.com",
+    OliveAndJuneShopify: "https://oliveandjune.com",
+    PiggyPaintShopify: "https://piggypaint.com",
+    WetNWildShopify: "https://wetnwildbeauty.com",
+    AlchemyLacquersShopify: "https://alchemylacquers.com",
+    PenelopeLuzShopify: "https://penelopeluz.com",
+    NoodlesNailPolishShopify: "https://noodlesnailpolish.com",
+  };
+  const PENDING = {
+    MavalaShopify: "https://mavala.com",
+    CndShopify: "https://cnd.com",
+    BarryMShopify: "https://barrym.com",
+  };
+  const FILE = "20261108150000000_add-brand-shopify-sources.sql";
+  const metadataOf = (sql, name) => {
+    const tuple = seedTuple(sql, name);
+    const literal = tuple.slice(tuple.indexOf("'{"), tuple.lastIndexOf("}'") + 1);
+    return JSON.parse(literal.slice(1).replace(/''/g, "'"));
+  };
+
+  it("registers the ten enabled stores as brand stores with their base URLs", () => {
+    for (const [source, baseUrl] of Object.entries(ENABLED)) {
+      assert.ok(SUPPORTED_SOURCES.includes(source), source);
+      assert.equal(SHOPIFY_SOURCE_BASE_URLS[source], baseUrl, source);
+      assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has(source), false, source);
+      assert.equal(SHOPIFY_RETAILER_SOURCES.has(source), false, source);
+      assert.equal(isShopifySourceEnabledByDefault(source), true, source);
+      const tuple = seedTuple(SEED_SQL, source);
+      assert.match(tuple, /,\s*true,\s*'\{/, `${source} must be seeded enabled`);
+      assert.doesNotMatch(tuple, /"pendingApproval"/, source);
+      assert.doesNotMatch(tuple, /"kind"/, source);
+      assert.doesNotMatch(tuple, /"imagesPermitted"/, source);
+      const meta = metadataOf(SEED_SQL, source);
+      assert.equal(meta.verification.termsScrapingClause, false, source);
+      assert.match(meta.currency, /^[A-Z]{3}$/, source);
+    }
+  });
+
+  it("registers CND, Barry M and Mavala disabled and pending (terms unread)", () => {
+    for (const [source, baseUrl] of Object.entries(PENDING)) {
+      assert.ok(SUPPORTED_SOURCES.includes(source), source);
+      assert.equal(SHOPIFY_SOURCE_BASE_URLS[source], baseUrl, source);
+      assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has(source), true, source);
+      assert.equal(SHOPIFY_RETAILER_SOURCES.has(source), false, source);
+      assert.equal(isShopifySourceEnabledByDefault(source), false, source);
+      const meta = metadataOf(SEED_SQL, source);
+      assert.equal(meta.pendingApproval, true, source);
+      assert.equal(meta.verification.termsScrapingClause, null, source);
+    }
+  });
+
+  it("uses the probed currencies", () => {
+    const currencies = Object.fromEntries(
+      [...Object.keys(ENABLED), ...Object.keys(PENDING)].map((name) => [name, metadataOf(SEED_SQL, name).currency])
+    );
+    assert.equal(currencies.ManucuristShopify, "EUR");
+    assert.equal(currencies.MavalaShopify, "CHF");
+    assert.equal(currencies.BarryMShopify, "GBP");
+    assert.equal(currencies.CndShopify, "USD");
+  });
+
+  it("the migration inserts the seed's metadata plus its stamp and its Down reverts only stamped rows", () => {
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, FILE), "utf8");
+    const at = sql.search(/^\s*--[\s-]*down\s+migration/im);
+    const up = sql.slice(0, at);
+    const down = sql.slice(at);
+    const id = FILE.split("_")[0];
+    for (const name of [...Object.keys(ENABLED), ...Object.keys(PENDING)]) {
+      const fromMigration = metadataOf(sql, name);
+      assert.equal(fromMigration.insertedByMigration, id, name);
+      delete fromMigration.insertedByMigration;
+      assert.deepEqual(fromMigration, metadataOf(SEED_SQL, name), name);
+    }
+    assert.match(up, /EXCLUDED\.metadata - 'insertedByMigration'/);
+    assert.ok(up.includes(`"enabledByMigration": "${id}"`));
+    assert.match(up, /ON CONFLICT \(name\) DO NOTHING/, "the pending rows are insert-only");
+    for (const name of Object.keys(ENABLED)) assert.ok(down.includes(`'${name}'`), `${name} not reverted`);
+    for (const name of Object.keys(PENDING)) assert.ok(down.includes(`'${name}'`), `${name} not reverted`);
+    assert.match(down, new RegExp(`metadata->>'insertedByMigration' = '${id}'\\s+AND NOT EXISTS`));
+    assert.ok(down.includes(`metadata->>'enabledByMigration' = '${id}'`));
+  });
+});
+
+describe("clause-bound brand stores pending approval (brand sources plan, Task 12)", () => {
+  const PENDING = {
+    DazzleDryShopify: ["https://dazzledry.com", "USD", "Shopify"],
+    SundaysShopify: ["https://dearsundays.com", "USD", "Shopify"],
+    JinsoonShopify: ["https://jinsoon.com", "USD", "Shopify"],
+    TenovertenShopify: ["https://tenoverten.com", "USD", "Shopify"],
+    NailberryShopify: ["https://nailberry.co.uk", "GBP", "Shopify"],
+    DndShopify: ["https://dndgel.com", "USD", "Shopify"],
+    GlamPolishShopify: ["https://glampolish.com.au", "AUD", "Shopify"],
+    NailHootShopify: ["https://nailhoot.com", "USD", "Shopify"],
+    MoonShineManiShopify: ["https://moonshinemani.com", "USD", "Shopify"],
+    FunLacquerShopify: ["https://funlacquer.com", "USD", "Shopify"],
+    AnchorAndHeartShopify: ["https://anchorandheartlacquer.com", "USD", "Shopify"],
+    ButterLondonShopify: ["https://butterlondon.com", "USD", "own"],
+    EllaMilaShopify: ["https://ellamila.com", "USD", "own"],
+    KiaraSkyShopify: ["https://kiarasky.com", "USD", "own"],
+    StaticNailsShopify: ["https://staticnails.com", "USD", "own"],
+    PacificaShopify: ["https://pacificabeauty.com", "USD", "own"],
+    RevlonShopify: ["https://revlon.com", "USD", "own"],
+    ModelonesShopify: ["https://modelones.com", "USD", "own"],
+    DreamlandLacquerShopify: ["https://dreamlandlacquer.com", "USD", "own"],
+    EtherealLacquerShopify: ["https://ethereallacquer.com", "USD", "own"],
+  };
+  const FILE = "20261108160000000_add-pending-clause-shopify-sources.sql";
+  const metadataOf = (sql, name) => {
+    const tuple = seedTuple(sql, name);
+    const literal = tuple.slice(tuple.indexOf("'{"), tuple.lastIndexOf("}'") + 1);
+    return JSON.parse(literal.slice(1).replace(/''/g, "'"));
+  };
+
+  it("registers all twenty stores disabled, pending and clause-flagged", () => {
+    assert.equal(Object.keys(PENDING).length, 20);
+    for (const [source, [baseUrl, currency, clause]] of Object.entries(PENDING)) {
+      assert.ok(SUPPORTED_SOURCES.includes(source), source);
+      assert.equal(SHOPIFY_SOURCE_BASE_URLS[source], baseUrl, source);
+      assert.equal(SHOPIFY_SOURCES_PENDING_APPROVAL.has(source), true, source);
+      assert.equal(SHOPIFY_RETAILER_SOURCES.has(source), false, source);
+      assert.equal(isShopifySourceEnabledByDefault(source), false, source);
+      const tuple = seedTuple(SEED_SQL, source);
+      assert.match(tuple, /,\s*false,\s*'\{/, `${source} must be seeded disabled`);
+      assert.doesNotMatch(tuple, /"kind"/, source);
+      assert.doesNotMatch(tuple, /"imagesPermitted"/, source);
+      const meta = metadataOf(SEED_SQL, source);
+      assert.equal(meta.pendingApproval, true, source);
+      assert.equal(meta.verification.termsScrapingClause, true, source);
+      assert.equal(meta.verification.robotsTxt, "products-json-not-disallowed", source);
+      assert.equal(meta.currency, currency, source);
+      assert.match(meta.notes, clause === "own" ? /Terms: own clause/ : /Terms: Shopify clause/, source);
+      assert.match(meta.notes, /pending the owner's email/, source);
+    }
+  });
+
+  it("DND's notes say it is gel only and needs a store filter that honours includeGel", () => {
+    assert.match(metadataOf(SEED_SQL, "DndShopify").notes, /needs a store filter that honours includeGel before it can be enabled/);
+  });
+
+  it("the migration inserts the seed's metadata plus its stamp, insert-only, and its Down reverts only stamped rows", () => {
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, FILE), "utf8");
+    const at = sql.search(/^\s*--[\s-]*down\s+migration/im);
+    const up = sql.slice(0, at);
+    const down = sql.slice(at);
+    const id = FILE.split("_")[0];
+    for (const name of Object.keys(PENDING)) {
+      const fromMigration = metadataOf(sql, name);
+      assert.equal(fromMigration.insertedByMigration, id, name);
+      delete fromMigration.insertedByMigration;
+      assert.deepEqual(fromMigration, metadataOf(SEED_SQL, name), name);
+      assert.ok(down.includes(`'${name}'`), `${name} not reverted`);
+    }
+    assert.match(up, /ON CONFLICT \(name\) DO NOTHING/, "the pending rows are insert-only");
+    assert.doesNotMatch(up, /DO UPDATE/);
+    assert.match(down, new RegExp(`metadata->>'insertedByMigration' = '${id}'\\s+AND NOT EXISTS`));
+  });
+});
+
 describe("retailer source kind", () => {
   it("lists the four retailer sources", () => {
     assert.deepEqual(

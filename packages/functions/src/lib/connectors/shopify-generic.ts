@@ -54,7 +54,7 @@ const RETRY_BASE_DELAY_MS = parseIntEnv(
   100,
   30000
 );
-const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
+export const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
 const SHOPIFY_PAGE_LIMIT = 250;
 /** Pages of `SHOPIFY_PAGE_LIMIT` products read per run: `SHOPIFY_CONNECTOR_MAX_PAGES`, overridden per source by `metadata.maxPages`. */
 const DEFAULT_MAX_SHOPIFY_PAGES = parseIntEnv(process.env.SHOPIFY_CONNECTOR_MAX_PAGES, 30, 1, 200);
@@ -582,7 +582,7 @@ export class ShopifyGenericConnector implements ProductConnector {
           asNonEmptyString(product.vendor),
           // The brand the record will carry (a placeholder vendor resolves to the store's brand;
           // a retailer listing's vendor goes through the source's alias map).
-          retailer ? retailer.brand : resolveShopifyVendor(product.vendor, this.brandName),
+          retailer ? retailer.brand : resolveBrandStoreVendor(product.vendor, this.settings?.vendorAliases, this.brandName),
           asNonEmptyString(product.handle),
           ...tags,
           // The record's derived collections and finishes, as the enriched record carries them.
@@ -607,6 +607,7 @@ export class ShopifyGenericConnector implements ProductConnector {
         enrichShopifyRecord(product, {
           baseUrl: this.baseUrl,
           brandName: this.brandName,
+          ...(this.settings ? { vendorAliases: this.settings.vendorAliases } : {}),
           source: this.source,
           storeCurrency: storeCurrency.currency,
           category,
@@ -813,6 +814,39 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   HarlowAndCoShopify: "https://www.harlowandco.org",
   BeyondPolishShopify: "https://www.beyondpolish.com",
   HypnoticPolishShopify: "https://www.hypnoticpolish.com",
+  DeborahLippmannShopify: "https://deborahlippmann.com",
+  LondontownShopify: "https://londontownusa.com",
+  CoteShopify: "https://coteshop.co",
+  ManucuristShopify: "https://manucurist.com",
+  OliveAndJuneShopify: "https://oliveandjune.com",
+  PiggyPaintShopify: "https://piggypaint.com",
+  MavalaShopify: "https://mavala.com",
+  WetNWildShopify: "https://wetnwildbeauty.com",
+  AlchemyLacquersShopify: "https://alchemylacquers.com",
+  PenelopeLuzShopify: "https://penelopeluz.com",
+  NoodlesNailPolishShopify: "https://noodlesnailpolish.com",
+  CndShopify: "https://cnd.com",
+  BarryMShopify: "https://barrym.com",
+  DazzleDryShopify: "https://dazzledry.com",
+  SundaysShopify: "https://dearsundays.com",
+  JinsoonShopify: "https://jinsoon.com",
+  TenovertenShopify: "https://tenoverten.com",
+  NailberryShopify: "https://nailberry.co.uk",
+  DndShopify: "https://dndgel.com",
+  GlamPolishShopify: "https://glampolish.com.au",
+  NailHootShopify: "https://nailhoot.com",
+  MoonShineManiShopify: "https://moonshinemani.com",
+  FunLacquerShopify: "https://funlacquer.com",
+  AnchorAndHeartShopify: "https://anchorandheartlacquer.com",
+  ButterLondonShopify: "https://butterlondon.com",
+  EllaMilaShopify: "https://ellamila.com",
+  KiaraSkyShopify: "https://kiarasky.com",
+  StaticNailsShopify: "https://staticnails.com",
+  PacificaShopify: "https://pacificabeauty.com",
+  RevlonShopify: "https://revlon.com",
+  ModelonesShopify: "https://modelones.com",
+  DreamlandLacquerShopify: "https://dreamlandlacquer.com",
+  EtherealLacquerShopify: "https://ethereallacquer.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -835,6 +869,33 @@ export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   "PolishPickupShopify",
   // Retailer source, pending the store's written OK (Shopify default terms clause); brand sources plan, Task 8.
   "HypnoticPolishShopify",
+  // Brand stores whose terms could not be read (Mavala: terms page answered 500; CND: no terms
+  // page; Barry M: terms page 404), 2026-11-08; brand sources plan, Task 10.
+  "MavalaShopify",
+  "CndShopify",
+  "BarryMShopify",
+  // Brand stores whose terms carry an automated-access clause (eleven the stock Shopify one, nine their
+  // own), 2026-11-08; pending the owner's email (spec section 7); brand sources plan, Task 12.
+  "DazzleDryShopify",
+  "SundaysShopify",
+  "JinsoonShopify",
+  "TenovertenShopify",
+  "NailberryShopify",
+  "DndShopify",
+  "GlamPolishShopify",
+  "NailHootShopify",
+  "MoonShineManiShopify",
+  "FunLacquerShopify",
+  "AnchorAndHeartShopify",
+  "ButterLondonShopify",
+  "EllaMilaShopify",
+  "KiaraSkyShopify",
+  "StaticNailsShopify",
+  "PacificaShopify",
+  "RevlonShopify",
+  "ModelonesShopify",
+  "DreamlandLacquerShopify",
+  "EtherealLacquerShopify",
 ]);
 
 /** Retailer sources (listings attach to brand shades as extra buy links; never override brand-store data). */
@@ -890,6 +951,29 @@ function collapseVendorKey(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/** The `vendorAliases` target for `vendor` (keys matched lower-cased and whitespace-collapsed), else null. */
+function vendorAliasFor(vendor: string | null, aliases: Record<string, string> | undefined): string | null {
+  if (!vendor || !aliases) {
+    return null;
+  }
+  const key = collapseVendorKey(vendor);
+  const alias = Object.entries(aliases).find(([aliasKey]) => collapseVendorKey(aliasKey) === key);
+  return alias ? alias[1] : null;
+}
+
+/**
+ * The brand of a product on a brand store: the source's `vendorAliases` entry for the vendor
+ * first (wet n wild lists products as "Markwins WNW" and "wet n wild Beauty"), else exactly
+ * `resolveShopifyVendor`, so a brand store without aliases is unchanged.
+ */
+export function resolveBrandStoreVendor(
+  vendor: unknown,
+  aliases: Record<string, string> | undefined,
+  brandName: string
+): string {
+  return vendorAliasFor(asNonEmptyString(vendor), aliases) ?? resolveShopifyVendor(vendor, brandName);
+}
+
 /**
  * The brand a retailer (or feed) listing belongs to: the source's `vendorAliases` entry for the
  * vendor (matched lower-cased and whitespace-collapsed), else the vendor as `resolveShopifyVendor`
@@ -903,12 +987,9 @@ export function resolveRetailerVendor(
   kind: SourceKind = "brand"
 ): string | null {
   const normalized = asNonEmptyString(vendor);
-  if (normalized) {
-    const key = collapseVendorKey(normalized);
-    const alias = Object.entries(aliases).find(([aliasKey]) => collapseVendorKey(aliasKey) === key);
-    if (alias) {
-      return alias[1];
-    }
+  const alias = vendorAliasFor(normalized, aliases);
+  if (alias) {
+    return alias;
   }
   if (kind !== "brand" && (!normalized || PLACEHOLDER_VENDORS.has(normalized.toLowerCase()))) {
     return null;
@@ -1035,6 +1116,8 @@ function gateRetailerListing(
 export interface ShopifyEnrichContext {
   baseUrl: string;
   brandName: string;
+  /** The source's `vendorAliases` (brand mode: consulted before the raw vendor). */
+  vendorAliases?: Record<string, string>;
   /** The connector source name (store title parsers and retailer release tags are per source). */
   source: string;
   storeCurrency: string | null;
@@ -1049,7 +1132,7 @@ export async function enrichShopifyRecord(
   product: ShopifyProduct,
   context: ShopifyEnrichContext
 ): Promise<ConnectorProductRecord> {
-  const { baseUrl, brandName, source, storeCurrency, category: productCategory, retailer } = context;
+  const { baseUrl, brandName, vendorAliases, source, storeCurrency, category: productCategory, retailer } = context;
   const externalId = asNonEmptyString(product.id) as string;
   const rawTitle = asNonEmptyString(product.title) as string;
   // Retailer titles ("Vendor | Shade", or a retailer-mode "Brand Line - Shade - #CODE") are parsed
@@ -1062,7 +1145,7 @@ export async function enrichShopifyRecord(
   const productType = asNonEmptyString(product.product_type);
 
   const handle = asNonEmptyString(product.handle);
-  const vendor = retailer ? retailer.brand : resolveShopifyVendor(product.vendor, brandName);
+  const vendor = retailer ? retailer.brand : resolveBrandStoreVendor(product.vendor, vendorAliases, brandName);
   // A retailer's tags are its own merchandising, not the brand's collections, and its listing
   // never sets the legacy finish identity key: canonical finishes come from the tags at
   // materialization (tags, then descriptors, then description text).
