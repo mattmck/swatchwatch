@@ -872,6 +872,8 @@ describe("SitemapJsonLdConnector: PR #506 review follow-ups", () => {
     assert.equal(result.records.length, 3);
     assert.ok(!result.catalog.externalIds.includes("/products/nail-lacquer-gift-set-trio"));
     assert.equal(result.catalog.externalIds.length, 3);
+    // Never confirmed either way: listing freshness must not run on this crawl.
+    assert.equal(result.catalog.complete, false);
     assert.deepEqual(cache.peek().robotsDisallowed, [giftUrl]);
     const warnings = logs.filter((entry) => entry.level === "warn" && entry.message.includes(giftUrl));
     assert.equal(warnings.length, 1);

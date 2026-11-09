@@ -751,7 +751,7 @@ export class SitemapJsonLdConnector implements ProductConnector {
     const built = windowed.map((entry) => buildCrawledRecord(entry, this.settings));
     // A failed (flaky) page keeps its listing; a page that answered 404/410 is left out so a
     // delisted product lingering in a lagging sitemap gets missing_since.
-    // A page robots.txt disallows is left out the same way (never fetched, so never confirmed).
+    // A page robots.txt disallows is left out too (never fetched, so never confirmed).
     const gone = new Set([...state.gone, ...state.robotsDisallowed]);
     const externalIds = [...new Set(state.urls.filter(({ url }) => !gone.has(url)).map(({ url }) => urlPath(url)))];
 
@@ -760,7 +760,13 @@ export class SitemapJsonLdConnector implements ProductConnector {
       records: built.map((entry) => entry.record),
       // Every page URL the sitemap listed (before the gate and the window), on every pull of a
       // complete crawl; the worker runs listing freshness once per job.
-      catalog: { externalIds, complete: externalIds.length > 0 },
+      // A robots exclusion (a disallowed page or a skipped child sitemap) leaves listings that
+      // were never confirmed either way, so the catalog is reported incomplete and the worker
+      // skips listing freshness rather than marking them missing.
+      catalog: {
+        externalIds,
+        complete: externalIds.length > 0 && state.robotsDisallowed.length === 0 && state.discovery.foreignSkipped === 0,
+      },
       metadata: {
         ...crawlMetadata,
         responsePage: options.page,
