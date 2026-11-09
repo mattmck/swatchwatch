@@ -875,7 +875,7 @@ describe("SitemapJsonLdConnector: PR #506 review follow-ups", () => {
     // Never confirmed either way: listing freshness must not run on this crawl.
     assert.equal(result.catalog.complete, false);
     assert.deepEqual(cache.peek().robotsDisallowed, [giftUrl]);
-    const warnings = logs.filter((entry) => entry.level === "warn" && entry.message.includes(giftUrl));
+    const warnings = logs.filter((entry) => entry.level === "warn" && entry.data?.url === giftUrl);
     assert.equal(warnings.length, 1);
 
     // A later pull of the complete crawl neither fetches nor logs it again.
@@ -888,7 +888,7 @@ describe("SitemapJsonLdConnector: PR #506 review follow-ups", () => {
       log: (level, message, data) => logs.push({ level, message, data }),
     });
     assert.equal(log.length, 0);
-    assert.equal(logs.filter((entry) => entry.message.includes(giftUrl)).length, 0);
+    assert.equal(logs.filter((entry) => entry.data?.url === giftUrl).length, 0);
   });
 
   it("skips a child sitemap robots.txt disallows and counts it with the foreign ones", async () => {
