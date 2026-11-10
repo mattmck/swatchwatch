@@ -102,6 +102,7 @@ import {
   type CaptureFrameEntry,
   type QuestionAction,
 } from "@/lib/rapid-add-flow";
+import { guideRegionForFrame } from "@/lib/guide-region";
 import { assessFrameQuality, FRAME_QUALITY_WARNING_COPY } from "@/lib/camera";
 import {
   EMPTY_SHELF,
@@ -577,6 +578,12 @@ export default function RapidAddPage() {
           mimeType: event.file?.type,
           fileSize: event.file?.size,
           surface: target.surface,
+          guideRegion: guideRegionForFrame({
+            bottleCapture: bottleCaptureRef.current,
+            surface: target.surface,
+            trigger: event.trigger,
+            shown: event.shownGuide,
+          }),
         }),
       };
       framesRef.current = [...framesRef.current, { ...frame, status: "uploading", attempts: 1 }];
