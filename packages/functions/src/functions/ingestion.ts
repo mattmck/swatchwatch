@@ -276,6 +276,10 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "skippedNoDetection",
   "noShadeMatch",
   "ambiguousShadesSkipped",
+  "brandStoreShadesMoved",
+  "brandStoreShadesRenamed",
+  "brandStoreShadesMerged",
+  "brandStoreCorrectionsSkipped",
 ]);
 
 /**
@@ -942,6 +946,8 @@ export async function processIngestionJobQueueMessage(
               storeImages: sourceSettings.imagesPermitted,
               sourceKind: sourceSettings.kind,
               sourceName: payload.request.source,
+              // Audit actor of brand-store corrections (moved / merged shades).
+              actorUserId: payload.userId,
               useBatchForHexDetection: hexBatchConfig.enabled && !hexBatchDegraded,
               batchMinImages: hexBatchConfig.minImages,
               progressLogger: {

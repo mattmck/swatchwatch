@@ -17,6 +17,7 @@
     "dedupe:gallery-images": "node scripts/dedupe-gallery-images.cjs",
     "remove:source-images": "node scripts/remove-source-images.cjs",
     "dedupe:makeupapi-shades": "node scripts/dedupe-makeupapi-shades.cjs",
+    "backfill:brand-store-rejected": "node scripts/backfill-brand-store-rejected.cjs",
     "backfill:barcodes": "node scripts/backfill-barcodes.cjs",
     "roster:polish-pickup": "node scripts/polish-pickup-roster.cjs",
     "backfill:imported-wishlist": "node scripts/backfill-imported-wishlist.cjs",

@@ -314,6 +314,59 @@ const BACKFILLS: BackfillDefinition[] = [
     applyConfirm:
       "Merge the duplicate MakeupAPI shades and permanently delete the unused MakeupAPI-only shades? Each change is recorded in the admin audit log.",
   },
+  {
+    id: "brand-store-rejected",
+    title: "Products a brand store no longer accepts",
+    description:
+      "Re-runs each brand store's current product filter on the stored product of every listing and excludes the shades whose every listing it now rejects (gel and LED lines while includeGel is off, another vendor's items on the store). A retailer listing or one product still accepted keeps the shade. Held, user, approved and admin-edited shades are kept and listed. Each exclusion is logged in the category change log so it can be undone; listings stay, so turning a filter back on finds the same shade. Brands left without an active shade are listed, never deleted.",
+    command: "npm run backfill:brand-store-rejected --workspace=swatchwatch-functions -- --write",
+    path: "shades-admin/brand-store-rejected/backfill",
+    cursorKey: "afterShadeId",
+    nextKey: "nextAfterShadeId",
+    dryRun: true,
+    defaultLimit: 200,
+    maxLimit: 1000,
+    sources: true,
+    sourcesHint: "Brand store data sources, comma-separated (e.g. LeMiniMacaronShopify); empty = every brand store",
+    metrics: [
+      { key: "scannedShades", label: "Shades read" },
+      { key: "retired", label: "Excluded" },
+    ],
+    lists: [
+      {
+        key: "retire",
+        label: "Excluded shades",
+        format: (s) => `${s.shadeId} ${s.brand} "${s.name}"`,
+      },
+      {
+        key: "held",
+        label: "Held (kept)",
+        format: (s) => `${s.shadeId} ${s.brand} "${s.name}": ${s.holders} holder(s)`,
+      },
+      {
+        key: "protectedShades",
+        label: "Protected (kept)",
+        format: (s) => `${s.shadeId} ${s.brand} "${s.name}": ${Array.isArray(s.reasons) ? s.reasons.join(", ") : ""}`,
+      },
+      {
+        key: "partial",
+        label: "Partly rejected (kept)",
+        format: (s) => `${s.shadeId} ${s.brand} "${s.name}": kept by ${Array.isArray(s.keptBy) ? s.keptBy.join(", ") : ""}`,
+      },
+      {
+        key: "unsupported",
+        label: "Cannot be re-checked",
+        format: (s) => `${s.shadeId} ${s.brand} "${s.name}": ${Array.isArray(s.sources) ? s.sources.join(", ") : ""}`,
+      },
+      {
+        key: "brandsWithoutActiveShades",
+        label: "Brands without an active shade",
+        format: (b) => `${b.brandId} ${b.brand} (${b.shades} shade rows)`,
+      },
+    ],
+    applyConfirm:
+      "Exclude the shades whose every brand-store listing the store's filter now rejects? Each exclusion is logged and can be undone.",
+  },
 ];
 
 type RunStatus = "idle" | "running" | "done" | "stopped" | "failed";

@@ -181,6 +181,30 @@ the ingestion to-do list. Goal 2 feeds goal 1; goal 1 tells goal 2 what to inges
   materialiser; the same path would take any list a maker sends.
 - **Not done on request:** getting past Cloudflare or other bot checks with anti-detect browsers.
 
+**2026-11-10, overnight:**
+
+- **Committed and pushed:** retailer images on for Harlow & Co and Beyond Polish (D28, migration
+  `20261110130000000`), and the brand and shade-name rules for China Glaze, Le Mini Macaron,
+  Starrily, Lights Lacquer and Cracked Polish (migration `20261110140000000`, four title parsers,
+  two store filters). Offline over the stored products: China Glaze 72 of 75 under the right brand,
+  Le Mini Macaron 42 of 181 (139 gel or LED dropped), Starrily 203, Lights Lacquer 165, Cracked 130.
+- **A re-run does not repair shades already filed under the wrong brand** (the product's own
+  listing wins and the shade's brand is never updated). In progress: make a brand-store re-run
+  self-correcting (move or merge to the right brand, clean the name, retire shades whose product
+  the store filter now rejects).
+- **Image storage is unbounded per product, and it nearly filled this disk.** Brand stores keep
+  every product photo: about 30 per product for Cracked and Bee's Knees, 16,000 images (several
+  GB) in two hours locally. `GALLERY_MAX_IMAGES_PER_SHADE` only limits what is linked, not what is
+  stored. On dev and prod this is blob storage cost and ingest time (Bee's Knees ran at about 30
+  products per 4-minute slice). **Needs a per-product download cap before the dev ingest.**
+- **The admin per-source "download images" setting is not read by the worker.**
+  `metadata.ingestion.downloadImages` is saved and returned by the settings endpoints, but storage
+  is decided by `imagesPermitted` only.
+- **Local disk guard:** the Cracked and Bee's Knees jobs were cancelled at 130 of 505 and 80 of 565
+  and re-queued with `imagesPermitted: false` set in the local database only (marked
+  `localDiskGuard`), so their catalogs complete without more photos. The retailer re-run with
+  images waits for disk space (13 GB free; five merged worktrees hold 16 GB).
+
 ## Goal 1 — Rapid Add and inventory mode
 
 **Done means:** on the labelled photo set, every bottle that is in the catalog is matched or offered

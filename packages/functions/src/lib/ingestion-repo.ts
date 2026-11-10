@@ -49,6 +49,8 @@ import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
 import { MAKEUPAPI_CODE_SUFFIX_PATTERN, makeupApiNameKey, makeupApiNameKeySql } from "./makeupapi-dedupe";
 import { materializeProductBarcodes, type BarcodeConflict } from "./barcodes";
+import { correctBrandStoreShade, type BrandStoreCorrection } from "./brand-store-correction";
+import { invalidatePolishCachesForUser } from "./polish-cache";
 import {
   fingerprintColumnsSql,
   fingerprintFromColumns,
@@ -154,6 +156,14 @@ export interface HoloTacoMaterializationMetrics {
   barcodeConflicts: number;
   /** Records skipped because several shades fit them (each one is in the job log with the ids). */
   ambiguousShadesSkipped: number;
+  /** Brand store corrections (`correctBrandStoreShade`): shades moved to the record's brand. */
+  brandStoreShadesMoved: number;
+  /** Shades renamed to the store's clean name (in place, with or without a brand move). */
+  brandStoreShadesRenamed: number;
+  /** Shades merged into the record's brand's existing shade. */
+  brandStoreShadesMerged: number;
+  /** Corrections skipped (protected shade, another brand store's listing, ambiguous target; each in the job log). */
+  brandStoreCorrectionsSkipped: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -204,6 +214,11 @@ export interface HoloTacoMaterializationOptions {
    * `HoloTacoShopify` (or unset), which falls back to the "Holo Taco" brand.
    */
   sourceName?: string;
+  /**
+   * The admin who queued the job: the `admin_audit_event` actor of a brand-store correction
+   * (`correctBrandStoreShade`). Unset or null: the correction is only in the job log.
+   */
+  actorUserId?: number | null;
 }
 
 interface MakeupColorVariant {
@@ -3030,6 +3045,8 @@ interface HoloTacoRecordMaterializationDelta {
   barcodeInvalidCheckDigits: string[];
   /** Another shade holds the product's raw store title while the clean name matched (admin should merge; logged by the caller). */
   rawTitleDuplicate?: { brand: string; name: string; rawTitle: string; matchedShadeId: number; rawShadeId: number };
+  /** A brand store moved, renamed, merged or left (skipped) the shade its listing pointed at (logged by the caller). */
+  correction?: BrandStoreCorrection;
   skipped: number;
   /** Why the record was skipped (job-log text); unset = no normalized data or shade name. */
   skipReason?: string;
@@ -3046,8 +3063,12 @@ interface HoloTacoRecordMaterializationDelta {
 type ShadeLookupKind = "brand" | "adopt";
 
 type ExistingShadeLookup =
-  /** Materialize onto this shade. */
-  | { outcome: "found"; shadeId: number }
+  /**
+   * Materialize onto this shade. `via`: the product's own listing (step 0), the exact identity
+   * (step 1) or a same-name candidate (step 2); only a listing match is corrected
+   * (`correctBrandStoreShade`).
+   */
+  | { outcome: "found"; shadeId: number; via?: "listing" | "identity" | "candidate" }
   /** Create a new shade; `candidateShadeIds` are same-name shades whose finishes did not fit. */
   | { outcome: "create"; candidateShadeIds: number[] }
   /** Several listings or candidates fit: skip the record, never pick one. */
@@ -3108,7 +3129,7 @@ async function findExistingShadeForRecord(
     .filter((id) => id !== null && id !== undefined)
     .map(Number);
   if (listedShadeIds.length === 1) {
-    return { outcome: "found", shadeId: listedShadeIds[0] };
+    return { outcome: "found", shadeId: listedShadeIds[0], via: "listing" };
   }
   if (listedShadeIds.length > 1 && kind === "adopt") {
     return { outcome: "ambiguous", candidateShadeIds: listedShadeIds };
@@ -3127,11 +3148,11 @@ async function findExistingShadeForRecord(
       // Several listings for one product: the exact identity decides only among the linked shades,
       // so the product never gains a third link; otherwise skip it like any ambiguous record.
       return exact && listedShadeIds.includes(Number(exact.shadeId))
-        ? { outcome: "found", shadeId: Number(exact.shadeId) }
+        ? { outcome: "found", shadeId: Number(exact.shadeId), via: "listing" }
         : { outcome: "ambiguous", candidateShadeIds: listedShadeIds };
     }
     if (exact) {
-      return { outcome: "found", shadeId: Number(exact.shadeId) };
+      return { outcome: "found", shadeId: Number(exact.shadeId), via: "identity" };
     }
   }
 
@@ -3170,7 +3191,7 @@ async function findExistingShadeForRecord(
   );
   const candidateShadeIds = candidates.rows.map((candidate) => Number(candidate.shadeId));
   if (compatible.length === 1) {
-    return { outcome: "found", shadeId: Number(compatible[0].shadeId) };
+    return { outcome: "found", shadeId: Number(compatible[0].shadeId), via: "candidate" };
   }
   return { outcome: compatible.length === 0 ? "create" : "ambiguous", candidateShadeIds };
 }
@@ -3325,7 +3346,7 @@ async function materializePreparedHoloTacoRecord(
   sourceLogPrefix: string,
   brandCache: Map<string, number>,
   finishCatalog?: FinishCatalog,
-  sourceOptions: Pick<HoloTacoMaterializationOptions, "sourceKind" | "sourceName" | "progressLogger"> = {}
+  sourceOptions: Pick<HoloTacoMaterializationOptions, "sourceKind" | "sourceName" | "progressLogger" | "actorUserId"> = {}
 ): Promise<HoloTacoRecordMaterializationDelta> {
   const delta: HoloTacoRecordMaterializationDelta = {
     processed: 0,
@@ -3444,6 +3465,22 @@ async function materializePreparedHoloTacoRecord(
   let shadeId: number;
   if (existingShade.outcome === "found") {
     shadeId = existingShade.shadeId;
+    if (sourceKind === "brand" && existingShade.via === "listing") {
+      // An earlier run may have filed the product under a vendor spelling or its raw title: move,
+      // rename or merge the shade onto the record's brand and clean name (lib/brand-store-correction.ts).
+      const correction = await correctBrandStoreShade(client, {
+        shadeId,
+        dataSourceId,
+        sourceName: sourceOptions.sourceName,
+        externalId: record.externalId,
+        record: { brandId: Number(brandId), brand: brandName, name: holo.name, finish: holo.finish, collection: holo.collection },
+        rawTitle: holo.rawTitle,
+        actorUserId: sourceOptions.actorUserId ?? null,
+        finishesFit: (candidateFinishes) => finishesFitRecord(ingestedFinishes, candidateFinishes, finishCatalog),
+      });
+      if (correction.outcome !== "unchanged") delta.correction = correction;
+      if (correction.outcome === "merged") shadeId = correction.targetShadeId;
+    }
     if (holo.rawTitle && holo.rawTitle.toLowerCase() !== holo.name.toLowerCase()) {
       const rawShadeId = await findShadeByRawTitle(client, {
         brandId,
@@ -3931,6 +3968,54 @@ async function materializePreparedHoloTacoRecord(
 }
 
 /**
+ * Job-log line(s) for one brand-store correction (info for a move, rename or merge, warn for a
+ * skip) and the counts it adds to the job metrics. After a merge the polish caches of the users
+ * whose inventory moved are dropped (the record's transaction has committed).
+ */
+async function reportBrandStoreCorrection(
+  correction: BrandStoreCorrection,
+  externalId: string,
+  sourceLogPrefix: string,
+  progressLogger: HoloTacoMaterializationOptions["progressLogger"]
+): Promise<{ moved: number; renamed: number; merged: number; skipped: number }> {
+  const counts = { moved: 0, renamed: 0, merged: 0, skipped: 0 };
+  if (correction.outcome === "unchanged") return counts;
+  if (correction.outcome === "moved") {
+    counts.moved = correction.brandChanged ? 1 : 0;
+    counts.renamed = correction.renamed ? 1 : 0;
+    const what = [
+      correction.brandChanged ? `brand ${correction.fromBrand} → ${correction.toBrand}` : null,
+      correction.renamed ? `name "${correction.fromName}" → "${correction.toName}"` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const message = `${sourceLogPrefix} Corrected shade ${correction.shadeId} of ${externalId}: ${what}`;
+    console.log(message);
+    progressLogger?.info(message, { externalId, ...correction });
+    return counts;
+  }
+  if (correction.outcome === "merged") {
+    counts.merged = 1;
+    const message = `${sourceLogPrefix} Merged shade ${correction.sourceShadeId} (${correction.fromBrand} "${correction.fromName}") of ${externalId} into ${correction.toBrand} shade ${correction.targetShadeId} "${correction.targetName}" (${correction.movedInventoryRows + correction.combinedInventoryRows} inventory rows moved)`;
+    console.log(message);
+    progressLogger?.info(message, { externalId, ...correction });
+    for (const userId of correction.affectedUserIds) {
+      try {
+        await invalidatePolishCachesForUser(userId, [correction.sourceShadeId, correction.targetShadeId]);
+      } catch (error) {
+        console.warn(`${sourceLogPrefix} Cache invalidation failed for user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return counts;
+  }
+  counts.skipped = 1;
+  const message = `${sourceLogPrefix} Left shade ${correction.shadeId} (${correction.fromBrand} "${correction.fromName}") of ${externalId} as it is (${correction.reason}); the store files it as ${correction.toBrand} "${correction.toName}"`;
+  console.warn(message);
+  progressLogger?.warn(message, { externalId, ...correction });
+  return counts;
+}
+
+/**
  * One job-log line per materialized chunk, e.g.
  * `Records 11–20 of 250 on page 3: 10 shades (2 new), 8 hex detected, 0 upload failures, 41.0s`.
  */
@@ -3939,13 +4024,28 @@ export function formatMaterializationSummary(
   metrics: Pick<
     HoloTacoMaterializationMetrics,
     "processed" | "shadesCreated" | "hexDetected" | "imageUploadFailures" | "skipped"
-  > & { hexDetectionFailures?: number; batchRequestsQueued?: number; ambiguousShadesSkipped?: number },
+  > & {
+    hexDetectionFailures?: number;
+    batchRequestsQueued?: number;
+    ambiguousShadesSkipped?: number;
+    brandStoreShadesMoved?: number;
+    brandStoreShadesRenamed?: number;
+    brandStoreShadesMerged?: number;
+  },
   durationMs: number
 ): string {
   const parts = [
     `${metrics.processed} shade${metrics.processed === 1 ? "" : "s"} (${metrics.shadesCreated} new)`,
     `${metrics.hexDetected} hex detected`,
   ];
+  const corrections = [
+    metrics.brandStoreShadesMoved ? `${metrics.brandStoreShadesMoved} moved to the brand` : null,
+    metrics.brandStoreShadesRenamed ? `${metrics.brandStoreShadesRenamed} renamed` : null,
+    metrics.brandStoreShadesMerged ? `${metrics.brandStoreShadesMerged} merged` : null,
+  ].filter(Boolean);
+  if (corrections.length > 0) {
+    parts.push(`shades corrected: ${corrections.join(", ")}`);
+  }
   if (metrics.batchRequestsQueued) {
     parts.push(`${metrics.batchRequestsQueued} queued for batch detection`);
   }
@@ -4002,6 +4102,10 @@ export async function materializeHoloTacoRecords(
   let barcodesLinked = 0;
   let barcodeConflicts = 0;
   let ambiguousShadesSkipped = 0;
+  let brandStoreShadesMoved = 0;
+  let brandStoreShadesRenamed = 0;
+  let brandStoreShadesMerged = 0;
+  let brandStoreCorrectionsSkipped = 0;
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
@@ -4034,9 +4138,17 @@ export async function materializeHoloTacoRecords(
             sourceKind,
             sourceName: options?.sourceName,
             progressLogger: options?.progressLogger,
+            actorUserId: options?.actorUserId ?? null,
           }
         )
       );
+      if (delta.correction) {
+        const counts = await reportBrandStoreCorrection(delta.correction, record.externalId, sourceLogPrefix, options?.progressLogger);
+        brandStoreShadesMoved += counts.moved;
+        brandStoreShadesRenamed += counts.renamed;
+        brandStoreShadesMerged += counts.merged;
+        brandStoreCorrectionsSkipped += counts.skipped;
+      }
 
       processed += delta.processed;
       brandsCreated += delta.brandsCreated;
@@ -4100,6 +4212,10 @@ export async function materializeHoloTacoRecords(
     barcodesLinked,
     barcodeConflicts,
     ambiguousShadesSkipped,
+    brandStoreShadesMoved,
+    brandStoreShadesRenamed,
+    brandStoreShadesMerged,
+    brandStoreCorrectionsSkipped,
     skipped,
   };
 
