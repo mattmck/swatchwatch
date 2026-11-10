@@ -298,7 +298,7 @@ the ingestion to-do list. Goal 2 feeds goal 1; goal 1 tells goal 2 what to inges
 
 - **Honest limits:** cropping the name read did not work on the real frames (the background label
   sits inside the guide outline), and `gpt-4o-mini` returns nominal boxes, so the off-bottle check
-  is a backstop that mostly helps `gpt-5-mini`. The clients do not send `guideRegion` yet. Cut-off
+  is a backstop that mostly helps `gpt-5-mini`. The web client sends `guideRegion` on shutter and auto-shutter bottle photos; mobile and uploaded photos do not send it yet. Cut-off
   names ("DARK MUS") stay questions: no prefix rule was safe with 80 not-in-catalog bottles.
   `gpt-5-mini`'s front brand confidence sits just under the 0.6 threshold on some Picture Polish
   takes.

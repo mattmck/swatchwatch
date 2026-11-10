@@ -1058,11 +1058,14 @@ export async function findShadesWithDetectedHex(
  * Stored images for connector image URLs this data source has already ingested, keyed by URL.
  * Shopify CDN URLs carry a `?v=` version that changes when the image is replaced, so an
  * unchanged URL means an unchanged image and the download can be skipped. A lookup failure
- * returns an empty map: reuse is an optimization and must never fail the job.
+ * returns an empty map: reuse is an optimization and must never fail the job. `onLookupFailed`
+ * tells the caller the map is empty because the lookup failed, not because nothing was stored:
+ * a capped run must then not prune (see `isProductImageSetComplete`).
  */
 export async function findStoredSourceImages(
   dataSourceId: number,
-  sourceUrls: string[]
+  sourceUrls: string[],
+  options: { onLookupFailed?: () => void } = {}
 ): Promise<Map<string, StoredSourceImage>> {
   const urls = Array.from(new Set(sourceUrls));
   if (urls.length === 0) {
@@ -1100,8 +1103,26 @@ export async function findStoredSourceImages(
         error instanceof Error ? error.message : String(error)
       }`
     );
+    options.onLookupFailed?.();
     return new Map();
   }
+}
+
+/**
+ * Whether a product's stored images are its whole current image set, which is what lets
+ * `pruneStaleGallerySwatches` unlink the rest. Images skipped by the per-product cap do not block
+ * the prune, because one an earlier run stored is reused instead of skipped. That only holds when
+ * the stored-image lookup worked: after a failed lookup a skipped image may be one the shade
+ * already links and the vendor still lists, so the set is not known to be complete.
+ */
+export function isProductImageSetComplete(input: {
+  primaryStored: boolean;
+  additionalFailures: number;
+  skippedByCap: number;
+  storedLookupFailed: boolean;
+}): boolean {
+  if (!input.primaryStored || input.additionalFailures > 0) return false;
+  return !(input.storedLookupFailed && input.skippedByCap > 0);
 }
 
 /** New catalog `image_asset` row for a stored source image, with its perceptual fingerprint when known. */
@@ -1343,6 +1364,7 @@ async function prepareHoloTacoImageData(
 
   // Images whose connector URL was already ingested are reused instead of downloaded: the
   // download (plus metadata strip and hashing) is what makes reruns slow, not the upload.
+  let storedLookupFailed = false;
   const storedImages = storeImages
     ? await findStoredSourceImages(
         dataSourceId,
@@ -1350,7 +1372,12 @@ async function prepareHoloTacoImageData(
           holo?.name && isHttpUrl(holo.primaryImageUrl)
             ? [holo.primaryImageUrl, ...holo.imageUrls.slice(1).filter(isHttpUrl)]
             : []
-        )
+        ),
+        {
+          onLookupFailed: () => {
+            storedLookupFailed = true;
+          },
+        }
       )
     : new Map<string, StoredSourceImage>();
   progressLogger?.info(`${sourceLogPrefix} Image upload started for ${records.length} record(s)`, {
@@ -1541,8 +1568,14 @@ async function prepareHoloTacoImageData(
         sourceUrl: storageUrl ? holo.primaryImageUrl : null,
         additionalImages,
         // Every image this run kept (downloaded or reused) was stored; images skipped by the cap
-        // are not part of the product's stored set, so they never block the stale-gallery prune.
-        imageSetComplete: storageUrl !== null && additionalFailures === 0,
+        // are not part of the product's stored set, so they do not block the stale-gallery prune,
+        // unless the stored-image lookup failed (a skipped image may then be an already linked one).
+        imageSetComplete: isProductImageSetComplete({
+          primaryStored: storageUrl !== null,
+          additionalFailures,
+          skippedByCap,
+          storedLookupFailed,
+        }),
         isCandidate: true,
         primaryReused,
         additionalUploaded,

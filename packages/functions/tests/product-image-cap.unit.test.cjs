@@ -90,3 +90,21 @@ describe("planProductImageDownloads", () => {
     assert.deepEqual(plan.skippedByCap, [url(3)]);
   });
 });
+
+describe("isProductImageSetComplete (prune guard)", () => {
+  const { isProductImageSetComplete } = require("../dist/lib/ingestion-repo");
+  const base = { primaryStored: true, additionalFailures: 0, skippedByCap: 0, storedLookupFailed: false };
+  it("is complete when everything kept was stored, capped or not", () => {
+    assert.equal(isProductImageSetComplete(base), true);
+    assert.equal(isProductImageSetComplete({ ...base, skippedByCap: 5 }), true);
+  });
+  it("is incomplete without a primary image or after a failed download", () => {
+    assert.equal(isProductImageSetComplete({ ...base, primaryStored: false }), false);
+    assert.equal(isProductImageSetComplete({ ...base, additionalFailures: 1 }), false);
+  });
+  it("does not allow the prune when the stored-image lookup failed and images were skipped by the cap", () => {
+    // A skipped image may be one an earlier run stored and the shade still links.
+    assert.equal(isProductImageSetComplete({ ...base, skippedByCap: 2, storedLookupFailed: true }), false);
+    assert.equal(isProductImageSetComplete({ ...base, storedLookupFailed: true }), true);
+  });
+});
