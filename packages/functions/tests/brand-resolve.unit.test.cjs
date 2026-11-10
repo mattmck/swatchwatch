@@ -169,6 +169,8 @@ describe("lib/brand-resolve — listCatalogBrandNames", () => {
     assert.match(SELECT_CATALOG_BRAND_NAMES_SQL, /merged_into_shade_id IS NULL/);
     assert.match(SELECT_CATALOG_BRAND_NAMES_SQL, /ORDER BY b\.name_canonical/);
     assert.match(SELECT_CATALOG_BRAND_NAMES_SQL, /LIMIT 301/);
+    // Synthetic fixture brands (`__TEST__`, `__TEST__ACL__`) are never named to the model.
+    assert.ok(SELECT_CATALOG_BRAND_NAMES_SQL.includes("b.name_canonical NOT LIKE '\\_\\_%'"));
   });
 });
 

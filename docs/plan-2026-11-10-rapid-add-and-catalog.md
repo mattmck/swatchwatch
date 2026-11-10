@@ -274,6 +274,35 @@ the ingestion to-do list. Goal 2 feeds goal 1; goal 1 tells goal 2 what to inges
   measures the whole frame, so it picks the hand; the local `__TEST__` brands show up in the brand
   list given to the model.
 
+**2026-11-10, late night:**
+
+- **Image cap (goal 2):** `SOURCE_IMAGE_MAX_PER_PRODUCT` (default 8) bounds downloads per product,
+  always keeping the primary image and the one hex detection would choose. It would have skipped
+  about 6,840 of 19,400 locally stored images (Cracked 71%, Bee's Knees 80%). The admin per-source
+  "download images" and "detect hex" switches are now read by the worker. Owner to add the GitHub
+  environment variable `SOURCE_IMAGE_MAX_PER_PRODUCT` in `dev` and `prod`.
+- **Reads see the held bottle (sticker read v4, glass v2):** glass colour is measured on the guide
+  region only (`quality.guideRegion` from the client, else the centre of the frame): skin-tone
+  glass hexes fell from 48 of 269 to 1 of 122, with a rule that keeps real nude polishes. The name
+  read reports where the bottle and the name are, and a name off the bottle is dropped. With no
+  catalog brand, a one-word name ("AUSTIN", the maker's city) no longer matches by name alone.
+
+  | 176 samples | `gpt-4o-mini` v3 | `gpt-4o-mini` v4 | `gpt-5-mini` v3 | `gpt-5-mini` v4 |
+  |---|---|---|---|---|
+  | In catalog (96): matched | 41 | 48 | 53 | 55 |
+  | Asked, right shade listed | 28 | 24 | 22 | 26 |
+  | Asked, right shade not listed | 4 | 6 | 9 | 3 |
+  | Unmatched | 23 | 18 | 12 | 12 |
+  | Wrong match | 0 | 0 | 0 | 0 |
+  | Not in catalog (80): wrong match | 0 | 0 | 1 | 0 |
+
+- **Honest limits:** cropping the name read did not work on the real frames (the background label
+  sits inside the guide outline), and `gpt-4o-mini` returns nominal boxes, so the off-bottle check
+  is a backstop that mostly helps `gpt-5-mini`. The clients do not send `guideRegion` yet. Cut-off
+  names ("DARK MUS") stay questions: no prefix rule was safe with 80 not-in-catalog bottles.
+  `gpt-5-mini`'s front brand confidence sits just under the 0.6 threshold on some Picture Polish
+  takes.
+
 ## Goal 1 — Rapid Add and inventory mode
 
 **Done means:** on the labelled photo set, every bottle that is in the catalog is matched or offered

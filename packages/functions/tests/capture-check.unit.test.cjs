@@ -929,11 +929,27 @@ describe("functions/capture — glass color frames", () => {
     assert.match(quality.extracted.hex, /^#[0-9A-F]{6}$/);
     assert.equal(quality.extracted.hexMethod, "palette-top");
     assert.equal(quality.extracted.hexConfidence, 0.3);
-    assert.equal(quality.extracted.hexPromptVersion, "glass-palette-pick/2026-10-v1");
+    assert.equal(quality.extracted.hexPromptVersion, "glass-palette-pick/2026-11-v2");
     assert.equal(quality.ai.glass.modelCalls, 0);
     assert.ok(quality.ai.glass.candidates.length >= 2);
     assert.ok(typeof quality.ai.processedAt === "string");
     assert.equal(chatCalls, 0, "an unconfigured model is never called");
+  });
+
+  it("flag on: measures the client's guide region (quality.guideRegion) only", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    const res = await addFrame({
+      frameType: "color",
+      imageBlobUrl: dataUrl,
+      quality: { surface: "glass", guideRegion: { x: 0.6, y: 0.2, w: 0.3, h: 0.6 } },
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    // Only the magenta half lies in the region: no skin chip is measured at all.
+    for (const candidate of quality.ai.glass.candidates) {
+      assert.ok(parseInt(candidate.hex.slice(3, 5), 16) < 0x30, `magenta only, got ${candidate.hex}`);
+    }
+    assert.ok(parseInt(quality.extracted.hex.slice(3, 5), 16) < 0x30);
   });
 
   it("flag on with the model configured: the model's chip becomes the hex", async () => {
@@ -1184,7 +1200,7 @@ describe("functions/capture — sticker vision read", () => {
     assert.deepEqual(
       { ...quality.ai.sticker },
       {
-        promptVersion: "sticker-read/2026-11-v3",
+        promptVersion: "sticker-read/2026-11-v4",
         closedSet: true,
         listedCount: 2,
         brandListedCount: 0,
@@ -1193,6 +1209,7 @@ describe("functions/capture — sticker vision read", () => {
         nameComplete: null,
         pickVerified: true,
         pickAgreement: 1,
+        nameLocation: "unknown",
       }
     );
     // v3: the printed name, read without the list, spells a listed name, so no closed call is needed.

@@ -51,6 +51,14 @@ export const BOTTLE_RESOLVER_THRESHOLDS = {
   brandConflict: 0.8,
   maxCandidates: 5,
   poolLimit: 50,
+  /**
+   * Without a catalog brand pool (no brand, or one not in the catalog) a name matches across all
+   * brands only when the printed name has at least this many words and `brandlessMinChars`
+   * letters/digits: a single word is too often other text (bottle eval 2026-11-10: "AUSTIN", the
+   * maker's city on a box, matched Zoya "Austin" for a brand not in the catalog).
+   */
+  brandlessMinWords: 2,
+  brandlessMinChars: 8,
 } as const;
 
 /** Piecewise linear OKLAB distance → 0–1 color score. */
@@ -188,12 +196,27 @@ export interface BottleDecisionContext {
   brandKnown: boolean;
   /** The printed name was read only in part (cut off or covered): it can rank, never match. */
   nameIncomplete?: boolean;
+  /**
+   * Set when no catalog brand pooled the candidates (the global path): the printed name, which
+   * must be distinctive (`brandlessMinWords`, `brandlessMinChars`) for a match.
+   */
+  brandlessName?: string | null;
+}
+
+/** Whether a printed name is distinctive enough to match without a brand (see `brandlessMinWords`). */
+export function isDistinctiveBrandlessName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const words = name.normalize("NFKC").toLowerCase().split(/[^\p{L}\p{Nd}]+/u).filter((word) => word.length > 0);
+  const chars = words.join("").length;
+  return words.length >= BOTTLE_RESOLVER_THRESHOLDS.brandlessMinWords && chars >= BOTTLE_RESOLVER_THRESHOLDS.brandlessMinChars;
 }
 
 /**
- * Spec 5.3 bands, then two vetoes on a match: an incomplete name never matches, and neither
+ * Spec 5.3 bands, then three vetoes on a match: an incomplete name never matches, neither
  * does a top candidate when the front's name spells another shade (the user is asked, with the
- * front-named shade among the candidates).
+ * front-named shade among the candidates), and without a brand pool neither does a name-only
+ * match (method `name`, no confirming color) on a printed name that is not
+ * `isDistinctiveBrandlessName`.
  */
 export function decideBottleResolution(
   scored: readonly ScoredBottleCandidate[],
@@ -203,7 +226,10 @@ export function decideBottleResolution(
   if (decision.kind !== "matched") return decision;
   const top = decision.candidate;
   const frontOther = scored.find((candidate) => candidate.frontNamed && candidate.shadeId !== top.shadeId);
-  if (!ctx.nameIncomplete && (!frontOther || top.frontNamed)) return decision;
+  // A measured glass color within `colorHigh` is independent evidence (`name+color`); a name alone is not.
+  const brandlessVeto =
+    ctx.brandlessName !== undefined && decision.method === "name" && !isDistinctiveBrandlessName(ctx.brandlessName);
+  if (!ctx.nameIncomplete && !brandlessVeto && (!frontOther || top.frontNamed)) return decision;
   const T = BOTTLE_RESOLVER_THRESHOLDS;
   let cut = scored.slice(0, T.maxCandidates);
   if (frontOther && !cut.includes(frontOther)) cut = [...cut.slice(0, T.maxCandidates - 1), frontOther];
@@ -280,7 +306,9 @@ const CANDIDATE_COLOR_DISTANCE_SQL = `CASE WHEN s.product_category <> 'color' TH
  * $1 brand_id[] (bigint[]), $2 user_id, $3 printed shade name text or null, $4–$6 glass OKLAB
  * L/a/b or null, $7 the closed-set pick (`shadeNameListed`, else the unverified `shadeNamePick`)
  * or null (its row sorts first, so a pick is never cut by the pool limit), $8 the name read off
- * the front or null (`frontScore`). Shades of those brands only: live shades of every bottle
+ * the front or null (`frontScore`; a row it spells, similarity >= `match`, sorts right after the
+ * pick row, so the front-named shade, and with it the front/bottom contradiction veto, is never
+ * cut by the pool limit either; a missing front name spells none). Shades of those brands only: live shades of every bottle
  * category (`BOTTLE_POOL_CATEGORY_SQL`: colors, toppers, coats, treatments; never accessories),
  * plus the caller's own private `user_submitted` ones (never another user's). `nameScore` is NULL
  * without a name, and `colorDistance` is NULL without a glass color, for a shade that is not a
@@ -302,6 +330,7 @@ WHERE s.brand_id = ANY($1::bigint[])
   AND ${BOTTLE_POOL_CATEGORY_SQL}
   AND (s.status = 'active' OR (s.status = 'user_submitted' AND s.created_by_user_id = $2))
 ORDER BY COALESCE(lower(s.shade_name_canonical) = lower($7::text), false) DESC,
+         COALESCE(similarity(s.shade_name_canonical, $8::text) >= ${BOTTLE_RESOLVER_THRESHOLDS.match}, false) DESC,
          "nameScore" DESC NULLS LAST, "colorDistance" ASC NULLS LAST, s.shade_id ASC
 LIMIT ${BOTTLE_RESOLVER_THRESHOLDS.poolLimit}`;
 
@@ -545,6 +574,7 @@ export async function resolveBottle(
     nameRead,
     brandKnown,
     nameIncomplete: Boolean(evidence.shadeNameIncomplete && !evidence.shadeNameListed),
+    ...(plan.poolIds.length === 0 ? { brandlessName: evidence.shadeName ?? null } : {}),
   });
   const suggestedShade = brandKnown && decision.kind !== "matched" ? buildSuggestedShade(evidence, plan.brand) : undefined;
   const audit = {

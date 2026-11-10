@@ -38,6 +38,8 @@ describe("lib/bottle-resolver — constants", () => {
       brandConflict: 0.8,
       maxCandidates: 5,
       poolLimit: 50,
+      brandlessMinWords: 2,
+      brandlessMinChars: 8,
     });
     assert.deepEqual(COLOR_SCORE_BREAKPOINTS.map((p) => [...p]), [[0, 1], [0.05, 0.75], [0.1, 0.25], [0.3, 0]]);
   });
@@ -524,6 +526,33 @@ describe("lib/bottle-resolver — resolveBottle", () => {
     assert.equal(decision.metadataPatch.resolver.method, "name+color");
   });
 
+  it("no brand pool: a name-only match needs a distinctive printed name (two words, 8+ letters)", async () => {
+    // Bottle eval 2026-11-10, sample 55 (Clionadh "Under The Ladder", brand not in the catalog):
+    // the box's "AUSTIN" (the maker's city) matched Zoya "Austin" across all brands.
+    const austin = { entityType: "shade", entityId: 41, shadeId: 41, display: "Zoya — Austin", confidence: 1 };
+    const { deps } = recorder({ global: [austin] });
+    const asked = await resolveBottle(baseEvidence({ shadeName: "AUSTIN" }), ctx(), deps);
+    assert.equal(asked.status, "needs_question");
+    assert.equal(asked.candidates[0].shadeId, 41, "still offered as a candidate");
+
+    const breathe = { entityType: "shade", entityId: 42, shadeId: 42, display: "Orly — Just Breathe", confidence: 1 };
+    const matched = await resolveBottle(baseEvidence({ shadeName: "JUST BREATHE" }), ctx(), recorder({ global: [breathe] }).deps);
+    assert.equal(matched.status, "matched");
+    assert.equal(matched.entityId, 42);
+  });
+
+  it("isDistinctiveBrandlessName: near misses", () => {
+    const { isDistinctiveBrandlessName } = require("../dist/lib/bottle-resolver");
+    for (const name of ["Just Breathe", "Donut Spunk", "MATTE MADE IN HELL", "Sip Back & Relax"]) assert.equal(isDistinctiveBrandlessName(name), true, name);
+    for (const name of ["AUSTIN", "Liberty", "Hera", "La Vie", "E = mc²", "", null, "Moonflower"]) assert.equal(isDistinctiveBrandlessName(name), false, String(name));
+  });
+
+  it("a brand pool keeps matching single-word names", async () => {
+    const { deps } = recorder({ rows: [row(11, "Hera", { nameScore: 1 })] });
+    const decision = await resolveBottle(baseEvidence({ shadeName: "HERA" }), ctx({ hintBrand: hint() }), deps);
+    assert.equal(decision.status, "matched");
+  });
+
   it("global path without a glass hex asks no color distances", async () => {
     const { calls, deps } = recorder({ global: [{ entityType: "shade", entityId: 31, shadeId: 31, display: "A — One", confidence: 0.8 }] });
     const decision = await resolveBottle(baseEvidence({ shadeName: "One" }), ctx(), deps);
@@ -758,7 +787,15 @@ describe("lib/bottle-resolver — SQL", () => {
   });
   it("sorts the listed pick first so the pool limit cannot cut it", () => {
     assert.match(sql, /\$7::text/);
-    assert.match(sql, /ORDER BY COALESCE\(lower\(s\.shade_name_canonical\) = lower\(\$7::text\), false\) DESC, "nameScore" DESC/);
+    assert.match(sql, /ORDER BY COALESCE\(lower\(s\.shade_name_canonical\) = lower\(\$7::text\), false\) DESC, /);
+  });
+  it("sorts a row the front's name spells right after the pick, so a 50+ shade pool cannot cut it", () => {
+    // Review: with only a front name, the front-named shade of a brand with more than 50 pooled
+    // shades could fall outside the pool, so the front/bottom contradiction veto never fired.
+    assert.match(
+      sql,
+      /ORDER BY COALESCE\(lower\(s\.shade_name_canonical\) = lower\(\$7::text\), false\) DESC, COALESCE\(similarity\(s\.shade_name_canonical, \$8::text\) >= 0\.92, false\) DESC, "nameScore" DESC NULLS LAST/
+    );
   });
   it("never exposes another user's private shade", () => {
     assert.ok(!/status = 'user_submitted'(?! AND s\.created_by_user_id = \$2)/.test(sql));

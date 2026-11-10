@@ -47,6 +47,7 @@ import {
 } from "../lib/brand-resolve";
 import { decodeDataUri } from "../lib/detection-image";
 import { measureGlassHex, type GlassHexAudit } from "../lib/glass-color";
+import { guideRegionFor, parseGuideRegion, type NormalizedRegion } from "../lib/frame-region";
 import {
   STICKER_READ_PROMPT_VERSION,
   mergeLabelExtraction,
@@ -236,6 +237,8 @@ interface StickerReadAudit {
   unverifiedPick?: string | null;
   /** Barcode digits the read reported; evidence only when the check digit is valid (`mergeLabelExtraction`). */
   gtin?: string | null;
+  /** Where the read located its printed name; `off_bottle` / `off_guide` = dropped (another object). */
+  nameLocation?: string;
 }
 
 /** What a label frame's vision read needs to know; present only when the bottle-capture flag is on and the frame is a data URL. */
@@ -244,6 +247,8 @@ interface StickerReadContext {
   surface: BottleSurface | null;
   /** The catalog brand the session is known to be about, or null when none is. */
   brand: { brandId: number; name: string } | null;
+  /** The outline the client sent (`quality.guideRegion`); null without one (no default is assumed). */
+  guideRegion: NormalizedRegion | null;
 }
 
 /**
@@ -322,6 +327,7 @@ async function runStickerRead(
       brandName: sticker.brand?.name || null,
       shadeNames,
       brandNames,
+      guideRegion: sticker.guideRegion,
     },
     {
       onLog: (level, message) => console.warn(`[capture] sticker read (${level}): ${message}`),
@@ -338,6 +344,7 @@ async function runStickerRead(
     audit.nameComplete = vision.nameComplete;
     audit.pickVerified = vision.pickVerified;
     audit.pickAgreement = vision.pickAgreement;
+    audit.nameLocation = vision.nameLocation;
     if (vision.unverifiedPick) audit.unverifiedPick = vision.unverifiedPick;
   }
   if (vision?.gtin) audit.gtin = vision.gtin;
@@ -350,12 +357,13 @@ function glassMissAudit(reason: "no_candidates" | "remote_url"): GlassHexAudit {
 }
 
 /**
- * Bottle capture: measure the lacquer hex from a color (glass) frame. Only a data-URL frame is
+ * Bottle capture: measure the lacquer hex from a color (glass) frame, on the outline the client
+ * showed (`quality.guideRegion`, else the default glass outline). Only a data-URL frame is
  * measured; `extracted` stays empty when nothing could be, so no hex evidence is claimed.
  */
-async function runGlassExtraction(imageInput: string): Promise<FrameAiExtractionResult> {
+async function runGlassExtraction(imageInput: string, region: NormalizedRegion): Promise<FrameAiExtractionResult> {
   const bytes = decodeDataUri(imageInput);
-  const glass = bytes ? await measureGlassHex(bytes) : null;
+  const glass = bytes ? await measureGlassHex(bytes, { region }) : null;
   if (!glass) {
     return { extracted: {}, glass: glassMissAudit(bytes ? "no_candidates" : "remote_url") };
   }
@@ -383,10 +391,11 @@ async function runFrameAiExtraction(
   imageInput: string,
   frameType: string,
   hints?: { brand?: string; shadeName?: string; finish?: string },
-  sticker?: StickerReadContext
+  sticker?: StickerReadContext,
+  quality?: Record<string, unknown>
 ): Promise<FrameAiExtractionResult | null> {
   if (frameType === "color") {
-    return isFeatureEnabled("bottleCapture") ? runGlassExtraction(imageInput) : null;
+    return isFeatureEnabled("bottleCapture") ? runGlassExtraction(imageInput, guideRegionFor("glass", quality)) : null;
   }
   if (frameType !== "label" && frameType !== "barcode") {
     return null;
@@ -1784,6 +1793,7 @@ async function addCaptureFrame(
               userId,
               surface: parseBottleSurface(frameQuality.surface),
               brand: await resolveSessionBrand(session.metadata, existingEvidence),
+              guideRegion: parseGuideRegion(frameQuality.guideRegion),
             }
           : undefined;
       aiExtraction = await runFrameAiExtraction(
@@ -1794,7 +1804,8 @@ async function addCaptureFrame(
           shadeName: existingEvidence.shadeName,
           finish: existingEvidence.finish,
         },
-        stickerContext
+        stickerContext,
+        frameQuality
       );
     }
 

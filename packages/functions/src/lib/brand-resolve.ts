@@ -153,11 +153,14 @@ export const CATALOG_BRAND_NAMES_CAP = 300;
 /**
  * Brands with at least one live shared color shade, for the closed-list brand read. Only
  * `active` shades count, so a brand that exists only through some user's private submission is
- * never named to another user. One row more than the cap is fetched so truncation is detectable.
+ * never named to another user. Synthetic fixture brands (a name starting with two underscores,
+ * like the e2e tests' `__TEST__`) are never listed: no real brand is spelled that way. One row
+ * more than the cap is fetched so truncation is detectable.
  */
 export const SELECT_CATALOG_BRAND_NAMES_SQL = `SELECT b.name_canonical AS name
 FROM brand b
-WHERE EXISTS (
+WHERE b.name_canonical NOT LIKE '\\_\\_%'
+  AND EXISTS (
   SELECT 1 FROM shade s
   WHERE s.brand_id = b.brand_id
     AND s.status = 'active'
