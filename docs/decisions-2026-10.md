@@ -41,6 +41,7 @@ recommendation in place for the record.
 | D25 | Azure OpenAI APIM gateway removed | Decided | #158, #228 (closed as won't-do) |
 | D26 | Retailer sources, brand-store registrations and gel scope | Decided | Enabling the retailer and brand-store sources ([brand sources plan](superpowers/plans/2026-11-08-brand-sources-ingestion.md)) |
 | D27 | Picture Polish, Painted Polish and Potion Polish enabled without a store OK | Decided | Running `PicturePolishWooCommerce`, `PaintedPolishBigCartel`, `PotionPolishBigCartel` |
+| D28 | Images stored for Harlow & Co and Beyond Polish without a written OK | Decided | Measured colours for retailer-only shades (hex detection) |
 
 ---
 
@@ -503,5 +504,27 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
   stays disabled and marked superseded; (3) a few real shades land with category `accessory` because their names
   hit the accessory words ("Gourd Luck Charm", Picture Polish "Charm", Painted Polish's stamping cremes "Stamped
   In Love" and others): an admin sets their category, or the classifier's charm/stamping rule is revisited.
+- **Date:** 2026-11-10
+- **Ticket:** none
+
+### D28 — Images stored for Harlow & Co and Beyond Polish without a written OK (2026-11-10)
+
+- **Context:** D26 kept images off for every non-brand source until a store's written OK that names images. The
+  first real runs (2026-11-10) put about 3,000 shades in the catalog from Harlow & Co and Beyond Polish alone
+  (ILNP, KBShimmer, OPI, essie, Zoya and others). With no image, none of them can get a measured colour, and the
+  bottle resolver no longer treats a colour guessed from the shade name as evidence.
+- **Options:** (a) keep images off until each retailer answers · (b) turn them on for the two enabled retailers
+  now · (c) wait for maker-supplied product lists.
+- **Decision:** (b), by the owner (Matt) on 2026-11-10. Neither retailer has confirmed anything; each row's
+  `metadata.notes` ends "Images: stored since 2026-11-10 by the owner's decision (D28) without a written OK from
+  the store that names images; ask the store for the record." Migration
+  `20261110130000000_retailer-images-permitted` sets `imagesPermitted: true` on `HarlowAndCoShopify` and
+  `BeyondPolishShopify` only (rows without an explicit setting; Down reverts). Hypnotic Polish and Polish Pickup
+  stay as D26 left them.
+- **Consequences:** The retailers' product photos are stored and shown as catalog images. Retailer mode still
+  links images only to a shade that has no product image, so a brand store's pictures win. If a retailer objects,
+  set `imagesPermitted` to false and run the source image removal job (D26).
+- **Follow-ups:** the owner asks both retailers for the record; (c) stays worth doing for makers whose own sites
+  are closed.
 - **Date:** 2026-11-10
 - **Ticket:** none

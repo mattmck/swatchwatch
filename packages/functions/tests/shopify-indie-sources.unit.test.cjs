@@ -320,7 +320,17 @@ describe("Phase B retailer migrations", () => {
       const fromMigration = metadataOf(migration, name);
       assert.equal(fromMigration.insertedByMigration, file.split("_")[0]);
       delete fromMigration.insertedByMigration;
-      assert.deepEqual(fromMigration, metadataOf(SEED_SQL, name));
+      // D28 (migration 20261110130000000) turned images on for the two enabled retailers after
+      // registration: the seed is the insert plus that flag and its note sentence.
+      const seeded = metadataOf(SEED_SQL, name);
+      if (seeded.imagesPermitted === true) {
+        const d28Note =
+          " Images: stored since 2026-11-10 by the owner's decision (D28) without a written OK from the store that names images; ask the store for the record.";
+        assert.ok(seeded.notes.endsWith(d28Note), name);
+        seeded.notes = seeded.notes.slice(0, -d28Note.length);
+        delete seeded.imagesPermitted;
+      }
+      assert.deepEqual(fromMigration, seeded);
     });
   }
 
@@ -513,12 +523,31 @@ describe("retailer source kind", () => {
     }
   });
 
-  it("seeds Harlow & Co enabled as a CAD retailer without imagesPermitted", () => {
+  it("seeds Harlow & Co enabled as a CAD retailer that stores images by the owner's decision (D28)", () => {
     const tuple = seedTuple(SEED_SQL, "HarlowAndCoShopify");
     assert.match(tuple, /,\s*true,\s*'\{/, "HarlowAndCoShopify must be seeded enabled");
     assert.match(tuple, /"kind": "retailer"/);
     assert.match(tuple, /"currency": "CAD"/);
-    assert.doesNotMatch(tuple, /"imagesPermitted"/);
+    assert.match(tuple, /"imagesPermitted": true/);
     assert.doesNotMatch(tuple, /"pendingApproval"/);
+  });
+
+  it("turns images on for Harlow & Co and Beyond Polish only, and never claims a store OK (D28)", () => {
+    const migration = readFileSync(
+      resolve(__dirname, "../migrations/20261110130000000_retailer-images-permitted.sql"),
+      "utf8"
+    );
+    const [up, down] = migration.split("-- Down Migration");
+    assert.match(up, /WHERE name IN \('HarlowAndCoShopify', 'BeyondPolishShopify'\)\s+AND NOT \(metadata \? 'imagesPermitted'\)/);
+    assert.match(down, /metadata->>'imagesPermittedByMigration' = '20261110130000000'/);
+    for (const source of ["HarlowAndCoShopify", "BeyondPolishShopify"]) {
+      const tuple = seedTuple(SEED_SQL, source);
+      assert.match(tuple, /"imagesPermitted": true/, source);
+      assert.match(tuple, /by the owner''s decision \(D28\) without a written OK/, source);
+      assert.doesNotMatch(tuple, /Acceptable use confirmed/, source);
+    }
+    for (const source of ["HypnoticPolishShopify", "PolishPickupShopify"]) {
+      assert.doesNotMatch(seedTuple(SEED_SQL, source), /"imagesPermitted"/, source);
+    }
   });
 });
