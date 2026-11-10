@@ -211,7 +211,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"no","notes":"China Glaze Shopify store. Color names in options."}'::jsonb
+    '{"priority":"medium","mvp":"no","vendorAliases":{"CG":"China Glaze"},"notes":"China Glaze Shopify store. Color names in options."}'::jsonb
   ),
   (
     'LeMiniMacaronShopify',
@@ -220,7 +220,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"no","notes":"Le Mini Macaron Europe Shopify store. Color-family tags (Color_Pink, Color_LS_Blue); no hex values."}'::jsonb
+    '{"priority":"medium","mvp":"no","vendorAliases":{"Le Mini Macaron Europe":"Le Mini Macaron","Camelia Beauty":"Le Mini Macaron"},"notes":"Le Mini Macaron Europe Shopify store. Color-family tags (Color_Pink, Color_LS_Blue); no hex values."}'::jsonb
   ),
   (
     'CrackedPolishShopify',
@@ -247,7 +247,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"no","notes":"Lights Lacquer Shopify store."}'::jsonb
+    '{"priority":"medium","mvp":"no","vendorAliases":{"lightslacquer.com":"Lights Lacquer"},"notes":"Lights Lacquer Shopify store."}'::jsonb
   ),
   (
     'ZombieClawPolishShopify',
@@ -274,7 +274,7 @@ VALUES
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     true,
-    '{"priority":"medium","mvp":"no","notes":"Starrily Shopify store."}'::jsonb
+    '{"priority":"medium","mvp":"no","vendorAliases":{"Starrily Kelli Marissa":"Starrily"},"notes":"Starrily Shopify store."}'::jsonb
   ),
   (
     'TylerStrinketsShopify',

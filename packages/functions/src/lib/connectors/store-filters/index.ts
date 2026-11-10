@@ -1,12 +1,14 @@
 import { isAlchemyLacquersPolish } from "./alchemy-lacquers.js";
 import { isBarryMPolish } from "./barry-m.js";
 import { isBeyondPolishPolish } from "./beyond-polish.js";
+import { isChinaGlazePolish } from "./china-glaze.js";
 import { isCirqueColorsPolish } from "./cirque-colors.js";
 import { isCndPolish } from "./cnd.js";
 import { isCotePolish } from "./cote.js";
 import { isHarlowAndCoPolish } from "./harlow-and-co.js";
 import { isHypnoticPolishPolish } from "./hypnotic-polish.js";
 import { isLemmingLacquerPolish } from "./lemming-lacquer.js";
+import { isLeMiniMacaronPolish } from "./le-mini-macaron.js";
 import { isLondontownPolish } from "./londontown.js";
 import { isManucuristPolish } from "./manucurist.js";
 import { isNoodlesPolish } from "./noodles.js";
@@ -56,6 +58,10 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   WetNWildShopify: isWetNWildPolish,
   CoteShopify: isCotePolish,
   AlchemyLacquersShopify: isAlchemyLacquersPolish,
+  // Brand stores whose first ingest (2026-11-10) needed a fix: another brand's care items (China
+  // Glaze), gel and LED lines (Le Mini Macaron).
+  ChinaGlazeShopify: isChinaGlazePolish,
+  LeMiniMacaronShopify: isLeMiniMacaronPolish,
   // Non-Shopify brand stores (enabled 2026-11-10).
   PicturePolishWooCommerce: isPicturePolishPolish,
   PaintedPolishBigCartel: isPaintedPolishPolish,

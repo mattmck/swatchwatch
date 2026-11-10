@@ -6,21 +6,30 @@ import {
   parsePiggyPaintTitle,
   parseWetNWildTitle,
 } from "./store-filters/brand-store-titles.js";
+import { parseChinaGlazeTitle } from "./store-filters/china-glaze.js";
+import { parseCrackedPolishTitle } from "./store-filters/cracked-polish.js";
+import { parseLeMiniMacaronTitle, parseLeMiniMacaronTitleParts } from "./store-filters/le-mini-macaron.js";
 import { parsePaintedPolishTitle } from "./store-filters/painted-polish.js";
 import { parsePicturePolishTitle } from "./store-filters/picture-polish.js";
 import { parsePolishPickupTitle } from "./store-filters/polish-pickup-title.js";
 import { parsePotionPolishTitle } from "./store-filters/potion-polish.js";
+import { parseStarrilyTitle } from "./store-filters/starrily.js";
+import type { LineAndShadeTitle } from "./store-filters/brand-store-titles.js";
 import type { StoreFilterProduct, StoreTitleParser } from "./store-filters/types.js";
 
 export {
   parseAlchemyLacquersTitle,
   parseBarryMTitle,
+  parseChinaGlazeTitle,
   parseCoteTitle,
+  parseCrackedPolishTitle,
+  parseLeMiniMacaronTitle,
   parsePaintedPolishTitle,
   parsePicturePolishTitle,
   parsePiggyPaintTitle,
   parsePolishPickupTitle,
   parsePotionPolishTitle,
+  parseStarrilyTitle,
   parseWetNWildTitle,
 };
 export { parseLineAndShadeTitle } from "./store-filters/brand-store-titles.js";
@@ -40,11 +49,37 @@ export const SHOPIFY_STORE_TITLE_PARSERS: Readonly<Record<string, StoreTitlePars
   PiggyPaintShopify: parsePiggyPaintTitle,
   CoteShopify: parseCoteTitle,
   AlchemyLacquersShopify: parseAlchemyLacquersTitle,
+  // Brand stores fixed after their first ingest (2026-11-10): shouted names (China Glaze), a
+  // trailing line (Le Mini Macaron), collaboration and finish notes (Starrily), a trailing type
+  // word or box code (Cracked Polish).
+  ChinaGlazeShopify: parseChinaGlazeTitle,
+  LeMiniMacaronShopify: parseLeMiniMacaronTitle,
+  StarrilyShopify: parseStarrilyTitle,
+  CrackedPolishShopify: parseCrackedPolishTitle,
   // Non-Shopify brand stores (enabled 2026-11-10).
   PicturePolishWooCommerce: parsePicturePolishTitle,
   PaintedPolishBigCartel: parsePaintedPolishTitle,
   PotionPolishBigCartel: parsePotionPolishTitle,
 };
+
+/**
+ * Brand stores whose title parser also names the product line the title carried (Le Mini
+ * Macaron's "Fleur Bleue - Quick Dry Nail Polish"); the Shopify connector stores it as
+ * `normalized.productLine`. Keyed by `data_source.name` like `SHOPIFY_STORE_TITLE_PARSERS`.
+ */
+export const SHOPIFY_STORE_TITLE_LINE_PARSERS: Readonly<
+  Record<string, (product: StoreFilterProduct) => LineAndShadeTitle | null>
+> = {
+  LeMiniMacaronShopify: parseLeMiniMacaronTitleParts,
+};
+
+/** The product line the store's title parser read for `product`, or null. */
+export function shopifyStoreProductLine(source: string, product: StoreFilterProduct): string | null {
+  const parser = Object.prototype.hasOwnProperty.call(SHOPIFY_STORE_TITLE_LINE_PARSERS, source)
+    ? SHOPIFY_STORE_TITLE_LINE_PARSERS[source]
+    : undefined;
+  return parser ? parser(product)?.productLine ?? null : null;
+}
 
 /**
  * Retailer sources whose own title parser stands in for retailer-mode titles and also yields
