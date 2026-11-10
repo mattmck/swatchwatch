@@ -9,7 +9,7 @@ import {
 } from "./ai-color-detection";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
 import { normalizeGtin } from "./barcodes";
-import { BRAND_SHADE_NAMES_CAP } from "./brand-resolve";
+import { BRAND_SHADE_NAMES_CAP, CATALOG_BRAND_NAMES_CAP } from "./brand-resolve";
 import { canonicalizeFinish, finishNamesForPrompt, type FinishCatalog } from "./finishes";
 import type { OcrResult } from "./ocr";
 
@@ -17,13 +17,21 @@ import type { OcrResult } from "./ocr";
  * Vision read of the bottom sticker (Bottle Flow slice A): one low-detail chat call that reads
  * the printed brand, shade name, finish and barcode digits straight from the photo. When the
  * brand is known the question is closed (the brand's shade names are listed and the model picks
- * the closest one, or none), which beats OCR on stylized sticker fonts; it also runs when OCR is
- * unusable. Best effort: a missing config, an empty answer or a throw is `null`, and the frame
- * keeps its OCR evidence.
+ * the closest one, or none), which beats OCR on stylized sticker fonts; when it is not, the
+ * catalog's brand names are listed instead so a script logo comes back as the catalog brand
+ * (`brandListed`), never picked without a printed brand. It also runs when OCR is unusable.
+ * Best effort: a missing config, an empty answer or a throw is `null`, and the frame keeps its
+ * OCR evidence.
  */
 
-/** Bump whenever the prompt text in `buildStickerReadPayload` changes. */
-export const STICKER_READ_PROMPT_VERSION = "sticker-read/2026-10-v1";
+/**
+ * Bump whenever the prompt text in `buildStickerReadPayload` changes.
+ * v2 (2026-11): separate `brandConfidence`, the closed brand list (`brandListed`), and a note
+ * that the sticker text may be rotated or sideways.
+ */
+export const STICKER_READ_PROMPT_VERSION = "sticker-read/2026-11-v2";
+/** Most catalog brand names listed on a brand read; more than that and the read is open. */
+export { CATALOG_BRAND_NAMES_CAP as BRAND_NAMES_PROMPT_CAP };
 /** OCR below this confidence (or without text) is unusable, so the vision read runs anyway. */
 export const STICKER_READ_OCR_MIN_CONFIDENCE = 0.4;
 export const STICKER_READ_DEPLOYMENT_ENV_KEYS = [
@@ -54,13 +62,18 @@ export interface StickerReadInput {
   brandName: string | null;
   /** The brand's shade names; a closed set when 1 to `BRAND_SHADE_NAMES_CAP` of them, else the read is open. */
   shadeNames: readonly string[];
+  /** Catalog brand names; listed (a closed brand question) only without `brandName` and when 1 to `BRAND_NAMES_PROMPT_CAP` of them. */
+  brandNames?: readonly string[];
   finishCatalog?: FinishCatalog;
   imageDetail?: VisionImageDetail;
 }
 
 export interface StickerReadResult {
+  /** The brand as printed; null when none, or when it only echoes the brand the prompt named. */
   brand: string | null;
-  /** Confidence of `brand`: the read's overall confidence when a brand was read, else null. */
+  /** Exactly one of the listed catalog brand names (listed spelling), or null; never without a printed `brand`. */
+  brandListed: string | null;
+  /** Confidence of `brand`: the model's `brandConfidence`, else the read's overall confidence; null without a brand. */
   brandConfidence: number | null;
   /** The shade name as printed. */
   printedName: string | null;
@@ -78,29 +91,42 @@ function isClosedSet(shadeNames: readonly string[]): boolean {
   return shadeNames.length >= 1 && shadeNames.length <= BRAND_SHADE_NAMES_CAP;
 }
 
+/** The brand names to list: only when the brand is unknown and the list fits. */
+function listedBrandNames(input: Pick<StickerReadInput, "brandName" | "brandNames">): readonly string[] {
+  const names = input.brandNames ?? [];
+  if (input.brandName || names.length < 1 || names.length > CATALOG_BRAND_NAMES_CAP) return [];
+  return names;
+}
+
 export function buildStickerReadPayload(input: StickerReadInput, safePrompt: boolean): Record<string, unknown> {
   const closedSet = isClosedSet(input.shadeNames);
+  const brandNames = listedBrandNames(input);
   const finishList = finishNamesForPrompt(input.finishCatalog).join(", ");
   const imageDetail = input.imageDetail ?? resolveVisionImageDetail();
   const image = { type: "image_url", image_url: { url: input.imageDataUri, detail: imageDetail } };
   const surfaceText = input.surface ? ` The photo shows the ${input.surface} of the bottle.` : "";
   const brandText = input.brandName ? ` The brand is ${input.brandName}.` : "";
-  const shape = `{"printedName":"<shade name as printed or null>","closestListed":"<one listed name or null>","brand":"<brand or null>","finish":"<finish or null>","gtin":"<barcode digits or null>","confidence":0..1}`;
+  const shape = `{"printedName":"<shade name as printed or null>","closestListed":"<one listed name or null>","brand":"<brand as printed or null>","brandListed":"<one listed brand or null>","brandConfidence":0..1,"finish":"<finish or null>","gtin":"<barcode digits or null>","confidence":0..1}`;
+  const rotation = "The text may be rotated or sideways; read it in any orientation.";
+  const brandConfidenceText = "brandConfidence is how sure you are of the brand alone; confidence is for the whole read.";
 
   const systemPrompt = safePrompt
     ? `You read the printed text on a nail polish bottle sticker in a photo.${surfaceText}${brandText} ${
         closedSet ? "A list of shade names is provided." : "The list of shade names is unavailable."
-      } Respond with valid JSON only: ${shape}.`
+      } ${rotation} ${brandConfidenceText} Respond with valid JSON only: ${shape}.`
     : `You read the sticker printed on a nail polish bottle.${surfaceText}${brandText} ${
         closedSet
           ? "You are given the brand's shade names; the shade on this bottle is probably one of them."
           : "The list of shade names is unavailable, so closestListed is always null."
-      } Report only what is printed; never guess. Use null for anything you cannot read. ALWAYS respond with valid JSON: ${shape}.`;
+      } ${rotation} The shade name is never the brand, its website, the size or the maker's address. Report only what is printed; never guess. Use null for anything you cannot read. ${brandConfidenceText} ALWAYS respond with valid JSON: ${shape}.`;
 
   const listText = closedSet
     ? `Listed shade names (one per line):\n${input.shadeNames.join("\n")}\n\nclosestListed must be exactly one of the listed names, the closest to the printed shade name, or null when none is close.`
     : "closestListed: null.";
-  const userPrompt = `Read the sticker. ${listText}\nprintedName is the shade name as printed. finish is one of: ${finishList}. gtin is the barcode digits when visible. Return JSON only.`;
+  const brandListText = brandNames.length > 0
+    ? `Listed brand names (one per line):\n${brandNames.join("\n")}\n\nbrand is the brand name or logo as printed (it may be a stylized or script logo). brandListed must be exactly one of the listed brand names, the one printed on the bottle, or null when the printed brand is none of them or no brand is printed; never pick a brand from the bottle's color or shape.`
+    : "brandListed: null.";
+  const userPrompt = `Read the sticker. ${listText}\n${brandListText}\nprintedName is the shade name as printed. finish is one of: ${finishList}. gtin is the barcode digits when visible. Return JSON only.`;
 
   return {
     temperature: 0,
@@ -115,10 +141,13 @@ export function buildStickerReadPayload(input: StickerReadInput, safePrompt: boo
 
 // ── Parsing ──────────────────────────────────────────────────────────────────
 
+/** Answers some models write instead of a JSON null ("null" as a string, "none", "N/A"). */
+const PLACEHOLDER_PATTERN = /^(null|none|n\/a|unknown)$/i;
+
 function cleanText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.replace(/\s+/g, " ").trim().slice(0, MAX_FIELD_CHARS);
-  return trimmed.length > 0 ? trimmed : null;
+  return trimmed.length > 0 && !PLACEHOLDER_PATTERN.test(trimmed) ? trimmed : null;
 }
 
 function parseJsonObject(content: string): Record<string, unknown> | null {
@@ -135,14 +164,36 @@ function listKey(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/** Brand spellings compared on letters and digits only ("kb shimmer" = "KBShimmer"). */
+function brandKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export interface ParseStickerReadOptions {
+  /** The listed catalog brand names `brandListed` must be one of (none = no pick). */
+  brandNames?: readonly string[];
+  /** The brand the prompt named: the model repeating it back is no evidence, so `brand` is null. */
+  givenBrand?: string | null;
+}
+
 export function parseStickerRead(
   content: string,
   shadeNames: readonly string[],
-  finishCatalog?: FinishCatalog
+  finishCatalog?: FinishCatalog,
+  options: ParseStickerReadOptions = {}
 ): Omit<StickerReadResult, "promptVersion" | "closedSet" | "rawContent"> {
   const row = parseJsonObject(content);
   if (!row) {
-    return { brand: null, brandConfidence: null, printedName: null, closestListed: null, finish: null, gtin: null, confidence: 0 };
+    return {
+      brand: null,
+      brandListed: null,
+      brandConfidence: null,
+      printedName: null,
+      closestListed: null,
+      finish: null,
+      gtin: null,
+      confidence: 0,
+    };
   }
 
   const printedName = cleanText(row.printedName);
@@ -151,13 +202,22 @@ export function parseStickerRead(
   const closestListed = listed && printedName
     ? (shadeNames.find((name) => listKey(name) === listKey(listed)) ?? null)
     : null;
-  const brand = cleanText(row.brand);
+  const printedBrand = cleanText(row.brand);
+  const echoed = Boolean(printedBrand && options.givenBrand && brandKey(printedBrand) === brandKey(options.givenBrand));
+  const brand = echoed ? null : printedBrand;
+  const listedBrand = cleanText(row.brandListed);
+  // Like the shade pick: a brand picked with none printed was guessed from the bottle's look.
+  const brandListed = brand && listedBrand
+    ? ((options.brandNames ?? []).find((name) => listKey(name) === listKey(listedBrand)) ?? null)
+    : null;
   const confidence = parseConfidence(row.confidence) ?? STICKER_READ_DEFAULT_CONFIDENCE;
+  const brandConfidence = brand ? (parseConfidence(row.brandConfidence) ?? confidence) : null;
   const digits = typeof row.gtin === "string" || typeof row.gtin === "number" ? String(row.gtin).replace(/\D/g, "") : "";
 
   return {
     brand,
-    brandConfidence: brand ? confidence : null,
+    brandListed,
+    brandConfidence,
     printedName,
     closestListed,
     finish: canonicalizeFinish(row.finish, finishCatalog),
@@ -184,6 +244,7 @@ export async function readStickerWithVision(
   try {
     const finishCatalog = input.finishCatalog ?? (await loadDetectionFinishCatalog(options));
     const closedSet = isClosedSet(input.shadeNames);
+    const brandNames = listedBrandNames(input);
     const withCatalog = { ...input, finishCatalog };
     options?.onModelCall?.();
     const response = await requestAzureOpenAIChatCompletion(
@@ -191,14 +252,19 @@ export async function readStickerWithVision(
         buildPayload: (safePrompt) => buildStickerReadPayload(withCatalog, safePrompt),
         deploymentEnvKeys: STICKER_READ_DEPLOYMENT_ENV_KEYS,
         usageMetricPrefix: "sticker_read",
-        logLabel: `sticker read (${input.surface ?? "unknown surface"}, ${closedSet ? `${input.shadeNames.length} listed` : "open"})`,
+        logLabel: `sticker read (${input.surface ?? "unknown surface"}, ${closedSet ? `${input.shadeNames.length} listed` : "open"}${
+          brandNames.length > 0 ? `, ${brandNames.length} brands` : ""
+        })`,
       },
       { onLog: options?.onLog }
     );
     if (response.provider === "none" || response.content === null) return null;
 
     return {
-      ...parseStickerRead(response.content, closedSet ? input.shadeNames : [], finishCatalog),
+      ...parseStickerRead(response.content, closedSet ? input.shadeNames : [], finishCatalog, {
+        brandNames,
+        givenBrand: input.brandName,
+      }),
       promptVersion: STICKER_READ_PROMPT_VERSION,
       closedSet,
       rawContent: response.content,
@@ -255,7 +321,8 @@ export function mergeLabelExtraction(
 
   if (vision) {
     for (const [key, visionKey] of CONTESTED_FIELDS) {
-      const visionValue = vision[visionKey];
+      // A listed brand is the catalog spelling of the printed one.
+      const visionValue = key === "brand" ? (vision.brandListed ?? vision.brand) : vision[visionKey];
       if (!hasValue(visionValue)) continue;
       // Barcode digits the model read are evidence only with a valid check digit (else audit only).
       if (key === "gtin" && !normalizeGtin(visionValue)?.checkDigitValid) continue;

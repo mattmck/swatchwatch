@@ -65,10 +65,56 @@ LIMIT 1`;
 
 export type ResolveBrandMode = "hint" | "read";
 
+/** Shortest read (letters and digits) the unique-prefix fallback considers. */
+const BRAND_PREFIX_MIN_CHARS = 3;
+
+/**
+ * Read-mode fallback. $1 the read, lowercased, letters and digits only. Every brand name or
+ * alias that, compared the same way, starts with it (`starts_with`, so no wildcards), with the
+ * text that matched; the caller accepts only a single brand. A few rows are enough to see that.
+ */
+export const RESOLVE_BRAND_PREFIX_SQL = `SELECT b.brand_id::text AS "brandId", b.name_canonical AS name, m.matched
+FROM brand b
+CROSS JOIN LATERAL (
+  SELECT b.name_canonical AS matched
+  UNION ALL
+  SELECT ba.alias FROM brand_alias ba WHERE ba.brand_id = b.brand_id
+) m
+WHERE starts_with(regexp_replace(lower(m.matched), '[^a-z0-9]', '', 'g'), $1::text)
+ORDER BY b.brand_id
+LIMIT 10`;
+
+function compactKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * A short read off a bottle ("kbs" for KBShimmer) that trigram similarity cannot place: it
+ * resolves when it is one token of at least 3 letters/digits, starts the name (or an alias) of
+ * exactly one brand, and is not a whole word of it ("Holo" is a word of Holo Taco, so it could
+ * be a finish word, not an abbreviation). Scored at the minimum similarity.
+ */
+async function resolveBrandByUniquePrefix(text: string, db: QueryDb): Promise<ResolvedBrand | null> {
+  if (/\s/.test(text) || !/^[a-z0-9]+$/i.test(text)) return null;
+  const key = compactKey(text);
+  if (key.length < BRAND_PREFIX_MIN_CHARS) return null;
+
+  const result = await db.query<{ brandId: string; name: string; matched?: string | null }>(RESOLVE_BRAND_PREFIX_SQL, [key]);
+  const ids = new Set(result.rows.map((row) => String(row.brandId)));
+  if (ids.size !== 1) return null;
+  const isWholeWord = result.rows.some((row) =>
+    (row.matched ?? row.name).toLowerCase().split(/[^a-z0-9]+/).includes(key)
+  );
+  if (isWholeWord) return null;
+  const row = result.rows[0];
+  const brandId = Number(row.brandId);
+  return Number.isFinite(brandId) ? { brandId, name: row.name, score: BRAND_MATCH_MIN_SIMILARITY } : null;
+}
+
 /**
  * Best catalog brand for free text, or null when nothing is similar enough. `mode: "hint"` for
  * text the user typed as a batch hint (word similarity / prefix), `"read"` (default) for brand
- * text read off a bottle (plain trigram similarity).
+ * text read off a bottle (plain trigram similarity, then the unique-prefix fallback).
  */
 export async function resolveBrandFromText(
   text: string,
@@ -78,15 +124,45 @@ export async function resolveBrandFromText(
   const trimmed = text.trim();
   if (!trimmed) return null;
 
-  const sql = opts.mode === "hint" ? RESOLVE_BRAND_HINT_SQL : RESOLVE_BRAND_SQL;
+  const hint = opts.mode === "hint";
+  const sql = hint ? RESOLVE_BRAND_HINT_SQL : RESOLVE_BRAND_SQL;
   const result = await db.query<{ brandId: string; name: string; score: number | string }>(sql, [trimmed]);
   const row = result.rows[0];
-  if (!row) return null;
+  if (row) {
+    const score = Number(row.score);
+    const brandId = Number(row.brandId);
+    if (Number.isFinite(score) && score >= BRAND_MATCH_MIN_SIMILARITY && Number.isFinite(brandId)) {
+      return { brandId, name: row.name, score };
+    }
+  }
+  return hint ? null : resolveBrandByUniquePrefix(trimmed, db);
+}
 
-  const score = Number(row.score);
-  const brandId = Number(row.brandId);
-  if (!Number.isFinite(score) || score < BRAND_MATCH_MIN_SIMILARITY || !Number.isFinite(brandId)) return null;
-  return { brandId, name: row.name, score };
+/** Most catalog brand names handed to the model as a closed list on a brand read. */
+export const CATALOG_BRAND_NAMES_CAP = 300;
+
+/**
+ * Brands with at least one live shared color shade, for the closed-list brand read. Only
+ * `active` shades count, so a brand that exists only through some user's private submission is
+ * never named to another user. One row more than the cap is fetched so truncation is detectable.
+ */
+export const SELECT_CATALOG_BRAND_NAMES_SQL = `SELECT b.name_canonical AS name
+FROM brand b
+WHERE EXISTS (
+  SELECT 1 FROM shade s
+  WHERE s.brand_id = b.brand_id
+    AND s.status = 'active'
+    AND s.product_category = 'color'
+    AND s.merged_into_shade_id IS NULL
+)
+ORDER BY b.name_canonical
+LIMIT ${CATALOG_BRAND_NAMES_CAP + 1}`;
+
+/** Catalog brand names for the closed-list brand read, capped; `truncated` when more exist. */
+export async function listCatalogBrandNames(db: QueryDb = { query }): Promise<{ names: string[]; truncated: boolean }> {
+  const result = await db.query<{ name: string }>(SELECT_CATALOG_BRAND_NAMES_SQL);
+  const truncated = result.rows.length > CATALOG_BRAND_NAMES_CAP;
+  return { names: result.rows.slice(0, CATALOG_BRAND_NAMES_CAP).map((row) => row.name), truncated };
 }
 
 /**

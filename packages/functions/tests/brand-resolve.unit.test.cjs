@@ -12,8 +12,12 @@ const {
   RESOLVE_BRAND_SQL,
   RESOLVE_BRAND_HINT_SQL,
   SELECT_BRAND_SHADE_NAMES_SQL,
+  RESOLVE_BRAND_PREFIX_SQL,
+  SELECT_CATALOG_BRAND_NAMES_SQL,
+  CATALOG_BRAND_NAMES_CAP,
   resolveBrandFromText,
   listBrandShadeNames,
+  listCatalogBrandNames,
   toBrandRef,
   toBrandHintEcho,
 } = require("../dist/lib/brand-resolve");
@@ -92,6 +96,79 @@ describe("lib/brand-resolve — resolveBrandFromText", () => {
     assert.match(RESOLVE_BRAND_SQL, / % \$1/);
     assert.match(RESOLVE_BRAND_SQL, /ORDER BY (r\.)?score DESC, (r\.)?brand_id/);
     assert.match(RESOLVE_BRAND_SQL, /LIMIT 1/);
+  });
+});
+
+describe("lib/brand-resolve — read mode: unique prefix fallback", () => {
+  // Trigram finds nothing for a short read ("kbs" vs "KBShimmer"); the prefix query then lists
+  // the brands whose name or alias, letters and digits only, starts with the read.
+  const byQuery = (prefixRows) => (sql) => (sql === RESOLVE_BRAND_PREFIX_SQL ? prefixRows : []);
+
+  it("a read that starts exactly one brand's name resolves to it at the minimum score", async () => {
+    const db = fakeDb(byQuery([
+      { brandId: "44", name: "KBShimmer", matched: "KBShimmer" },
+      { brandId: "44", name: "KBShimmer", matched: "kb shimmer" },
+    ]));
+    assert.deepEqual(await resolveBrandFromText(" Kbs ", db), { brandId: 44, name: "KBShimmer", score: BRAND_MATCH_MIN_SIMILARITY });
+    assert.equal(db.calls[0].sql, RESOLVE_BRAND_SQL);
+    assert.equal(db.calls[1].sql, RESOLVE_BRAND_PREFIX_SQL);
+    assert.deepEqual(db.calls[1].params, ["kbs"]);
+  });
+
+  it("two brands sharing the prefix: no match", async () => {
+    const db = fakeDb(byQuery([
+      { brandId: "44", name: "KBShimmer", matched: "KBShimmer" },
+      { brandId: "45", name: "KB Lacquer", matched: "KB Lacquer" },
+    ]));
+    assert.equal(await resolveBrandFromText("kbs", db), null);
+  });
+
+  it("a read that is a whole word of the name is not an abbreviation: no match", async () => {
+    const db = fakeDb(byQuery([{ brandId: "9", name: "Holo Taco", matched: "Holo Taco" }]));
+    assert.equal(await resolveBrandFromText("Holo", db), null);
+  });
+
+  it("short or multi-word reads never run the prefix query", async () => {
+    for (const text of ["kb", "Hush Hush", "k.b"]) {
+      const db = fakeDb(byQuery([{ brandId: "44", name: "KBShimmer", matched: "KBShimmer" }]));
+      assert.equal(await resolveBrandFromText(text, db), null, text);
+      assert.equal(db.calls.length, 1, text);
+    }
+  });
+
+  it("hint mode never runs the prefix query", async () => {
+    const db = fakeDb(byQuery([{ brandId: "44", name: "KBShimmer", matched: "KBShimmer" }]));
+    assert.equal(await resolveBrandFromText("kbs", db, { mode: "hint" }), null);
+    assert.equal(db.calls.length, 1);
+  });
+
+  it("the prefix SQL compares letters and digits only, names and aliases, without LIKE", () => {
+    assert.match(RESOLVE_BRAND_PREFIX_SQL, /starts_with\(regexp_replace\(lower\(m\.matched\), '\[\^a-z0-9\]', '', 'g'\), \$1::text\)/);
+    assert.match(RESOLVE_BRAND_PREFIX_SQL, /brand_alias/);
+    assert.doesNotMatch(RESOLVE_BRAND_PREFIX_SQL, /LIKE/);
+  });
+});
+
+describe("lib/brand-resolve — listCatalogBrandNames", () => {
+  const rows = (n) => Array.from({ length: n }, (_, i) => ({ name: `Brand ${i}` }));
+
+  it("the cap, and a list over it is flagged truncated", async () => {
+    assert.equal(CATALOG_BRAND_NAMES_CAP, 300);
+    const over = await listCatalogBrandNames(fakeDb(rows(301)));
+    assert.equal(over.names.length, 300);
+    assert.equal(over.truncated, true);
+    const short = await listCatalogBrandNames(fakeDb(rows(48)));
+    assert.equal(short.names.length, 48);
+    assert.equal(short.truncated, false);
+  });
+
+  it("lists only brands with a live shared color shade (never a private submission)", () => {
+    assert.match(SELECT_CATALOG_BRAND_NAMES_SQL, /s\.status = 'active'/);
+    assert.doesNotMatch(SELECT_CATALOG_BRAND_NAMES_SQL, /user_submitted/);
+    assert.match(SELECT_CATALOG_BRAND_NAMES_SQL, /product_category = 'color'/);
+    assert.match(SELECT_CATALOG_BRAND_NAMES_SQL, /merged_into_shade_id IS NULL/);
+    assert.match(SELECT_CATALOG_BRAND_NAMES_SQL, /ORDER BY b\.name_canonical/);
+    assert.match(SELECT_CATALOG_BRAND_NAMES_SQL, /LIMIT 301/);
   });
 });
 

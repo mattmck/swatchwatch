@@ -38,7 +38,13 @@ import {
 import { isValidUuid } from "../lib/capture-session";
 import { inlineCaptureFrameUrl, releaseCaptureFrames, storeCaptureFrameBytes } from "../lib/capture-frame-store";
 import { isFeatureEnabled } from "../lib/feature-flags";
-import { listBrandShadeNames, resolveBrandFromText, toBrandHintEcho, toBrandRef } from "../lib/brand-resolve";
+import {
+  listBrandShadeNames,
+  listCatalogBrandNames,
+  resolveBrandFromText,
+  toBrandHintEcho,
+  toBrandRef,
+} from "../lib/brand-resolve";
 import { decodeDataUri } from "../lib/detection-image";
 import { measureGlassHex, type GlassHexAudit } from "../lib/glass-color";
 import {
@@ -214,6 +220,8 @@ interface StickerReadAudit {
   promptVersion: string;
   closedSet: boolean;
   listedCount: number;
+  /** Catalog brand names listed for a closed brand read (0 when the brand was known or the list was too long). */
+  brandListedCount?: number;
   /** The read's confidence; null when no read ran or it produced nothing. */
   confidence: number | null;
   /** Calls that were sent to the model (0 when the read was not needed, unconfigured or skipped). */
@@ -258,7 +266,8 @@ async function resolveSessionBrand(
  * Closed-set vision read of the sticker, when needed (known brand, or unusable OCR). A brand
  * with more shades than the prompt list holds is read open: a partial list would force wrong
  * picks. The front is read for its brand only, so it is read (open) only when OCR is unusable.
- * Never throws.
+ * Without a known brand the catalog's brand names are listed so the brand comes back in its
+ * catalog spelling (`brandListed`). Never throws.
  */
 async function runStickerRead(
   imageInput: string,
@@ -288,12 +297,23 @@ async function runStickerRead(
     }
   }
 
+  let brandNames: string[] = [];
+  if (!sticker.brand) {
+    try {
+      const listed = await listCatalogBrandNames();
+      if (!listed.truncated) brandNames = listed.names;
+    } catch (error) {
+      console.warn(`[capture] Catalog brand list for the sticker read failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   const vision = await readStickerWithVision(
     {
       imageDataUri: imageInput,
       surface: sticker.surface,
       brandName: sticker.brand?.name || null,
       shadeNames,
+      brandNames,
     },
     {
       onLog: (level, message) => console.warn(`[capture] sticker read (${level}): ${message}`),
@@ -304,6 +324,7 @@ async function runStickerRead(
   );
   audit.closedSet = vision?.closedSet ?? shadeNames.length > 0;
   audit.listedCount = audit.closedSet ? shadeNames.length : 0;
+  audit.brandListedCount = brandNames.length;
   audit.confidence = vision?.confidence ?? null;
   if (vision?.gtin) audit.gtin = vision.gtin;
   return { vision, audit };

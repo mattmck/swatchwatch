@@ -40,6 +40,7 @@ const {
   parseStickerRead,
   readStickerWithVision,
   mergeLabelExtraction,
+  BRAND_NAMES_PROMPT_CAP,
 } = require("../dist/lib/sticker-read");
 
 const quiet = { onLog: () => undefined };
@@ -83,6 +84,7 @@ const baseInput = (overrides = {}) => ({
 });
 const visionResult = (overrides = {}) => ({
   brand: null,
+  brandListed: null,
   brandConfidence: null,
   printedName: null,
   closestListed: null,
@@ -99,7 +101,8 @@ const systemText = (payload) => payload.messages[0].content;
 
 describe("lib/sticker-read — constants", () => {
   it("pins the prompt version, OCR floor and deployment order", () => {
-    assert.equal(STICKER_READ_PROMPT_VERSION, "sticker-read/2026-10-v1");
+    assert.equal(STICKER_READ_PROMPT_VERSION, "sticker-read/2026-11-v2");
+    assert.equal(BRAND_NAMES_PROMPT_CAP, 300);
     assert.equal(STICKER_READ_OCR_MIN_CONFIDENCE, 0.4);
     assert.deepEqual(STICKER_READ_DEPLOYMENT_ENV_KEYS, [
       "AZURE_OPENAI_DEPLOYMENT_LABEL",
@@ -175,6 +178,37 @@ describe("lib/sticker-read — buildStickerReadPayload", () => {
     assert.match(userText(payload), /null/);
   });
 
+  it("v2: asks for a separate brand confidence and says the text may be rotated", () => {
+    const payload = buildStickerReadPayload(baseInput(), false);
+    assert.match(systemText(payload), /brandConfidence/);
+    assert.match(systemText(payload), /rotated|sideways/i);
+    assert.match(systemText(buildStickerReadPayload(baseInput(), true)), /brandConfidence/);
+  });
+
+  it("no known brand: lists the catalog brand names and asks for the printed one", () => {
+    const payload = buildStickerReadPayload(
+      baseInput({ surface: "front", brandName: null, shadeNames: [], brandNames: ["ILNP", "KBShimmer", "Kiss"] }),
+      false
+    );
+    const text = userText(payload);
+    for (const name of ["ILNP", "KBShimmer", "Kiss"]) assert.ok(text.includes(name), name);
+    assert.match(text, /brandListed/);
+    assert.match(text, /printed/i);
+    assert.match(userText(buildStickerReadPayload(baseInput({ brandName: null, shadeNames: [], brandNames: ["ILNP"] }), true)), /ILNP/);
+  });
+
+  it("a known brand, no brand names or too many: no brand list, brandListed is null", () => {
+    const known = userText(buildStickerReadPayload(baseInput({ brandNames: ["ILNP", "KBShimmer"] }), false));
+    assert.ok(!known.includes("KBShimmer"));
+    assert.match(known, /brandListed: null/);
+    const none = userText(buildStickerReadPayload(baseInput({ brandName: null, shadeNames: [] }), false));
+    assert.match(none, /brandListed: null/);
+    const many = Array.from({ length: 301 }, (_, i) => `Brand ${i}`);
+    const tooMany = userText(buildStickerReadPayload(baseInput({ brandName: null, shadeNames: [], brandNames: many }), false));
+    assert.ok(!tooMany.includes("Brand 0"));
+    assert.match(tooMany, /brandListed: null/);
+  });
+
   it("the safe prompt keeps the answer shape and the list", () => {
     const payload = buildStickerReadPayload(baseInput(), true);
     assert.match(userText(payload), /Unicorn Skin/);
@@ -213,6 +247,7 @@ describe("lib/sticker-read — parseStickerRead", () => {
   it("invalid JSON: every field null and confidence 0", () => {
     assert.deepEqual(parseStickerRead("not json", ["Unicorn Skin"]), {
       brand: null,
+      brandListed: null,
       brandConfidence: null,
       printedName: null,
       closestListed: null,
@@ -220,6 +255,48 @@ describe("lib/sticker-read — parseStickerRead", () => {
       gtin: null,
       confidence: 0,
     });
+  });
+
+  it("v2: the brand confidence is the model's brandConfidence, else the read's confidence", () => {
+    const own = parseStickerRead('{"printedName":null,"brand":"ILNP","brandConfidence":0.95,"confidence":0.45}', []);
+    assert.equal(own.brandConfidence, 0.95);
+    assert.equal(own.confidence, 0.45);
+    const fallback = parseStickerRead('{"printedName":null,"brand":"ILNP","confidence":0.45}', []);
+    assert.equal(fallback.brandConfidence, 0.45);
+    assert.equal(parseStickerRead('{"brand":null,"brandConfidence":0.9,"confidence":0.4}', []).brandConfidence, null);
+  });
+
+  it("brandListed: a listed brand, in its listed spelling, only when a brand is printed", () => {
+    const opts = { brandNames: ["ILNP", "KBShimmer"] };
+    const picked = parseStickerRead('{"brand":"kbshimmer","brandListed":" kbshimmer ","brandConfidence":0.9,"confidence":0.6}', [], undefined, opts);
+    assert.equal(picked.brandListed, "KBShimmer");
+    assert.equal(picked.brand, "kbshimmer");
+    const unlisted = parseStickerRead('{"brand":"Hush Hush","brandListed":"Hush Hush","confidence":0.9}', [], undefined, opts);
+    assert.equal(unlisted.brandListed, null);
+    assert.equal(unlisted.brand, "Hush Hush");
+    const guess = parseStickerRead('{"brand":null,"brandListed":"KBShimmer","confidence":0.9}', [], undefined, opts);
+    assert.equal(guess.brandListed, null, "a pick with no printed brand is a guess");
+    assert.equal(parseStickerRead('{"brand":"ILNP","brandListed":"ILNP","confidence":0.9}', []).brandListed, null, "no list, no pick");
+  });
+
+  it("the brand the prompt named, echoed back, is no evidence; another brand is", () => {
+    const echo = parseStickerRead('{"printedName":"Sleet Deal","brand":"kb shimmer","confidence":0.58}', [], undefined, { givenBrand: "KBShimmer" });
+    assert.equal(echo.brand, null);
+    assert.equal(echo.brandConfidence, null);
+    assert.equal(echo.printedName, "Sleet Deal");
+    const other = parseStickerRead('{"printedName":"Sleet Deal","brand":"ILNP","confidence":0.9}', [], undefined, { givenBrand: "Kiss" });
+    assert.equal(other.brand, "ILNP");
+  });
+
+  it("the string \"null\" (any case) and other placeholders are no value", () => {
+    const parsed = parseStickerRead('{"printedName":"null","closestListed":"NULL","brand":"null","brandListed":"null","finish":"null","gtin":"null","confidence":0.8}', ["Null"], undefined, { brandNames: ["Null"] });
+    assert.equal(parsed.printedName, null);
+    assert.equal(parsed.closestListed, null);
+    assert.equal(parsed.brand, null);
+    assert.equal(parsed.brandListed, null);
+    assert.equal(parsed.brandConfidence, null);
+    assert.equal(parseStickerRead('{"printedName":"N/A","brand":"none","confidence":0.8}', []).printedName, null);
+    assert.equal(parseStickerRead('{"printedName":"N/A","brand":"none","confidence":0.8}', []).brand, null);
   });
 
   it("accepts JSON inside a code fence", () => {
@@ -256,6 +333,17 @@ describe("lib/sticker-read — readStickerWithVision", () => {
     assert.equal(result.promptVersion, STICKER_READ_PROMPT_VERSION);
     assert.equal(result.rawContent, UNICORN_JSON);
     assert.deepEqual(chatCalls[0].request.deploymentEnvKeys, STICKER_READ_DEPLOYMENT_ENV_KEYS);
+  });
+
+  it("drops the echo of the brand it was told and passes the brand names on", async () => {
+    chatImpl = answer(UNICORN_JSON);
+    const told = await readStickerWithVision(baseInput(), quiet);
+    assert.equal(told.brand, null, "Holo Taco was in the prompt");
+    chatImpl = answer('{"printedName":null,"brand":"kb shimmer","brandListed":"KBShimmer","brandConfidence":0.9,"confidence":0.5}');
+    const open = await readStickerWithVision(baseInput({ surface: "front", brandName: null, shadeNames: [], brandNames: ["ILNP", "KBShimmer"] }), quiet);
+    assert.equal(open.brandListed, "KBShimmer");
+    assert.equal(open.brandConfidence, 0.9);
+    assert.match(userText(chatCalls[1].request.buildPayload(false)), /KBShimmer/);
   });
 
   it("no names: an open read", async () => {
@@ -384,6 +472,13 @@ describe("lib/sticker-read — mergeLabelExtraction", () => {
     assert.equal(merged.extracted.shadeName, "Unicorn Skin");
     assert.equal(merged.extracted.shadeNameListed, "Unicorn Skin");
     assert.equal(merged.extracted.source, "vision");
+  });
+
+  it("a listed brand wins as the brand text, with the brand confidence", () => {
+    const merged = mergeLabelExtraction(null, visionResult({ brand: "kbs", brandListed: "KBShimmer", brandConfidence: 0.88, confidence: 0.5 }));
+    assert.equal(merged.extracted.brand, "KBShimmer");
+    assert.equal(merged.extracted.brandConfidence, 0.88);
+    assert.equal(merged.sources.brand, "vision");
   });
 
   it("neither side: empty", () => {
