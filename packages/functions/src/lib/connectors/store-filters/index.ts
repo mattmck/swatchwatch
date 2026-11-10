@@ -12,9 +12,12 @@ import { isManucuristPolish } from "./manucurist.js";
 import { isNoodlesPolish } from "./noodles.js";
 import { isOliveAndJunePolish } from "./olive-and-june.js";
 import { isPahlishPolish } from "./pahlish.js";
+import { isPaintedPolishPolish } from "./painted-polish.js";
 import { isPenelopeLuzPolish } from "./penelope-luz.js";
+import { isPicturePolishPolish } from "./picture-polish.js";
 import { isPiggyPaintPolish } from "./piggy-paint.js";
 import { isPolishPickupPolish } from "./polish-pickup.js";
+import { isPotionPolishPolish } from "./potion-polish.js";
 import { isStellaChromaPolish } from "./stella-chroma.js";
 import { isSweetAndSourPolish } from "./sweet-and-sour.js";
 import { isWetNWildPolish } from "./wet-n-wild.js";
@@ -24,10 +27,13 @@ import type { StoreFilterProduct, StoreProductFilter } from "./types.js";
 export type { StoreFilterProduct, StoreProductFilter, StoreTitleParser } from "./types.js";
 
 /**
- * Per-source product filters for stores whose products.json the generic
- * Shopify polish filter cannot classify (#328, #273). The generic connector asks
- * this map first; a source without an entry, or a filter that returns null,
- * falls through to the generic filter. Bundle exclusion still applies after.
+ * Per-source product filters for stores whose products the generic polish gate cannot classify
+ * (#328, #273). Keyed by `data_source.name`, so the registry also serves the non-Shopify
+ * connectors: the WooCommerce and Big Cartel gates ask it too (over `wooStoreFilterProduct` /
+ * `bigCartelStoreFilterProduct`, the same platform-neutral fields), which is why Picture Polish,
+ * Painted Polish and Potion Polish are here rather than in a parallel map. A connector asks this
+ * map first; a source without an entry, or a filter that returns null, falls through to the
+ * generic gate. Bundle and set exclusion still apply after.
  */
 export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProductFilter>> = {
   PahlishShopify: isPahlishPolish,
@@ -50,6 +56,10 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   WetNWildShopify: isWetNWildPolish,
   CoteShopify: isCotePolish,
   AlchemyLacquersShopify: isAlchemyLacquersPolish,
+  // Non-Shopify brand stores (enabled 2026-11-10).
+  PicturePolishWooCommerce: isPicturePolishPolish,
+  PaintedPolishBigCartel: isPaintedPolishPolish,
+  PotionPolishBigCartel: isPotionPolishPolish,
 };
 
 /** The store filter's verdict for `product`, or null when `source` has none. */

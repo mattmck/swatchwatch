@@ -1,6 +1,6 @@
 # Polish brands beyond the indie Shopify stores — evaluation and ingestion strategies (November 2026)
 
-## Status (2026-11-08)
+## Status (2026-11-08, Phase E row updated 2026-11-10)
 
 The [implementation plan](superpowers/plans/2026-11-08-brand-sources-ingestion.md) built every
 strategy below except S6 (affiliate feeds) and S8's Open Beauty Facts write-back; the §6 calls are
@@ -13,7 +13,7 @@ yet, and the code never contacts a store (the owner sends the §7 emails and rec
 | B — retailer mode, vendor-code aliases, source image removal | #503 | 3 retailers | Harlow & Co, Beyond Polish (images off, gel off) | Hypnotic Polish |
 | C — brand Shopify stores | #504 | 33 stores, eleven store filters, title parsers | 10: Deborah Lippmann, Londontown, Côte, Manucurist, Olive & June, Piggy Paint, wet n wild, Alchemy Lacquers, Penelope Luz, Noodles | 23: Mavala, CND, Barry M (terms unread) and the 20 clause stores (§3.1–3.2) |
 | D — Polish Pickup | #505 | none (`PolishPickupShopify` was already registered pending) | — | Polish Pickup; the maker roster script `npm run roster:polish-pickup` drives the S3 outreach |
-| E — feed, sitemap + JSON-LD, WooCommerce, Big Cartel connectors | Phase E PR | 9 rows | — | `OpiSitemap`, `PicturePolishWooCommerce`, five Big Cartel stores; `IlnpWooCommerce` and `KbshimmerWooCommerce` known-blocked (`metadata.blocked`) |
+| E — feed, sitemap + JSON-LD, WooCommerce, Big Cartel connectors | Phase E PR | 9 rows | 3 on 2026-11-10 by the owner's decision without a store OK ([D27](decisions-2026-10.md)): Picture Polish (WooCommerce), Painted Polish, Potion Polish (Big Cartel), each with a store filter and title parser | `OpiSitemap`, Colores de Carol, Glisten & Glow, Poetry Cowgirl (Big Cartel); `IlnpWooCommerce` and `KbshimmerWooCommerce` known-blocked (`metadata.blocked`) |
 
 The Google product feed connector has no source yet: a feed row is added when a store sends its
 feed URL (S7). `includeGel` is off everywhere (decision 3 deferred). What the owner does next
