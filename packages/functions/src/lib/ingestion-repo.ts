@@ -65,12 +65,14 @@ import {
   type FingerprintColumns,
   type ImageFingerprint,
 } from "./gallery-dedupe";
+import { getSourceImageMaxPerProduct, planProductImageDownloads } from "./product-image-cap";
 import { trackEvent } from "./telemetry";
 import {
   catalogAuthorityForKind,
   isBrandSourceSql,
   planIngestedFinishes,
   planListingWrites,
+  readIngestionSwitches,
   readSourceKind,
   type CatalogAuthority,
   type SourceKind,
@@ -140,6 +142,8 @@ export interface HoloTacoMaterializationMetrics {
   imageCandidates: number;
   imageUploads: number;
   imageUploadFailures: number;
+  /** Gallery images not downloaded because of `SOURCE_IMAGE_MAX_PER_PRODUCT` (lib/product-image-cap.ts). */
+  imagesSkippedByCap?: number;
   swatchesLinked: number;
   /**
    * `source_gallery` swatches unlinked: the product no longer lists the image, or a previous run
@@ -317,6 +321,12 @@ interface HoloTacoImagePreparationMetrics {
   additionalImagesUploaded: number;
   /** Primary and gallery images whose source URL was already stored, so no download ran. */
   imagesReused: number;
+  /**
+   * Gallery images not downloaded because the product has more images than
+   * `SOURCE_IMAGE_MAX_PER_PRODUCT` (lib/product-image-cap.ts). An image past the cap whose URL an
+   * earlier run already stored is reused instead (counted in `imagesReused`, not here).
+   */
+  imagesSkippedByCap: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -1238,6 +1248,7 @@ async function prepareHoloTacoImageData(
     imageUploadFailures: 0,
     additionalImagesUploaded: 0,
     imagesReused: 0,
+    imagesSkippedByCap: 0,
     hexDetected: 0,
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
@@ -1310,9 +1321,14 @@ async function prepareHoloTacoImageData(
     primaryReused: boolean;
     additionalUploaded: number;
     imagesReused: number;
+    /** Gallery images left out by the per-product download cap (not downloaded, not stored before). */
+    skippedByCap: number;
   }
 
   const limit = pLimit(4);
+  // Per-product download cap: the primary, the likely on-nail photo AI detection would pick, then
+  // vendor order (planProductImageDownloads). Read once per call.
+  const maxImagesPerProduct = getSourceImageMaxPerProduct();
   const startTime = Date.now();
 
   const parsedRecords = records.map((record) => {
@@ -1389,6 +1405,7 @@ async function prepareHoloTacoImageData(
         primaryReused: false,
         additionalUploaded: 0,
         imagesReused: 0,
+        skippedByCap: 0,
       };
       if (!holo) {
         console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: no normalized data`);
@@ -1430,6 +1447,7 @@ async function prepareHoloTacoImageData(
       let additionalUploaded = 0;
       let imagesReused = 0;
       let additionalFailures = 0;
+      let skippedByCap = 0;
       const additionalImages: StoredSourceImage[] = [];
 
       // Upload primary image (container already ensured)
@@ -1456,10 +1474,33 @@ async function prepareHoloTacoImageData(
         });
       }
 
-      // Upload additional images
+      // Additional images, in vendor order. Only the ones the per-product cap keeps are
+      // downloaded; one past the cap whose URL an earlier run stored is reused (no download), so a
+      // capped run never drops a gallery image the vendor still lists and the stored set stays
+      // this product's whole current image set for pruning (imageSetComplete). The rest are
+      // skipped: not downloaded, not stored, never linked.
+      const downloadPlan = planProductImageDownloads({
+        imageUrls: holo.imageUrls,
+        images: holo.images,
+        primaryUrl: holo.primaryImageUrl,
+        maxImages: maxImagesPerProduct,
+      });
+      const keptUrls = new Set(downloadPlan.additional.map((image) => image.url));
+      const seenUrls = new Set<string>([holo.primaryImageUrl]);
       for (let i = 1; i < holo.imageUrls.length; i++) {
         const imgUrl = holo.imageUrls[i];
-        if (!isHttpUrl(imgUrl)) continue;
+        if (!isHttpUrl(imgUrl) || seenUrls.has(imgUrl)) continue;
+        seenUrls.add(imgUrl);
+        if (!keptUrls.has(imgUrl)) {
+          const stored = storedImages.get(imgUrl);
+          if (stored) {
+            additionalImages.push(stored);
+            imagesReused += 1;
+          } else {
+            skippedByCap += 1;
+          }
+          continue;
+        }
         try {
           const { image, reused } = await storeSourceImage(imgUrl, `${record.externalId}-img${i}`);
           additionalImages.push(image);
@@ -1483,6 +1524,14 @@ async function prepareHoloTacoImageData(
         }
       }
 
+      if (skippedByCap > 0) {
+        console.log(
+          `${sourceLogPrefix} ${record.externalId}: ${skippedByCap} of ${holo.imageUrls.length} image(s) not downloaded (SOURCE_IMAGE_MAX_PER_PRODUCT=${maxImagesPerProduct}${
+            downloadPlan.detectionUrl ? `, kept detection image ${downloadPlan.detectionUrl}` : ""
+          })`
+        );
+      }
+
       return {
         record,
         holo,
@@ -1491,11 +1540,14 @@ async function prepareHoloTacoImageData(
         fingerprint,
         sourceUrl: storageUrl ? holo.primaryImageUrl : null,
         additionalImages,
+        // Every image this run kept (downloaded or reused) was stored; images skipped by the cap
+        // are not part of the product's stored set, so they never block the stale-gallery prune.
         imageSetComplete: storageUrl !== null && additionalFailures === 0,
         isCandidate: true,
         primaryReused,
         additionalUploaded,
         imagesReused,
+        skippedByCap,
       };
     })
   );
@@ -1511,15 +1563,22 @@ async function prepareHoloTacoImageData(
     primaryFailed: uploadCandidates.filter((result) => !result.storageUrl).length,
     additionalUploaded: uploadResults.reduce((sum, result) => sum + result.additionalUploaded, 0),
     imagesReused: uploadResults.reduce((sum, result) => sum + result.imagesReused, 0),
+    imagesSkippedByCap: uploadResults.reduce((sum, result) => sum + result.skippedByCap, 0),
+    maxImagesPerProduct,
   };
   progressLogger?.info(
-    `${sourceLogPrefix} Image upload finished in ${uploadElapsed}s: ${uploadSummary.primaryUploaded} uploaded, ${uploadSummary.imagesReused} reused, ${uploadSummary.primaryFailed} failed`,
+    `${sourceLogPrefix} Image upload finished in ${uploadElapsed}s: ${uploadSummary.primaryUploaded} uploaded, ${uploadSummary.imagesReused} reused, ${uploadSummary.primaryFailed} failed${
+      uploadSummary.imagesSkippedByCap > 0
+        ? `, ${uploadSummary.imagesSkippedByCap} not downloaded (over ${maxImagesPerProduct} per product)`
+        : ""
+    }`,
     uploadSummary
   );
 
   // AI hex detection runs on the image most likely to show the polish on a nail
   // (alt-text ranking, see image-selection.ts); the vendor's primary image stays
-  // the fallback and the blob upload set above is unchanged.
+  // the fallback. The download cap above always kept that image, so the choice is the same
+  // as without a cap.
   const chooseDetectionImage = (result: ImageUploadResult): UploadedImageChoice | null => {
     const { holo, storageUrl, checksumSha256, additionalImages } = result;
     if (!holo) return null;
@@ -1627,6 +1686,7 @@ async function prepareHoloTacoImageData(
     }
     metrics.additionalImagesUploaded += result.additionalUploaded;
     metrics.imagesReused += result.imagesReused;
+    metrics.imagesSkippedByCap += result.skippedByCap;
 
     let detectedHex: string | null = null;
     let detectedFinishes: string[] | null = null;
@@ -2167,8 +2227,14 @@ export async function listDataSourcesWithSettings(enabledOnly = true): Promise<D
     name: row.name,
     baseUrl: row.baseUrl,
     enabled: row.enabled,
-    // metadata stays internal: the admin settings response carries only `settings`.
-    settings: (row.metadata?.ingestion) as DataSourceSettings || defaultSettings,
+    // metadata stays internal: the admin settings response carries only `settings`. The switches
+    // are read like the worker reads them (`readIngestionSwitches`: on unless explicitly false).
+    settings: {
+      ...defaultSettings,
+      ...readIngestionSwitches(row.metadata),
+      overwriteExisting:
+        (row.metadata?.ingestion as Record<string, unknown> | undefined)?.overwriteExisting === true,
+    },
   }));
 }
 
@@ -4027,6 +4093,7 @@ export function formatMaterializationSummary(
   > & {
     hexDetectionFailures?: number;
     batchRequestsQueued?: number;
+    imagesSkippedByCap?: number;
     ambiguousShadesSkipped?: number;
     brandStoreShadesMoved?: number;
     brandStoreShadesRenamed?: number;
@@ -4053,6 +4120,9 @@ export function formatMaterializationSummary(
     parts.push(`${metrics.hexDetectionFailures} hex detection failures`);
   }
   parts.push(`${metrics.imageUploadFailures} upload failures`);
+  if (metrics.imagesSkippedByCap) {
+    parts.push(`${metrics.imagesSkippedByCap} images over the per-product cap not downloaded`);
+  }
   if (metrics.skipped) {
     parts.push(
       metrics.ambiguousShadesSkipped

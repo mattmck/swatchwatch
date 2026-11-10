@@ -23,6 +23,12 @@ let labeledImageIds;
 let sharedShade;
 // Perceptual fingerprint the mocked upload returns per image URL (absent = unknown).
 let fingerprints;
+// source_image_url rows (vendor URL → image id); only read back when trackStoredUrls is on, so
+// the other tests keep downloading every image on each run.
+let storedUrls = new Map();
+let trackStoredUrls = false;
+// Every URL the mocked upload was asked to download.
+let uploadedUrls = [];
 
 function swatchTypeFilter(sql) {
   const match = sql.match(/swatch_type = '([a-z_]+)'/);
@@ -49,6 +55,10 @@ const transactionClient = {
       return { rows: image ? [{ image_id: params[0] }] : [] };
     }
 
+    if (sql.includes("INSERT INTO source_image_url")) {
+      storedUrls.set(params[1], params[2]);
+      return { rows: [] };
+    }
     if (sql.includes("INSERT INTO swatch")) {
       const swatchType = sql.match(/'(source_[a-z]+)'/)[1];
       swatches.push({ swatchId: ++nextId, shadeId: params[0], imageId: params[1], swatchType });
@@ -118,7 +128,19 @@ const transactionClient = {
 };
 
 mockDistModule("db.js", {
-  query: async () => ({ rows: [] }),
+  query: async (sql, params) => {
+    if (trackStoredUrls && sql.includes("FROM source_image_url siu")) {
+      // findStoredSourceImages: the URLs an earlier run stored, with their image rows.
+      const rows = params[1].flatMap((sourceUrl) => {
+        const image = images.find((img) => img.imageId === storedUrls.get(sourceUrl));
+        return image
+          ? [{ sourceUrl, storageUrl: `https://blob.example/${encodeURIComponent(sourceUrl)}`, checksumSha256: image.checksum }]
+          : [];
+      });
+      return { rows };
+    }
+    return { rows: [] };
+  },
   transaction: async (callback) => callback(transactionClient),
 });
 
@@ -127,6 +149,7 @@ mockDistModule("db.js", {
 mockDistModule("blob-storage.js", {
   ensureContainer: async () => {},
   uploadSourceImageToBlob: async ({ sourceImageUrl }) => {
+    uploadedUrls.push(sourceImageUrl);
     if (sourceImageUrl.includes("fail")) throw new Error("download failed");
     return {
       storageUrl: `https://blob.example/${encodeURIComponent(sourceImageUrl)}`,
@@ -184,6 +207,7 @@ describe("materializeHoloTacoRecords swatch linking", () => {
     labeledImageIds = [];
     sharedShade = false;
     fingerprints = {};
+    trackStoredUrls = false;
     delete process.env.GALLERY_MAX_IMAGES_PER_SHADE;
   });
 
@@ -360,6 +384,7 @@ describe("materializeHoloTacoRecords gallery near-duplicates and cap", () => {
     labeledImageIds = [];
     sharedShade = false;
     fingerprints = {};
+    trackStoredUrls = false;
     delete process.env.GALLERY_MAX_IMAGES_PER_SHADE;
   });
 
@@ -484,5 +509,111 @@ describe("materializeHoloTacoRecords gallery near-duplicates and cap", () => {
     ]);
     assert.equal(metrics.galleryNearDuplicatesSkipped, 1);
     assert.equal(metrics.galleryOverCapSkipped, 1);
+  });
+});
+
+describe("materializeHoloTacoRecords per-product download cap (SOURCE_IMAGE_MAX_PER_PRODUCT)", () => {
+  beforeEach(() => {
+    images = [];
+    swatches = [];
+    nextId = 0;
+    labeledImageIds = [];
+    sharedShade = false;
+    fingerprints = {};
+    storedUrls = new Map();
+    trackStoredUrls = true;
+    uploadedUrls = [];
+    delete process.env.GALLERY_MAX_IMAGES_PER_SHADE;
+    delete process.env.SOURCE_IMAGE_MAX_PER_PRODUCT;
+  });
+
+  const gallery = (n) => Array.from({ length: n }, (_, i) => `https://shop.example/p1-${i}.jpg`);
+  const linkedUrls = (all) =>
+    swatches.map((sw) => {
+      const image = images.find((img) => img.imageId === sw.imageId);
+      return all.find((u) => image?.checksum === `sum-${u}`) ?? `image ${sw.imageId}`;
+    });
+
+  it("downloads at most 8 images per product by default, primary first in vendor order", async () => {
+    const all = gallery(12);
+    const metrics = await run(all);
+
+    assert.deepEqual(uploadedUrls, all.slice(0, 8));
+    assert.equal(metrics.imagesSkippedByCap, 4);
+    assert.deepEqual(linkedUrls(all), all.slice(0, 8));
+  });
+
+  it("leaves a product under the cap unchanged", async () => {
+    const all = gallery(5);
+    const metrics = await run(all);
+
+    assert.deepEqual(uploadedUrls, all);
+    assert.equal(metrics.imagesSkippedByCap, 0);
+    assert.equal(swatches.length, 5);
+  });
+
+  it("keeps the on-nail photo AI detection would choose and links it", async () => {
+    process.env.SOURCE_IMAGE_MAX_PER_PRODUCT = "3";
+    const all = gallery(10);
+    const imagesMeta = all.map((u, i) => ({ url: u, alt: i === 9 ? "Swatch on nails" : "Bottle", position: i + 1 }));
+
+    const metrics = await run(all, imagesMeta);
+
+    assert.deepEqual(uploadedUrls, [all[0], all[1], all[9]]);
+    assert.equal(metrics.imagesSkippedByCap, 7);
+    assert.deepEqual(linkedUrls(all), [all[0], all[1], all[9]]);
+  });
+
+  it("does not unlink images an earlier uncapped run stored, and still prunes a removed one", async () => {
+    const all = gallery(12);
+    process.env.SOURCE_IMAGE_MAX_PER_PRODUCT = "50";
+    await run(all);
+    assert.equal(swatches.length, 12);
+
+    // Capped run: the images past the cap are reused from storage (no download), so the shade
+    // keeps its gallery and nothing is pruned.
+    delete process.env.SOURCE_IMAGE_MAX_PER_PRODUCT;
+    uploadedUrls = [];
+    const capped = await run(all);
+    assert.deepEqual(uploadedUrls, []);
+    assert.equal(capped.imagesSkippedByCap, 0, "stored images are reused, not skipped");
+    assert.equal(capped.gallerySwatchesPruned, 0);
+    assert.equal(swatches.length, 12);
+
+    // The prune still runs on capped runs: an image the vendor dropped is unlinked.
+    const withoutOne = all.filter((u) => u !== all[10]);
+    const pruned = await run(withoutOne);
+    assert.equal(pruned.gallerySwatchesPruned, 1);
+    assert.ok(!swatches.some((sw) => sw.imageId === imageIdFor(all[10])));
+  });
+
+  it("prunes stale gallery images on a capped run whose kept images all stored", async () => {
+    const all = gallery(12);
+    await run(all);
+    // An older ingest left a gallery swatch for an image the product no longer lists.
+    const staleId = ++nextId;
+    images.push({ imageId: staleId, ownerId: 7, checksum: "old-bytes" });
+    swatches.push({ swatchId: ++nextId, shadeId: 1, imageId: staleId, swatchType: "source_gallery" });
+
+    const metrics = await run(all);
+
+    assert.equal(metrics.imagesSkippedByCap, 4);
+    assert.equal(metrics.gallerySwatchesPruned, 1);
+    assert.equal(swatches.length, 8);
+  });
+
+  it("prunes nothing when a kept image failed to download", async () => {
+    const all = gallery(12);
+    await run(all);
+    const staleId = ++nextId;
+    images.push({ imageId: staleId, ownerId: 7, checksum: "old-bytes" });
+    swatches.push({ swatchId: ++nextId, shadeId: 1, imageId: staleId, swatchType: "source_gallery" });
+
+    const failing = [...all];
+    failing[3] = "https://shop.example/fail-3.jpg";
+    const metrics = await run(failing);
+
+    assert.equal(metrics.gallerySwatchesPruned, 0);
+    assert.ok(swatches.some((sw) => sw.imageId === staleId));
   });
 });

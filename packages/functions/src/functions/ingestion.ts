@@ -85,7 +85,12 @@ import {
   SUPPORTED_SOURCES,
 } from "../lib/connectors/types";
 import { materializesShadeProducts, protocolOf } from "../lib/connectors/registry";
-import { readSourceSettings, type SourceSettings } from "../lib/source-settings";
+import {
+  planSourceImageWork,
+  readIngestionSwitches,
+  readSourceSettings,
+  type SourceSettings,
+} from "../lib/source-settings";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -258,6 +263,7 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "imageUploadFailures",
   "additionalImagesUploaded",
   "imagesReused",
+  "imagesSkippedByCap",
   "swatchesLinked",
   "gallerySwatchesPruned",
   "galleryNearDuplicatesSkipped",
@@ -722,11 +728,23 @@ export async function processIngestionJobQueueMessage(
     }
     // Source kind, image permission and connector keys, read once per job (lib/source-settings.ts).
     const sourceSettings = readSourceSettings(source.metadata, source.name);
+    // Permission (`imagesPermitted`) and the admin switches (`metadata.ingestion.downloadImages`
+    // / `detectHex`) together decide whether this job stores images and runs AI hex detection.
+    const ingestionSwitches = readIngestionSwitches(source.metadata);
+    const imageWork = planSourceImageWork({
+      imagesPermitted: sourceSettings.imagesPermitted,
+      switches: ingestionSwitches,
+      requestDetectHex: payload.request.detectHexFromImage,
+    });
     logger.info(`Found data source`, {
       dataSourceId: source.dataSourceId,
       baseUrl: source.baseUrl,
       sourceKind: sourceSettings.kind,
       imagesPermitted: sourceSettings.imagesPermitted,
+      downloadImages: ingestionSwitches.downloadImages,
+      detectHex: ingestionSwitches.detectHex,
+      storeImages: imageWork.storeImages,
+      detectHexFromImage: imageWork.detectHexFromImage,
     });
     // A retailer or feed only fills empty catalog data: never overwrite detected hexes, so the
     // AI batch submission and the poller's apply step (which read this flag) inherit it too.
@@ -929,7 +947,7 @@ export async function processIngestionJobQueueMessage(
           recordCount: connectorResult.records.length,
           userId: payload.userId,
           dataSourceId: source.dataSourceId,
-          detectHexFromImage: payload.request.detectHexFromImage,
+          detectHexFromImage: imageWork.detectHexFromImage,
           overwriteDetectedHex,
           hexBatchEnabled: hexBatchConfig.enabled,
           hexBatchMinImages: hexBatchConfig.minImages,
@@ -940,10 +958,10 @@ export async function processIngestionJobQueueMessage(
             source.dataSourceId,
             connectorResult.records,
             {
-              detectHexFromImage: payload.request.detectHexFromImage,
+              detectHexFromImage: imageWork.detectHexFromImage,
               detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
               overwriteDetectedHex,
-              storeImages: sourceSettings.imagesPermitted,
+              storeImages: imageWork.storeImages,
               sourceKind: sourceSettings.kind,
               sourceName: payload.request.source,
               // Audit actor of brand-store corrections (moved / merged shades).
@@ -981,7 +999,7 @@ export async function processIngestionJobQueueMessage(
             error: getErrorMessage(materializeError),
             durationMs: materializeDuration,
             recordCount: connectorResult.records.length,
-            detectHexFromImage: payload.request.detectHexFromImage,
+            detectHexFromImage: imageWork.detectHexFromImage,
             overwriteDetectedHex,
           });
           throw materializeError;
@@ -1034,7 +1052,7 @@ export async function processIngestionJobQueueMessage(
       hexBatchConfig.enabled &&
       materializesShadeProducts(payload.request.source) &&
       payload.request.materializeToInventory &&
-      payload.request.detectHexFromImage;
+      imageWork.detectHexFromImage;
     const currentChunkSize = (): number =>
       usesBatchHexDetection && !hexBatchDegraded ? INGESTION_BATCH_CHUNK_SIZE : INGESTION_SYNC_CHUNK_SIZE;
     let chunksThisInvocation = 0;
