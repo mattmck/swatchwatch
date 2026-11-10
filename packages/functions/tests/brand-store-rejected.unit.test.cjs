@@ -197,6 +197,22 @@ describe("runBrandStoreRejectedBatch", () => {
     assert.equal(s.log.length, 1);
   });
 
+  it("rechecks the protection flags in the retire UPDATE (an edit can land after the batch read)", async () => {
+    const { db, calls } = fakeDb(state());
+    await runBrandStoreRejectedBatch(db, { afterShadeId: 0, limit: 200, dryRun: false, sources: null, adminUserId: 2 });
+    const update = calls.map((c) => c.text.replace(/\s+/g, " ")).find((t) => t.startsWith("UPDATE shade s SET status = 'excluded'"));
+    assert.ok(update, "retire UPDATE ran");
+    for (const guard of [
+      "s.created_by_user_id IS NULL",
+      "s.review_status IS DISTINCT FROM 'approved'",
+      "s.product_category_source IS DISTINCT FROM 'admin'",
+      "s.finishes_source IS DISTINCT FROM 'admin'",
+      "s.vendor_hex_source IS DISTINCT FROM 'manual_label'",
+    ]) {
+      assert.ok(update.includes(guard), guard);
+    }
+  });
+
   it("pages by shade id", async () => {
     const { db } = fakeDb(state());
     const report = await runBrandStoreRejectedBatch(db, { afterShadeId: 0, limit: 2, dryRun: true, sources: null, adminUserId: 2 });

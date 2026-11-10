@@ -335,6 +335,13 @@ export async function runBrandStoreRejectedBatch(
          WHERE s.shade_id = $1
            AND s.status = 'active'
            AND s.merged_into_shade_id IS NULL
+           -- Rechecked here, not only in the plan: an admin edit or an approval that lands
+           -- between the batch read and this UPDATE must keep the shade.
+           AND s.created_by_user_id IS NULL
+           AND s.review_status IS DISTINCT FROM 'approved'
+           AND s.product_category_source IS DISTINCT FROM 'admin'
+           AND s.finishes_source IS DISTINCT FROM 'admin'
+           AND s.vendor_hex_source IS DISTINCT FROM 'manual_label'
            AND NOT EXISTS (SELECT 1 FROM user_inventory_item ui WHERE ui.shade_id = s.shade_id)`,
         [shade.shadeId]
       );
