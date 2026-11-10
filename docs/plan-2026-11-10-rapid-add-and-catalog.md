@@ -303,6 +303,23 @@ the ingestion to-do list. Goal 2 feeds goal 1; goal 1 tells goal 2 what to inges
   `gpt-5-mini`'s front brand confidence sits just under the 0.6 threshold on some Picture Polish
   takes.
 
+**2026-11-10, end of the overnight run:**
+
+- **Web sends the guide outline** (`quality.guideRegion`) on shutter and auto-shutter bottle photos,
+  mapped through the preview crop; unit-tested, not yet checked on a phone. Mobile draws no outline
+  and sends none.
+- **Review fixes on PR #508:** the front-named shade always reaches the candidate pool; a capped run
+  does not prune after a failed stored-image lookup; the rejected-product backfill rechecks the
+  protection flags in its UPDATE.
+- **Retailer images are in (locally, one per product):** Harlow & Co and Beyond Polish re-ran with
+  images on. 6,127 of 7,020 active local shades now have an image (ILNP 605 of 605, OPI 543 of 543,
+  KBShimmer 327 of 327). Only 68 shades have a measured colour, because vision hex detection has
+  not been run: that waits on the model and snap choice (step 1.8a), since it is thousands of paid
+  calls and has to be repeated on dev.
+- **Local-only state to remember:** `imagesPermitted: false` with a `localDiskGuard` note on Cracked,
+  Bee's Knees, China Glaze, Le Mini Macaron, Starrily and Lights Lacquer in the local database, and
+  the local host runs with `SOURCE_IMAGE_MAX_PER_PRODUCT=1`. Neither is in any migration.
+
 ## Goal 1 — Rapid Add and inventory mode
 
 **Done means:** on the labelled photo set, every bottle that is in the catalog is matched or offered
