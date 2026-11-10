@@ -1,8 +1,17 @@
-import type { CaptureBrandHintEcho, CaptureBrandRef, CaptureBrandSource } from "swatchwatch-shared";
+import { PRODUCT_CATEGORIES, type CaptureBrandHintEcho, type CaptureBrandRef, type CaptureBrandSource } from "swatchwatch-shared";
 import { query } from "./db";
 
 /** Lowest score (trigram similarity, or word similarity for a typed hint) at which brand text counts as a catalog brand. */
 export const BRAND_MATCH_MIN_SIMILARITY = 0.6;
+/**
+ * Product categories a scanned bottle can be: every one but `accessory` (tools, sets, D23). A
+ * collection holds toppers, top/base coats and treatments as well as colors (bottle eval
+ * 2026-11-10: a topper and a top coat could never match while only `color` was pooled).
+ */
+export const BOTTLE_POOL_PRODUCT_CATEGORIES = PRODUCT_CATEGORIES.filter((category) => category !== "accessory");
+/** SQL filter on alias `s` for `BOTTLE_POOL_PRODUCT_CATEGORIES`. */
+export const BOTTLE_POOL_CATEGORY_SQL = `s.product_category IN (${BOTTLE_POOL_PRODUCT_CATEGORIES.map((category) => `'${category}'`).join(", ")})`;
+
 /** Most shade names of one brand handed to the model as a closed list. */
 export const BRAND_SHADE_NAMES_CAP = 400;
 
@@ -166,15 +175,15 @@ export async function listCatalogBrandNames(db: QueryDb = { query }): Promise<{ 
 }
 
 /**
- * $1 brand_id, $2 user_id. Shared shades are the live color ones; the caller's own private
- * `user_submitted` shades are included, nobody else's. One row more than the cap is fetched
- * so truncation is detectable.
+ * $1 brand_id, $2 user_id. Shared shades are the live ones of a bottle category (every one but
+ * `accessory`, the bottle resolver's pool); the caller's own private `user_submitted` shades are
+ * included, nobody else's. One row more than the cap is fetched so truncation is detectable.
  */
 export const SELECT_BRAND_SHADE_NAMES_SQL = `SELECT s.shade_name_canonical AS name
 FROM shade s
 WHERE s.brand_id = $1
   AND s.merged_into_shade_id IS NULL
-  AND s.product_category = 'color'
+  AND ${BOTTLE_POOL_CATEGORY_SQL}
   AND (s.status = 'active' OR (s.status = 'user_submitted' AND s.created_by_user_id = $2))
 ORDER BY s.shade_name_canonical
 LIMIT ${BRAND_SHADE_NAMES_CAP + 1}`;

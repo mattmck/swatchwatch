@@ -41,6 +41,9 @@ const {
   readStickerWithVision,
   mergeLabelExtraction,
   BRAND_NAMES_PROMPT_CAP,
+  STICKER_READ_PICK_MIN_AGREEMENT,
+  STICKER_READ_OWN_MATCH_MIN,
+  nameAgreement,
 } = require("../dist/lib/sticker-read");
 
 const quiet = { onLog: () => undefined };
@@ -101,7 +104,9 @@ const systemText = (payload) => payload.messages[0].content;
 
 describe("lib/sticker-read — constants", () => {
   it("pins the prompt version, OCR floor and deployment order", () => {
-    assert.equal(STICKER_READ_PROMPT_VERSION, "sticker-read/2026-11-v2");
+    assert.equal(STICKER_READ_PROMPT_VERSION, "sticker-read/2026-11-v3");
+    assert.equal(STICKER_READ_PICK_MIN_AGREEMENT, 0.75);
+    assert.equal(STICKER_READ_OWN_MATCH_MIN, 0.92);
     assert.equal(BRAND_NAMES_PROMPT_CAP, 300);
     assert.equal(STICKER_READ_OCR_MIN_CONFIDENCE, 0.4);
     assert.deepEqual(STICKER_READ_DEPLOYMENT_ENV_KEYS, [
@@ -140,12 +145,35 @@ describe("lib/sticker-read — buildStickerReadPayload", () => {
     assert.equal(payload.temperature, 0);
   });
 
-  it("sends the image at the resolved detail, low by default", () => {
-    const image = buildStickerReadPayload(baseInput(), false).messages[1].content.find((part) => part.type === "image_url");
-    assert.equal(image.image_url.url, IMAGE);
-    assert.equal(image.image_url.detail, "low");
-    const high = buildStickerReadPayload(baseInput({ imageDetail: "high" }), false).messages[1].content.find((part) => part.type === "image_url");
-    assert.equal(high.image_url.detail, "high");
+  it("v3: sends the image at high detail by default (low detail could not read the sticker), whatever AZURE_OPENAI_VISION_DETAIL says", () => {
+    const saved = process.env.AZURE_OPENAI_VISION_DETAIL;
+    process.env.AZURE_OPENAI_VISION_DETAIL = "low";
+    try {
+      const image = buildStickerReadPayload(baseInput(), false).messages[1].content.find((part) => part.type === "image_url");
+      assert.equal(image.image_url.url, IMAGE);
+      assert.equal(image.image_url.detail, "high");
+      const low = buildStickerReadPayload(baseInput({ imageDetail: "low" }), false).messages[1].content.find((part) => part.type === "image_url");
+      assert.equal(low.image_url.detail, "low");
+      // The front is read for its brand: at high detail gpt-4o-mini misread the logo (bottle eval:
+      // "Starrity", "CLOCKWORK", "Polish Wing"), so it stays at low detail.
+      const front = buildStickerReadPayload(baseInput({ surface: "front", shadeNames: [] }), false).messages[1].content.find((part) => part.type === "image_url");
+      assert.equal(front.image_url.detail, "low");
+    } finally {
+      if (saved === undefined) delete process.env.AZURE_OPENAI_VISION_DETAIL;
+      else process.env.AZURE_OPENAI_VISION_DETAIL = saved;
+    }
+  });
+
+  it("v3: asks for nameComplete, the letters as printed, the middle bottle only, and allows a shade missing from the list", () => {
+    for (const safe of [false, true]) {
+      const payload = buildStickerReadPayload(baseInput(), safe);
+      assert.match(systemText(payload), /nameComplete/);
+      assert.match(systemText(payload), /missing from the list/i);
+    }
+    const payload = buildStickerReadPayload(baseInput(), false);
+    assert.match(systemText(payload), /letter by letter/i);
+    assert.match(systemText(payload), /background/i);
+    assert.match(systemText(buildStickerReadPayload(baseInput({ shadeNames: [] }), false)), /nameComplete/);
   });
 
   it("lists the finish names the answer may use", () => {
@@ -250,11 +278,19 @@ describe("lib/sticker-read — parseStickerRead", () => {
       brandListed: null,
       brandConfidence: null,
       printedName: null,
+      nameComplete: null,
       closestListed: null,
       finish: null,
       gtin: null,
       confidence: 0,
     });
+  });
+
+  it("v3: nameComplete is a boolean or null", () => {
+    assert.equal(parseStickerRead('{"printedName":"RION\'S BEL","nameComplete":false}', []).nameComplete, false);
+    assert.equal(parseStickerRead('{"printedName":"Hera","nameComplete":true}', []).nameComplete, true);
+    assert.equal(parseStickerRead('{"printedName":"Hera","nameComplete":"false"}', []).nameComplete, false);
+    assert.equal(parseStickerRead('{"printedName":"Hera"}', []).nameComplete, null);
   });
 
   it("v2: the brand confidence is the model's brandConfidence, else the read's confidence", () => {
@@ -483,5 +519,166 @@ describe("lib/sticker-read — mergeLabelExtraction", () => {
 
   it("neither side: empty", () => {
     assert.deepEqual(mergeLabelExtraction(null, null), { extracted: {}, sources: {} });
+  });
+});
+
+describe("lib/sticker-read — nameAgreement (pg_trgm similarity in JS)", () => {
+  it("equals pg_trgm similarity on the bottle eval pairs", () => {
+    // Values from Postgres similarity() on the 2026-11-10 eval reads.
+    const close = (a, b, expected) => assert.ok(Math.abs(nameAgreement(a, b) - expected) < 1e-6, `${a} / ${b}: ${nameAgreement(a, b)}`);
+    close("Orion's Belt", "RION'S BEL", 0.5);
+    close("Electric Hold", "Electric Holo", 0.75);
+    close("Holo Berry", "I Scream Holo", 0.25);
+    close("Cinnamon Apple Sangria", "Cinnamon Cider 2.0", 0.29032257);
+    close("Hola Berry", "Holo Berry", 0.6923077);
+    close("LAGOONA MATATA", "Lagoona Matata", 1);
+    close("E = mc²", "E=mc^2", 0.71428573); // pg_trgm drops "²" (not a decimal digit)
+  });
+  it("reads & as and, and ignores case and punctuation", () => {
+    assert.equal(nameAgreement("Sip Back And Relax", "Sip Back & Relax"), 1);
+    assert.equal(nameAgreement("E = mc^2", "E=mc^2"), 1);
+    assert.equal(nameAgreement("", "Hera"), 0);
+  });
+});
+
+describe("lib/sticker-read — verified closed-set pick (v3)", () => {
+  // Bottle eval 2026-11-10: with the list in the prompt the model reported its pick as the
+  // printed name ("Cinnamon Cider 2.0" for a sticker reading "Cinnamon Apple Sangria"), so the
+  // printed text is read first without the list and the pick only counts when that text agrees.
+  const POTION = ["Cinnamon Cider 2.0", "Across Time", "Swan Song"];
+  const potionInput = () => baseInput({ brandName: "Potion Polish", shadeNames: POTION });
+  const sequence = (...contents) => {
+    let i = 0;
+    return async () => ({ provider: "azure-openai", content: contents[Math.min(i++, contents.length - 1)], usage: null, deployment: "d" });
+  };
+  const listOf = (call) => userText(call.request.buildPayload(false));
+
+  it("the open read comes first, without the list; a printed name that spells a listed name needs no second call", async () => {
+    chatImpl = sequence('{"printedName":"SWAN SONG","nameComplete":true,"confidence":0.9}');
+    let calls = 0;
+    const result = await readStickerWithVision(potionInput(), { ...quiet, onModelCall: () => (calls += 1) });
+    assert.equal(chatCalls.length, 1);
+    assert.equal(calls, 1);
+    assert.ok(!listOf(chatCalls[0]).includes("Across Time"), "the open read lists no shade names");
+    assert.equal(result.printedName, "SWAN SONG");
+    assert.equal(result.closestListed, "Swan Song");
+    assert.equal(result.pickVerified, true);
+    assert.equal(result.unverifiedPick, null);
+    assert.equal(result.closedSet, true);
+    assert.equal(result.modelCalls, 1);
+  });
+
+  it("a pick the independently printed name does not spell is unverified: no closestListed, kept as a candidate", async () => {
+    chatImpl = sequence(
+      '{"printedName":"Cinnamon Apple Sangria","nameComplete":true,"confidence":1}',
+      '{"printedName":"Cinnamon Cider 2.0","nameComplete":true,"closestListed":"Cinnamon Cider 2.0","confidence":1}'
+    );
+    const result = await readStickerWithVision(potionInput(), quiet);
+    assert.equal(chatCalls.length, 2);
+    assert.ok(listOf(chatCalls[1]).includes("Cinnamon Cider 2.0"), "the second read is the closed question");
+    assert.equal(result.printedName, "Cinnamon Apple Sangria", "the printed name comes from the read without the list");
+    assert.equal(result.closestListed, null);
+    assert.equal(result.unverifiedPick, "Cinnamon Cider 2.0");
+    assert.equal(result.pickVerified, false);
+    assert.ok(result.pickAgreement < STICKER_READ_PICK_MIN_AGREEMENT);
+    assert.equal(result.modelCalls, 2);
+  });
+
+  it("a pick the printed name agrees with (>= 0.75) is verified", async () => {
+    chatImpl = sequence(
+      '{"printedName":"Sip Back And Relax","nameComplete":true,"confidence":0.9}',
+      '{"printedName":"Sip Back & Relax","closestListed":"Sip Back & Relax","confidence":1}'
+    );
+    const result = await readStickerWithVision(baseInput({ shadeNames: ["Sip Back & Relax", "Sleet Deal"] }), quiet);
+    assert.equal(result.closestListed, "Sip Back & Relax");
+    assert.equal(result.pickVerified, true);
+  });
+
+  it("a partial name (nameComplete false) never verifies a pick, even one it spells", async () => {
+    chatImpl = sequence(
+      '{"printedName":"MOONFLOW","nameComplete":false,"confidence":0.9}',
+      '{"printedName":"Moonflower","closestListed":"Moonflower","confidence":1}'
+    );
+    const result = await readStickerWithVision(baseInput({ shadeNames: ["Moonflower", "Hera"] }), quiet);
+    assert.equal(chatCalls.length, 2);
+    assert.equal(result.closestListed, null);
+    assert.equal(result.unverifiedPick, "Moonflower");
+    assert.equal(result.nameComplete, false);
+  });
+
+  it("when the open read fails, the closed read's printed name is not used (it may echo the pick)", async () => {
+    let i = 0;
+    chatImpl = async () => (i++ === 0
+      ? { provider: "azure-openai", content: null, usage: null, deployment: "d", reason: "content_filtered" }
+      : { provider: "azure-openai", content: '{"printedName":"Hera","closestListed":"Hera","brand":"Starrily","finish":"glitter","confidence":1}', usage: null, deployment: "d" });
+    const result = await readStickerWithVision(baseInput({ brandName: "Holo Taco", shadeNames: ["Hera", "Moonflower"] }), quiet);
+    assert.equal(result.printedName, null);
+    assert.equal(result.closestListed, null);
+    assert.equal(result.unverifiedPick, "Hera");
+    assert.equal(result.finish, "glitter", "other fields still come from the closed read");
+  });
+
+  it("the open read's other fields win over the closed read's", async () => {
+    chatImpl = sequence(
+      '{"printedName":"Cinnamon Apple Sangria","finish":"jelly","gtin":"4006381333931","confidence":0.9}',
+      '{"printedName":"Cinnamon Cider 2.0","closestListed":"Cinnamon Cider 2.0","finish":"creme","confidence":1}'
+    );
+    const result = await readStickerWithVision(potionInput(), quiet);
+    assert.equal(result.finish, "jelly");
+    assert.equal(result.gtin, "4006381333931");
+  });
+
+  it("an open read (no list) is one call and verifies nothing", async () => {
+    chatImpl = sequence('{"printedName":"Mermaid","closestListed":"Mermaid","confidence":0.6}');
+    const result = await readStickerWithVision(baseInput({ shadeNames: [] }), quiet);
+    assert.equal(chatCalls.length, 1);
+    assert.equal(result.pickVerified, null);
+    assert.equal(result.unverifiedPick, null);
+    assert.equal(result.modelCalls, 1);
+  });
+});
+
+describe("lib/sticker-read — mergeLabelExtraction (v3 pick fields)", () => {
+  it("an unverified pick is stored as shadeNamePick, never as shadeNameListed", () => {
+    const merged = mergeLabelExtraction(null, visionResult({ printedName: "Cinnamon Apple Sangria", unverifiedPick: "Cinnamon Cider 2.0", confidence: 1 }));
+    assert.equal(merged.extracted.shadeNameListed, undefined);
+    assert.equal(merged.extracted.shadeNamePick, "Cinnamon Cider 2.0");
+    assert.equal(merged.sources.shadeNamePick, "vision");
+  });
+  it("a vision name the model marked incomplete carries shadeNameComplete false", () => {
+    const merged = mergeLabelExtraction(null, visionResult({ printedName: "MOONFLOW", nameComplete: false, confidence: 0.9 }));
+    assert.equal(merged.extracted.shadeName, "MOONFLOW");
+    assert.equal(merged.extracted.shadeNameComplete, false);
+    const complete = mergeLabelExtraction(null, visionResult({ printedName: "Moonflower", nameComplete: true, confidence: 0.9 }));
+    assert.equal(complete.extracted.shadeNameComplete, undefined);
+    const ocrWon = mergeLabelExtraction({ fields: { shadeName: "Moonflower" }, confidence: 0.99 }, visionResult({ printedName: "MOONFLOW", nameComplete: false, confidence: 0.5 }));
+    assert.equal(ocrWon.extracted.shadeNameComplete, undefined, "the flag describes the vision name only");
+  });
+});
+
+describe("lib/sticker-read — brand on a closed-set read (v3)", () => {
+  // Bottle eval 2026-11-10 v3 run: the read without the list reported other sticker text as the
+  // brand ("Holographic", "Polish Wing", "CLOCKWORK") and, as the newest frame read, it replaced
+  // the front's correct brand. The brand of a read that was told the brand comes from the closed
+  // read only, as before v3.
+  const sequence = (...contents) => {
+    let i = 0;
+    return async () => ({ provider: "azure-openai", content: contents[Math.min(i++, contents.length - 1)], usage: null, deployment: "d" });
+  };
+  it("the open read's brand is ignored; the closed read's brand is kept", async () => {
+    chatImpl = sequence(
+      '{"printedName":"Bake Stuff","brand":"Holographic","brandConfidence":0.8,"confidence":0.9}',
+      '{"printedName":"Bake Stuff Happen","closestListed":"Bake Stuff Happen","brand":"Holo Taco Labs","brandConfidence":0.95,"confidence":1}'
+    );
+    const result = await readStickerWithVision(baseInput({ shadeNames: ["Bake Stuff Happen", "Sleet Deal"] }), quiet);
+    assert.equal(result.brand, "Holo Taco Labs");
+    assert.equal(result.brandConfidence, 0.95);
+  });
+  it("a printed name that spells a listed name (no closed call) reports no brand", async () => {
+    chatImpl = sequence('{"printedName":"Sleet Deal","brand":"CLOCKWORK","brandConfidence":0.9,"confidence":1}');
+    const result = await readStickerWithVision(baseInput({ shadeNames: ["Bake Stuff Happen", "Sleet Deal"] }), quiet);
+    assert.equal(result.closestListed, "Sleet Deal");
+    assert.equal(result.brand, null);
+    assert.equal(result.brandConfidence, null);
   });
 });

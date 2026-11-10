@@ -226,7 +226,9 @@ describe("label pool eligibility", () => {
     assert.equal(labelPoolEligibility(row({})), true);
     assert.equal(labelPoolEligibility(row({ labelMergedIntoShadeId: "5" })), false);
     assert.equal(labelPoolEligibility(row({ labelStatus: "excluded" })), false);
-    assert.equal(labelPoolEligibility(row({ labelCategory: "topper" })), false);
+    assert.equal(labelPoolEligibility(row({ labelCategory: "topper" })), true, "toppers and coats are pooled");
+    assert.equal(labelPoolEligibility(row({ labelCategory: "top_coat" })), true);
+    assert.equal(labelPoolEligibility(row({ labelCategory: "accessory" })), false);
     assert.equal(labelPoolEligibility(row({ labelStatus: "user_submitted" })), null);
     assert.equal(labelPoolEligibility(row({ shadeId: null, labelStatus: null })), null);
   });

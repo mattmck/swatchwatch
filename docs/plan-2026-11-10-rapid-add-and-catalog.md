@@ -205,6 +205,75 @@ the ingestion to-do list. Goal 2 feeds goal 1; goal 1 tells goal 2 what to inges
   `localDiskGuard`), so their catalogs complete without more photos. The retailer re-run with
   images waits for disk space (13 GB free; five merged worktrees hold 16 GB).
 
+**2026-11-10, full baseline (176 samples from 87 bottles, `gpt-4o-mini`, after the fixes above):**
+
+- **Catalog after all local runs and corrections:** 43 of 87 bottles are in the catalog (24 before
+  the naming fixes). Re-running the stores moved or merged the misfiled shades as predicted (China
+  Glaze 18 moved, 50 merged, 3 left; Le Mini Macaron 17 moved, 25 merged; Starrily 20 moved, 58
+  renamed) and the backfill retired 142 gel and off-brand shades.
+
+  | In the catalog (96 samples) | n |
+  |---|---|
+  | Matched correctly | 57 (59%) |
+  | Asked, right shade in the list | 2 |
+  | Asked, right shade not in the list | 2 |
+  | Unmatched | 33 |
+  | **Matched wrongly** | **2** |
+
+  | Not in the catalog (80 samples) | n |
+  |---|---|
+  | Correctly not matched | 77 |
+  | **Matched wrongly** | **3** |
+  | Create card offered | 72.5% |
+
+- **The five wrong matches are the priority.** "Cinnamon Apple Sangria" matched Potion Polish
+  "Cinnamon Cider 2.0"; "Electric Holo" matched "I Scream Holo"; two Starrily box takes whose name
+  shows through a window that cuts letters off matched "Hera" and "Serpent's Lair" at name score
+  1.00. In each the model picked a name from the brand's shade list and the pick was trusted as a
+  match. In progress: a pick alone must never produce a match.
+- **Unmatched, by cause:** name not read 19 (Picture Polish 5: the name is on the front label, which
+  the flow reads for the brand only; Le Mini Macaron 5; OPI 3; Lights Lacquer 3; Starrily 2; Painted
+  Polish 1), name read wrong 6, brand not resolved 7, shade not poolable 4 (toppers and top coats
+  are outside the resolver's colour-only pool).
+- **Glass colour measured the hand** on several takes (`#F8D5B8`, `#FAD5B8`, `#FEEAB8`).
+- **Per brand, matched of in-catalog samples:** KBShimmer 9/10, ILNP 8/10, Bee's Knees 5/6, Cracked
+  11/14, Starrily 15/23, Le Mini Macaron 5/10, Lights Lacquer 1/4, Mooncat 1/2, Orly 1/3, Painted
+  Polish 1/2, OPI 0/6, Picture Polish 0/6.
+
+**2026-11-10, wrong matches fixed (sticker read v3):**
+
+- **Cause confirmed on the photos:** with the brand's shade list in the prompt, the model returned
+  its pick as the "printed" name, so the name match scored 1.0 by itself. The five labels were
+  right; the reads were wrong.
+- **Rule now:** the sticker is read at high detail without the list first. A pick from the list
+  counts only when that independent printed name is complete and agrees with it; an unverified pick
+  or a partly hidden name can be offered as a candidate but can never make a match. The front's
+  printed name (Picture Polish) makes a candidate, and a bottom that names a different shade than
+  the front turns a match into a question. Toppers, top coats and treatments are in the pool.
+
+  | 176 samples | Baseline `gpt-4o-mini` | After `gpt-4o-mini` | After `gpt-5-mini` |
+  |---|---|---|---|
+  | In catalog (96): matched | 57 | 41 | 53 |
+  | Asked, right shade listed | 2 | 28 | 22 |
+  | Asked, right shade not listed | 2 | 4 | 9 |
+  | Unmatched | 33 | 23 | 12 |
+  | Wrong match | 2 | 0 | 0 |
+  | Not in catalog (80): correctly not matched | 77 | 80 | 79 |
+  | Not in catalog: wrong match | 3 | 0 | 1 |
+  | Model calls per bottle | 2.84 | 3.32 | 3.25 |
+
+- **The trade:** no wrong matches on `gpt-4o-mini`, but 16 bottles that used to auto-match are now a
+  question with the right shade in the list, because their honest read is garbled or cut short
+  ("DARK MUS", "Street Deal" for Sleet Deal). They matched before only through the mechanism that
+  caused the wrong matches. Right answer reachable (matched or listed): 59 → 69 of 96 on
+  `gpt-4o-mini`, 75 of 96 on `gpt-5-mini`.
+- **`gpt-5-mini`'s one wrong match** read "morgana" off a labelled bottle standing behind the one
+  being held (Picture Polish "Eventide", not in the catalog). Next: crop the name read to the guide
+  region. This is the realistic risk when someone pulls a pile of same-brand bottles.
+- **Still open:** the front brand read regressed on two Starrily takes ("Starry"); glass colour
+  measures the whole frame, so it picks the hand; the local `__TEST__` brands show up in the brand
+  list given to the model.
+
 ## Goal 1 — Rapid Add and inventory mode
 
 **Done means:** on the labelled photo set, every bottle that is in the catalog is matched or offered
@@ -293,11 +362,11 @@ Not worked on until both goals are met. Their notes stay where they are.
    override with a confirmation that is written to the history? Recommended: allow the override. You
    are the owner, Mooncat and Cupcake are already on without a recorded OK, and the history keeps it
    honest.
-2. **Pending stores:** Matt asked on 2026-11-10 for Picture Polish, Painted Polish and Potion Polish
-   to be turned on for real. Their terms were then read (progress log, second pass): Picture Polish
-   forbids extraction tools, republishing and linking; the Big Cartel API licence forbids keeping a
-   database of store content. Not enabled. Decide: email the three makers for their OK (drafts can
-   be prepared), or enable anyway with that on record.
+2. **Pending stores: decided.** On 2026-11-10 Matt enabled Picture Polish, Painted Polish and Potion
+   Polish without a store OK, after the terms were read (decision D27; progress log, fourth pass).
+   Follow-up, separate from the decision: ask the three makers for the record and note each answer
+   in the source's `metadata.notes`. Likewise retailer images for Harlow & Co and Beyond Polish
+   (decision D28): ask both retailers for the record.
 3. **Sessions and worktrees:** archive the finished sessions (#496–#501 and the two classification
    and cleanup ones) and remove the five merged `brand-sources-phase-*` worktrees? Disk has 17 GB
    free.

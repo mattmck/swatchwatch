@@ -1183,12 +1183,23 @@ describe("functions/capture — sticker vision read", () => {
     assert.equal(quality.extracted.source, "vision");
     assert.deepEqual(
       { ...quality.ai.sticker },
-      { promptVersion: "sticker-read/2026-11-v2", closedSet: true, listedCount: 2, brandListedCount: 0, confidence: 0.82, modelCalls: 1 }
+      {
+        promptVersion: "sticker-read/2026-11-v3",
+        closedSet: true,
+        listedCount: 2,
+        brandListedCount: 0,
+        confidence: 0.82,
+        modelCalls: 1,
+        nameComplete: null,
+        pickVerified: true,
+        pickAgreement: 1,
+      }
     );
+    // v3: the printed name, read without the list, spells a listed name, so no closed call is needed.
     assert.equal(chatRequests.length, 1);
     assert.deepEqual(shadeNameQueries().map((c) => c.params), [[3, OWNER]]);
     const userMessage = JSON.stringify(chatRequests[0].buildPayload(false));
-    assert.match(userMessage, /Unicorn Skin/);
+    assert.doesNotMatch(userMessage, /Linear Holo/, "the first read lists no shade names");
     assert.match(userMessage, /bottom of the bottle/);
   });
 

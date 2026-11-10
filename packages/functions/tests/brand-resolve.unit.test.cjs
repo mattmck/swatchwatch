@@ -196,11 +196,12 @@ describe("lib/brand-resolve — listBrandShadeNames", () => {
     assert.equal(out.truncated, false);
   });
 
-  it("the SQL is scoped to the caller's own private shades and to live color shades", () => {
+  it("the SQL is scoped to the caller's own private shades and to live bottle categories (never accessories)", () => {
     assert.match(SELECT_BRAND_SHADE_NAMES_SQL, /s\.brand_id = \$1/);
     assert.match(SELECT_BRAND_SHADE_NAMES_SQL, /created_by_user_id = \$2/);
     assert.match(SELECT_BRAND_SHADE_NAMES_SQL, /merged_into_shade_id IS NULL/);
-    assert.match(SELECT_BRAND_SHADE_NAMES_SQL, /product_category = 'color'/);
+    assert.match(SELECT_BRAND_SHADE_NAMES_SQL, /product_category IN \('color', 'topper', 'top_coat', 'base_coat', 'treatment'\)/);
+    assert.ok(!/accessory/.test(SELECT_BRAND_SHADE_NAMES_SQL));
     assert.match(SELECT_BRAND_SHADE_NAMES_SQL, /ORDER BY s\.shade_name_canonical/);
     assert.match(SELECT_BRAND_SHADE_NAMES_SQL, /LIMIT 401/);
   });

@@ -8,7 +8,7 @@ import {
   parseBottleSurface,
 } from "swatchwatch-shared";
 import type { resolveBrandFromText } from "./brand-resolve";
-import { toBrandRef } from "./brand-resolve";
+import { BOTTLE_POOL_CATEGORY_SQL, toBrandRef } from "./brand-resolve";
 import type {
   CaptureEvidence,
   CaptureFrameEvidenceRow,
@@ -35,6 +35,12 @@ export const BOTTLE_RESOLVER_THRESHOLDS = {
   question: 0.75,
   /** Name score below which the closest shade is no plausible candidate and the create card shows. */
   createCard: 0.5,
+  /**
+   * Name score given to a row only a weak read names (a closed-set pick the printed name did not
+   * verify, or a name read off the front): inside the ask band and below `question`, so neither
+   * it nor color can ever turn it into a match.
+   */
+  candidateOnly: 0.6,
   /** OKLAB distance within which color confirms a mid-band name. */
   colorHigh: HIGH_CONFIDENCE_MAX_DISTANCE,
   /** OKLAB distance beyond which color rejects an auto-match, and within which color lists candidates. */
@@ -78,6 +84,8 @@ export interface BottleCandidateRow {
   shadeName: string;
   nameScore: number | null;
   colorDistance: number | null;
+  /** Similarity of the shade name to the name read off the front (`$8`); null without one. */
+  frontScore?: number | null;
 }
 
 export interface ScoredBottleCandidate {
@@ -90,6 +98,8 @@ export interface ScoredBottleCandidate {
   colorScore: number | null;
   score: number;
   fromConflictBrand: boolean;
+  /** True when the name read off the front spells this shade (`frontScore` >= `match`). */
+  frontNamed?: boolean;
 }
 
 function finiteOrNull(value: unknown): number | null {
@@ -124,21 +134,35 @@ function withColor(
 }
 
 /**
- * nameScore = max(trigram, visionConfidence) for the row whose name equals `shadeNameListed`
- * (case-insensitive), the trigram alone for the others; score = nameScore ?? colorScore ?? 0;
+ * nameScore = max(trigram, visionConfidence) for the row whose name equals the verified pick
+ * `shadeNameListed` (case-insensitive); max(trigram, `candidateOnly`) for the row equal to an
+ * unverified pick `shadeNamePick` and for rows the front's name spells (`frontScore` >= `match`,
+ * marked `frontNamed`); the trigram alone for the others; score = nameScore ?? colorScore ?? 0;
  * sorted nameScore DESC NULLS LAST, colorDistance ASC NULLS LAST, shade id ASC.
  */
 export function scoreBottleCandidates(
   rows: readonly BottleCandidateRow[],
-  input: { shadeNameListed: string | null; visionConfidence: number | null; hintBrandId: number | null }
+  input: {
+    shadeNameListed: string | null;
+    shadeNamePick?: string | null;
+    visionConfidence: number | null;
+    hintBrandId: number | null;
+  }
 ): ScoredBottleCandidate[] {
+  const T = BOTTLE_RESOLVER_THRESHOLDS;
   const listed = input.shadeNameListed?.trim().toLowerCase() || null;
+  const pick = input.shadeNamePick?.trim().toLowerCase() || null;
+  const lift = (score: number | null, to: number) => (score === null ? to : Math.max(score, to));
   const scored = rows.map((row) => {
     let nameScore = finiteOrNull(row.nameScore);
-    const isListed = listed !== null && row.shadeName.trim().toLowerCase() === listed;
+    const name = row.shadeName.trim().toLowerCase();
+    const isListed = listed !== null && name === listed;
     if (isListed && input.visionConfidence !== null) {
-      nameScore = nameScore === null ? input.visionConfidence : Math.max(nameScore, input.visionConfidence);
+      nameScore = lift(nameScore, input.visionConfidence);
     }
+    if (!isListed && pick !== null && name === pick) nameScore = lift(nameScore, T.candidateOnly);
+    const frontNamed = (finiteOrNull(row.frontScore) ?? 0) >= T.match;
+    if (frontNamed) nameScore = lift(nameScore, T.candidateOnly);
     const brandId = Number(row.brandId);
     return withColor({
       shadeId: Number(row.shadeId),
@@ -147,6 +171,7 @@ export function scoreBottleCandidates(
       nameScore,
       colorDistance: finiteOrNull(row.colorDistance),
       fromConflictBrand: input.hintBrandId !== null && brandId !== input.hintBrandId,
+      frontNamed,
     });
   });
   return scored.sort(compareScored);
@@ -158,14 +183,38 @@ export type BottleDecision =
   | { kind: "create_card"; confidence: 0 }
   | { kind: "unmatched"; confidence: number };
 
+export interface BottleDecisionContext {
+  nameRead: boolean;
+  brandKnown: boolean;
+  /** The printed name was read only in part (cut off or covered): it can rank, never match. */
+  nameIncomplete?: boolean;
+}
+
+/**
+ * Spec 5.3 bands, then two vetoes on a match: an incomplete name never matches, and neither
+ * does a top candidate when the front's name spells another shade (the user is asked, with the
+ * front-named shade among the candidates).
+ */
+export function decideBottleResolution(
+  scored: readonly ScoredBottleCandidate[],
+  ctx: BottleDecisionContext
+): BottleDecision {
+  const decision = decideBands(scored, ctx);
+  if (decision.kind !== "matched") return decision;
+  const top = decision.candidate;
+  const frontOther = scored.find((candidate) => candidate.frontNamed && candidate.shadeId !== top.shadeId);
+  if (!ctx.nameIncomplete && (!frontOther || top.frontNamed)) return decision;
+  const T = BOTTLE_RESOLVER_THRESHOLDS;
+  let cut = scored.slice(0, T.maxCandidates);
+  if (frontOther && !cut.includes(frontOther)) cut = [...cut.slice(0, T.maxCandidates - 1), frontOther];
+  return { kind: "candidates", candidates: cut, confidence: top.nameScore ?? decision.confidence, tie: false, method: "name" };
+}
+
 /**
  * Spec 5.3 bands for the best-ranked candidate (`D` is its OKLAB distance to the glass color,
  * null without a glass hex). `scored` must be sorted as `scoreBottleCandidates` sorts.
  */
-export function decideBottleResolution(
-  scored: readonly ScoredBottleCandidate[],
-  ctx: { nameRead: boolean; brandKnown: boolean }
-): BottleDecision {
+function decideBands(scored: readonly ScoredBottleCandidate[], ctx: BottleDecisionContext): BottleDecision {
   const T = BOTTLE_RESOLVER_THRESHOLDS;
   const top = scored[0];
   if (!top) {
@@ -223,28 +272,34 @@ export function buildSuggestedShade(evidence: CaptureEvidence, brand: CaptureBra
   };
 }
 
-const CANDIDATE_COLOR_DISTANCE_SQL = buildMeasuredHexDistanceSql(["#000000"], 4).sql;
+const MEASURED_DISTANCE_SQL = buildMeasuredHexDistanceSql(["#000000"], 4).sql;
+/** Color distance for color shades only: a topper's or coat's stored hex says nothing about the glass. */
+const CANDIDATE_COLOR_DISTANCE_SQL = `CASE WHEN s.product_category <> 'color' THEN NULL ${MEASURED_DISTANCE_SQL.replace(/^CASE /, "")}`;
 
 /**
  * $1 brand_id[] (bigint[]), $2 user_id, $3 printed shade name text or null, $4–$6 glass OKLAB
- * L/a/b or null, $7 the closed-set pick `shadeNameListed` or null (its row sorts first, so a
- * confident pick is never cut by the pool limit). Shades of those brands only: live color shades, plus the caller's own private
- * `user_submitted` ones (never another user's). `nameScore` is NULL without a name, and
- * `colorDistance` is NULL without a glass color, without a stored display color, or when that
- * display color is only the guess from the shade name (`name_hex`): a guessed color is not
- * evidence, so it can neither confirm a name nor turn a name match into a question.
+ * L/a/b or null, $7 the closed-set pick (`shadeNameListed`, else the unverified `shadeNamePick`)
+ * or null (its row sorts first, so a pick is never cut by the pool limit), $8 the name read off
+ * the front or null (`frontScore`). Shades of those brands only: live shades of every bottle
+ * category (`BOTTLE_POOL_CATEGORY_SQL`: colors, toppers, coats, treatments; never accessories),
+ * plus the caller's own private `user_submitted` ones (never another user's). `nameScore` is NULL
+ * without a name, and `colorDistance` is NULL without a glass color, for a shade that is not a
+ * color, without a stored display color, or when that display color is only the guess from the
+ * shade name (`name_hex`): a guessed color is not evidence, so it can neither confirm a name nor
+ * turn a name match into a question.
  */
 export const BOTTLE_CANDIDATES_SQL = `SELECT s.shade_id::text AS "shadeId",
        s.brand_id::text AS "brandId",
        b.name_canonical AS brand,
        s.shade_name_canonical AS "shadeName",
        similarity(s.shade_name_canonical, $3::text) AS "nameScore",
-       ${CANDIDATE_COLOR_DISTANCE_SQL} AS "colorDistance"
+       ${CANDIDATE_COLOR_DISTANCE_SQL} AS "colorDistance",
+       similarity(s.shade_name_canonical, $8::text) AS "frontScore"
 FROM shade s
 JOIN brand b ON b.brand_id = s.brand_id
 WHERE s.brand_id = ANY($1::bigint[])
   AND s.merged_into_shade_id IS NULL
-  AND s.product_category = 'color'
+  AND ${BOTTLE_POOL_CATEGORY_SQL}
   AND (s.status = 'active' OR (s.status = 'user_submitted' AND s.created_by_user_id = $2))
 ORDER BY COALESCE(lower(s.shade_name_canonical) = lower($7::text), false) DESC,
          "nameScore" DESC NULLS LAST, "colorDistance" ASC NULLS LAST, s.shade_id ASC
@@ -424,6 +479,7 @@ function scoreComponents(candidate: ScoredBottleCandidate) {
     colorScore: candidate.colorScore,
     score: candidate.score,
     fromConflictBrand: candidate.fromConflictBrand,
+    frontNamed: candidate.frontNamed ?? false,
   };
 }
 
@@ -452,14 +508,17 @@ export async function resolveBottle(
       oklab ? oklab.L : null,
       oklab ? oklab.a : null,
       oklab ? oklab.b : null,
-      evidence.shadeNameListed ?? null,
+      evidence.shadeNameListed ?? evidence.shadeNamePick ?? null,
+      evidence.frontShadeName ?? null,
     ]);
     scored = scoreBottleCandidates(result.rows, {
       shadeNameListed: evidence.shadeNameListed ?? null,
+      shadeNamePick: evidence.shadeNamePick ?? null,
       visionConfidence: ctx.visionConfidence ?? null,
       hintBrandId: numericBrandId(ctx.hintBrand),
     });
-    nameRead = Boolean(evidence.shadeName || evidence.shadeNameListed);
+    nameRead = Boolean(evidence.shadeName || evidence.shadeNameListed || evidence.shadeNamePick)
+      || scored.some((candidate) => candidate.frontNamed);
   } else {
     const global = (await deps.globalCandidates(evidence)).filter(
       (candidate): candidate is CaptureMatchCandidate & { shadeId: number } => candidate.shadeId !== null
@@ -482,7 +541,11 @@ export async function resolveBottle(
     nameRead = Boolean(evidence.shadeName);
   }
 
-  const decision = decideBottleResolution(scored, { nameRead, brandKnown });
+  const decision = decideBottleResolution(scored, {
+    nameRead,
+    brandKnown,
+    nameIncomplete: Boolean(evidence.shadeNameIncomplete && !evidence.shadeNameListed),
+  });
   const suggestedShade = brandKnown && decision.kind !== "matched" ? buildSuggestedShade(evidence, plan.brand) : undefined;
   const audit = {
     version: BOTTLE_RESOLVER_VERSION,
@@ -495,6 +558,9 @@ export async function resolveBottle(
       brandRead: evidence.brandRead ?? null,
       shadeName: evidence.shadeName ?? null,
       shadeNameListed: evidence.shadeNameListed ?? null,
+      shadeNamePick: evidence.shadeNamePick ?? null,
+      shadeNameIncomplete: evidence.shadeNameIncomplete ?? false,
+      frontShadeName: evidence.frontShadeName ?? null,
       finish: evidence.finish ?? null,
       glassHex: evidence.glassHex ?? null,
       glassHexConfidence: evidence.glassHexConfidence ?? null,

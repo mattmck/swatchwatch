@@ -224,8 +224,16 @@ interface StickerReadAudit {
   brandListedCount?: number;
   /** The read's confidence; null when no read ran or it produced nothing. */
   confidence: number | null;
-  /** Calls that were sent to the model (0 when the read was not needed, unconfigured or skipped). */
-  modelCalls: 0 | 1;
+  /** Calls that were sent to the model (0 when the read was not needed, unconfigured or skipped; 2 when the closed pick call ran). */
+  modelCalls: number;
+  /** The model's `nameComplete` for the printed name (false = partly hidden). */
+  nameComplete?: boolean | null;
+  /** Whether the closed-set pick was verified by the printed name; null on an open read. */
+  pickVerified?: boolean | null;
+  /** Agreement of the printed name with the pick (pg_trgm similarity). */
+  pickAgreement?: number | null;
+  /** A pick the printed name did not verify (a candidate only). */
+  unverifiedPick?: string | null;
   /** Barcode digits the read reported; evidence only when the check digit is valid (`mergeLabelExtraction`). */
   gtin?: string | null;
 }
@@ -318,7 +326,7 @@ async function runStickerRead(
     {
       onLog: (level, message) => console.warn(`[capture] sticker read (${level}): ${message}`),
       onModelCall: () => {
-        audit.modelCalls = 1;
+        audit.modelCalls += 1;
       },
     }
   );
@@ -326,6 +334,12 @@ async function runStickerRead(
   audit.listedCount = audit.closedSet ? shadeNames.length : 0;
   audit.brandListedCount = brandNames.length;
   audit.confidence = vision?.confidence ?? null;
+  if (vision) {
+    audit.nameComplete = vision.nameComplete;
+    audit.pickVerified = vision.pickVerified;
+    audit.pickAgreement = vision.pickAgreement;
+    if (vision.unverifiedPick) audit.unverifiedPick = vision.unverifiedPick;
+  }
   if (vision?.gtin) audit.gtin = vision.gtin;
   return { vision, audit };
 }
@@ -595,7 +609,7 @@ async function normalizeCaptureImageInput(
 
 /**
  * A client-sent frame `quality` without the keys only the server writes: `ai` and
- * `extracted.shadeNameListed` / `brandConfidence` / `source` (`source: "glass"` marks
+ * `extracted.shadeNameListed` / `shadeNamePick` / `shadeNameComplete` / `brandConfidence` / `source` (`source: "glass"` marks
  * server-measured lacquer evidence, `"request_quality"` client evidence the server stored). The
  * client's evidence fields (`extracted.brand`, `shadeName`, `gtin`, `finish`, …) stay.
  */
@@ -607,6 +621,8 @@ function stripServerOwnedQuality(
   if ("extracted" in rest) {
     const {
       shadeNameListed: _listed,
+      shadeNamePick: _pick,
+      shadeNameComplete: _complete,
       brandConfidence: _brandConfidence,
       source: _source,
       ...extracted

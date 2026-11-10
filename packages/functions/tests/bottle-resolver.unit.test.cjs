@@ -31,6 +31,7 @@ describe("lib/bottle-resolver — constants", () => {
       match: 0.92,
       question: 0.75,
       createCard: 0.5,
+      candidateOnly: 0.6,
       colorHigh: 0.05,
       colorMedium: 0.1,
       brandRead: 0.6,
@@ -126,6 +127,33 @@ describe("lib/bottle-resolver — scoreBottleCandidates", () => {
     assert.deepEqual(withHint.map((c) => [c.shadeId, c.brandId, c.fromConflictBrand]), [[1, 3, false], [2, 7, true]]);
     const noHint = scoreBottleCandidates(rows, { shadeNameListed: null, visionConfidence: null, hintBrandId: null });
     assert.ok(noHint.every((c) => c.fromConflictBrand === false));
+  });
+});
+
+describe("lib/bottle-resolver — scoreBottleCandidates (unverified pick, front name)", () => {
+  // Bottle eval 2026-11-10: a closed-set pick the printed name did not spell matched a different
+  // shade ("Cinnamon Cider 2.0" for "Cinnamon Apple Sangria"); such a pick is now a candidate only.
+  it("an unverified pick lifts its row to the candidate-only score, never higher", () => {
+    const scored = scoreBottleCandidates(
+      [row(1, "Cinnamon Cider 2.0", { nameScore: 0.29 }), row(2, "Swan Song", { nameScore: 0.1 })],
+      { shadeNameListed: null, shadeNamePick: "cinnamon cider 2.0", visionConfidence: 1, hintBrandId: 3 }
+    );
+    assert.equal(scored[0].shadeId, 1);
+    assert.equal(scored[0].nameScore, BOTTLE_RESOLVER_THRESHOLDS.candidateOnly);
+    assert.ok(scored[0].nameScore < BOTTLE_RESOLVER_THRESHOLDS.question, "color can never confirm it into a match");
+    const higher = scoreBottleCandidates([row(1, "A", { nameScore: 0.8 })], { shadeNameListed: null, shadeNamePick: "A", visionConfidence: 1, hintBrandId: null });
+    assert.equal(higher[0].nameScore, 0.8, "a higher trigram is kept");
+  });
+  it("a row the front's printed name spells (frontScore >= 0.92) is a candidate and marked frontNamed", () => {
+    const scored = scoreBottleCandidates(
+      [row(1, "Camelot", { frontScore: 1 }), row(2, "Guinevere", { frontScore: 0.1 }), row(3, "Morgana")],
+      { shadeNameListed: null, visionConfidence: null, hintBrandId: 3 }
+    );
+    assert.equal(scored[0].shadeId, 1);
+    assert.equal(scored[0].nameScore, BOTTLE_RESOLVER_THRESHOLDS.candidateOnly);
+    assert.equal(scored[0].frontNamed, true);
+    assert.equal(scored.find((c) => c.shadeId === 2).frontNamed, false);
+    assert.equal(scored.find((c) => c.shadeId === 2).nameScore, null);
   });
 });
 
@@ -225,6 +253,19 @@ describe("lib/bottle-resolver — decideBottleResolution (spec 5.3 bands)", () =
   it("no candidates: create card when the brand is known, else unmatched at 0", () => {
     assert.deepEqual(decideBottleResolution([], known), { kind: "create_card", confidence: 0 });
     assert.deepEqual(decideBottleResolution([], unknownBrand), { kind: "unmatched", confidence: 0 });
+  });
+  it("an incomplete name (partly hidden) never matches, by name or by name+color", () => {
+    const byName = decideBottleResolution([cand(1, 1, 0.01)], { ...known, nameIncomplete: true });
+    assert.equal(byName.kind, "candidates");
+    assert.equal(byName.candidates[0].shadeId, 1);
+    assert.equal(decideBottleResolution([cand(1, 0.8, 0.01)], { ...known, nameIncomplete: true }).kind, "candidates");
+  });
+  it("a front-named candidate other than the top contradicts a match: ask instead", () => {
+    const d = decideBottleResolution([cand(1, 1, null), cand(2, 0.6, null, { frontNamed: true })], known);
+    assert.equal(d.kind, "candidates");
+    assert.deepEqual(d.candidates.map((c) => c.shadeId), [1, 2]);
+    const agrees = decideBottleResolution([cand(1, 1, null, { frontNamed: true })], known);
+    assert.equal(agrees.kind, "matched", "the front naming the matched shade is no contradiction");
   });
   it("candidate lists are cut to 5", () => {
     const seven = [1, 2, 3, 4, 5, 6, 7].map((id) => cand(id, 0.8, null));
@@ -350,7 +391,7 @@ describe("lib/bottle-resolver — resolveBottle", () => {
     assert.equal(decision.entityId, 11);
     assert.equal(decision.confidence, 0.95);
     assert.deepEqual(calls.query[0].params.slice(0, 3), [[3], USER, "Unicorn Skin"]);
-    assert.deepEqual(calls.query[0].params.slice(3), [null, null, null, null]);
+    assert.deepEqual(calls.query[0].params.slice(3), [null, null, null, null, null]);
     assert.equal(calls.global.length, 0);
     assert.equal(decision.bottle.brand.brandId, "3");
     assert.equal(decision.bottle.modelCalls, 2);
@@ -632,12 +673,57 @@ describe("lib/bottle-resolver — resolveBottle", () => {
     assert.equal(resolver.candidateCount, 7);
     assert.equal(resolver.top5.length, 5);
     assert.deepEqual(Object.keys(resolver.top5[0]).sort(), [
-      "brandId", "colorDistance", "colorScore", "display", "fromConflictBrand", "nameScore", "score", "shadeId",
+      "brandId", "colorDistance", "colorScore", "display", "fromConflictBrand", "frontNamed", "nameScore", "score", "shadeId",
     ]);
     assert.equal(resolver.audit.frameCount, 1);
     assert.equal(resolver.audit.evidence.shadeName, "Shade");
     assert.equal(resolver.audit.thresholds.match, 0.92);
     assert.equal(decision.candidates.length, 5);
+  });
+
+  it("v3: an unverified pick binds as $7 (so the pool keeps it) and only ever asks", async () => {
+    const { calls, deps } = recorder({
+      rows: [row(11, "Cinnamon Cider 2.0", { nameScore: 0.29, colorDistance: 0.01 }), row(12, "Swan Song", { nameScore: 0.05 })],
+    });
+    const decision = await resolveBottle(
+      baseEvidence({ shadeName: "Cinnamon Apple Sangria", shadeNamePick: "Cinnamon Cider 2.0", glassHex: "#6A574A" }),
+      ctx({ hintBrand: hint(), visionConfidence: 1 }),
+      deps
+    );
+    assert.equal(calls.query[0].params[6], "Cinnamon Cider 2.0");
+    assert.equal(decision.status, "needs_question");
+    assert.equal(decision.candidates[0].shadeId, 11);
+  });
+
+  it("v3: an incomplete printed name asks instead of matching", async () => {
+    const { deps } = recorder({ rows: [row(11, "Orion's Belt", { nameScore: 1 })] });
+    const decision = await resolveBottle(
+      baseEvidence({ shadeName: "Orion's Belt", shadeNameIncomplete: true }),
+      ctx({ hintBrand: hint() }),
+      deps
+    );
+    assert.equal(decision.status, "needs_question");
+    assert.equal(decision.candidates[0].shadeId, 11);
+  });
+
+  it("v3: a front name binds as $8; with no other name it gives candidates, not a create card", async () => {
+    const { calls, deps } = recorder({ rows: [row(11, "Camelot", { frontScore: 1 }), row(12, "Morgana", { frontScore: 0.1 })] });
+    const decision = await resolveBottle(baseEvidence({ frontShadeName: "camelot" }), ctx({ hintBrand: hint() }), deps);
+    assert.equal(calls.query[0].params[7], "camelot");
+    assert.equal(decision.status, "needs_question");
+    assert.equal(decision.candidates[0].shadeId, 11);
+  });
+
+  it("v3: a front name that spells another shade than the bottom's match turns the match into a question", async () => {
+    // Bottle eval: a Morgana bottle photographed with a Guinevere bottle behind it.
+    const { deps } = recorder({ rows: [row(11, "Guinevere", { nameScore: 1, frontScore: 0.1 }), row(12, "Morgana", { nameScore: 0.1, frontScore: 1 })] });
+    const decision = await resolveBottle(
+      baseEvidence({ shadeName: "guinevere", frontShadeName: "morgana" }),
+      ctx({ hintBrand: hint() }),
+      deps
+    );
+    assert.equal(decision.status, "needs_question");
+    assert.ok(decision.candidates.some((c) => c.shadeId === 12));
   });
 
   it("every SQL statement binds the user id", async () => {
@@ -656,12 +742,19 @@ describe("lib/bottle-resolver — SQL", () => {
   it("pools by brand with the visibility rules and the pool limit", () => {
     assert.match(sql, /s\.brand_id = ANY\(\$1::bigint\[\]\)/);
     assert.match(sql, /s\.merged_into_shade_id IS NULL/);
-    assert.match(sql, /s\.product_category = 'color'/);
+    assert.match(sql, /s\.product_category IN \('color', 'topper', 'top_coat', 'base_coat', 'treatment'\)/);
+    assert.ok(!/accessory/.test(sql), "accessories are never pooled");
     assert.match(sql, /s\.status = 'active' OR \(s\.status = 'user_submitted' AND s\.created_by_user_id = \$2\)/);
     assert.match(sql, /similarity\(s\.shade_name_canonical, \$3::text\)/);
     assert.match(sql, /\$4::float8/);
     assert.match(sql, /\$6::float8/);
     assert.match(sql, /LIMIT 50/);
+  });
+  it("measures color only for color shades (a topper or coat's stored hex is not the glass color)", () => {
+    assert.match(sql, /CASE WHEN s\.product_category <> 'color' THEN NULL WHEN NULLIF\(s\.vendor_hex, ''\) IS NULL/);
+  });
+  it("scores the front name as frontScore from $8", () => {
+    assert.match(sql, /similarity\(s\.shade_name_canonical, \$8::text\) AS "frontScore"/);
   });
   it("sorts the listed pick first so the pool limit cannot cut it", () => {
     assert.match(sql, /\$7::text/);
@@ -674,7 +767,7 @@ describe("lib/bottle-resolver — SQL", () => {
     // A name_hex is a guess from the color name ("High Dive" -> slate blue). Compared with the
     // glass photo it vetoed perfect name reads (bottle eval 2026-11-10: 5 of 18 samples).
     const guard = /CASE WHEN NULLIF\(s\.vendor_hex, ''\) IS NULL AND NULLIF\(s\.detected_hex, ''\) IS NULL THEN NULL ELSE sqrt\(/;
-    assert.match(sql, guard);
+    assert.match(sql, /NULLIF\(s\.vendor_hex, ''\) IS NULL AND NULLIF\(s\.detected_hex, ''\) IS NULL THEN NULL ELSE sqrt\(/);
     const calls = [];
     const db = { query: async (text) => (calls.push(text), { rows: [], rowCount: 0 }) };
     await loadColorDistances([5], "#B4004E", USER, db);
