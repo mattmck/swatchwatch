@@ -18,7 +18,7 @@ import type {
 import { surfaceReadsShadeName, toRecord } from "./capture-evidence";
 import { buildBrandShadeQuestion, buildCandidateQuestion } from "./capture-questions";
 import type { query } from "./db";
-import { buildNearHexDistanceSql } from "./near-hex";
+import { buildMeasuredHexDistanceSql } from "./near-hex";
 
 /**
  * Brand-first bottle resolver (Bottle Flow slice A, spec 5.3). The brand narrows the pool, the
@@ -223,14 +223,16 @@ export function buildSuggestedShade(evidence: CaptureEvidence, brand: CaptureBra
   };
 }
 
-const CANDIDATE_COLOR_DISTANCE_SQL = buildNearHexDistanceSql(["#000000"], 4).sql;
+const CANDIDATE_COLOR_DISTANCE_SQL = buildMeasuredHexDistanceSql(["#000000"], 4).sql;
 
 /**
  * $1 brand_id[] (bigint[]), $2 user_id, $3 printed shade name text or null, $4–$6 glass OKLAB
  * L/a/b or null, $7 the closed-set pick `shadeNameListed` or null (its row sorts first, so a
  * confident pick is never cut by the pool limit). Shades of those brands only: live color shades, plus the caller's own private
  * `user_submitted` ones (never another user's). `nameScore` is NULL without a name, and
- * `colorDistance` is NULL without a glass color or a stored display color.
+ * `colorDistance` is NULL without a glass color, without a stored display color, or when that
+ * display color is only the guess from the shade name (`name_hex`): a guessed color is not
+ * evidence, so it can neither confirm a name nor turn a name match into a question.
  */
 export const BOTTLE_CANDIDATES_SQL = `SELECT s.shade_id::text AS "shadeId",
        s.brand_id::text AS "brandId",
@@ -250,7 +252,7 @@ LIMIT ${BOTTLE_RESOLVER_THRESHOLDS.poolLimit}`;
 
 const HEX_PATTERN = /^#?[0-9a-f]{6}$/i;
 
-/** OKLAB distance from the glass hex to each shade's stored display color (null = no display color). */
+/** OKLAB distance from the glass hex to each shade's measured display color (null = none, or only a name guess). */
 export async function loadColorDistances(
   shadeIds: number[],
   glassHex: string,
@@ -260,7 +262,7 @@ export async function loadColorDistances(
   const distances = new Map<number, number | null>();
   if (shadeIds.length === 0 || !HEX_PATTERN.test(glassHex)) return distances;
 
-  const distance = buildNearHexDistanceSql([glassHex], 2);
+  const distance = buildMeasuredHexDistanceSql([glassHex], 2);
   const result = await db.query(
     `SELECT s.shade_id::text AS "shadeId", ${distance.sql} AS distance
      FROM shade s

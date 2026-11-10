@@ -670,6 +670,16 @@ describe("lib/bottle-resolver — SQL", () => {
   it("never exposes another user's private shade", () => {
     assert.ok(!/status = 'user_submitted'(?! AND s\.created_by_user_id = \$2)/.test(sql));
   });
+  it("never measures color against a hex that is only guessed from the shade name", async () => {
+    // A name_hex is a guess from the color name ("High Dive" -> slate blue). Compared with the
+    // glass photo it vetoed perfect name reads (bottle eval 2026-11-10: 5 of 18 samples).
+    const guard = /CASE WHEN NULLIF\(s\.vendor_hex, ''\) IS NULL AND NULLIF\(s\.detected_hex, ''\) IS NULL THEN NULL ELSE sqrt\(/;
+    assert.match(sql, guard);
+    const calls = [];
+    const db = { query: async (text) => (calls.push(text), { rows: [], rowCount: 0 }) };
+    await loadColorDistances([5], "#B4004E", USER, db);
+    assert.match(calls[0].replace(/\s+/g, " "), guard);
+  });
   it("loadColorDistances scopes visibility to the caller and returns a map", async () => {
     const calls = [];
     const db = {
