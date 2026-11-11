@@ -84,6 +84,13 @@ export function protocolOfName(name: string): ConnectorProtocol {
     : "Custom";
 }
 
+/** `materializesShadeProducts` for any `data_source.name` (open-data and unknown names give false). */
+export function materializesShadeProductsByName(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(SOURCE_PROTOCOL_MAP, name)
+    ? materializesShadeProducts(name as SupportedConnectorSource)
+    : false;
+}
+
 /**
  * True for a source whose raw products are Shopify `products.json` products: the generic Shopify
  * stores and Holo Taco (its own protocol, the same payload). Replaces the old

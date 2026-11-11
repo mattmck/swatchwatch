@@ -23,6 +23,8 @@ export * from './functions/makeupapi-dedupe-admin';
 export * from './functions/brand-store-rejected-admin';
 export * from './functions/inventory-admin';
 export * from './functions/shade-sources-admin';
+export * from './functions/sources-admin';
+export * from './functions/brands-admin';
 export * from './functions/bottle-eval-admin';
 export * from './functions/product-data-admin';
 export * from './functions/ingestion-worker';

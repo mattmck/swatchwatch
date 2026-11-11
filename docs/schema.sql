@@ -245,6 +245,20 @@ CREATE TABLE brand_alias (
   UNIQUE (brand_id, alias)
 );
 
+-- Admin Sources tab (migration 20261111120000000): what we know about a brand's web presence.
+CREATE TABLE brand_ingest_profile (
+  brand_id BIGINT PRIMARY KEY REFERENCES brand(brand_id) ON DELETE CASCADE,
+  website_url TEXT,
+  platform TEXT,
+  blocker TEXT,
+  notes TEXT,
+  own_data_source_id BIGINT REFERENCES data_source(data_source_id) ON DELETE SET NULL,
+  updated_by_user_id BIGINT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT brand_ingest_profile_platform_check
+    CHECK (platform IN ('shopify', 'woocommerce', 'bigcartel', 'custom', 'feed', 'none', 'unknown'))
+);
+
 CREATE TABLE product_line (
   product_line_id BIGSERIAL PRIMARY KEY,
   brand_id BIGINT NOT NULL REFERENCES brand(brand_id),
@@ -557,7 +571,11 @@ CREATE TABLE admin_audit_event (
       -- brand store's re-run moved or renamed the shade its listing points at (actor = the admin
       -- who queued the job; shade id, brand and name before/after in changes). Its merges are
       -- 'shade.catalog_merge' rows.
-      'shade.catalog_correct'
+      'shade.catalog_correct',
+      -- admin Sources tab (migration 20261111120000000): data source permission / on-off / images
+      -- and brand create / profile edits; target_user_id NULL, ids in changes
+      'data_source.permission', 'data_source.enable', 'data_source.disable', 'data_source.images',
+      'brand.create', 'brand.profile_update'
     ))
 );
 

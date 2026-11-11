@@ -296,9 +296,30 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `AdminUserIdentity` | Linked external identity (`externalId`, `email`, `createdAt`, `lastSeenAt`) |
 | `AdminUserDetailResponse` | `GET`/`PATCH /api/users-admin/{id}`: `user`, `identities`, `suspendedReason`, `suspendedByUserId`, newest 20 `auditEvents` |
 | `AdminUserUpdateRequest` | `PATCH /api/users-admin/{id}` body: `handle`, `suspended`, `suspendedReason`, `note` (role is not editable: assigned in Entra) |
-| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge \| shade.vendor_hex_promote \| shade.vendor_hex_demote` (the `shade.*` actions, #321, have no target user; the shade id is in `changes`), `changes`, `note`, `createdAt` |
+| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge \| shade.vendor_hex_promote \| shade.vendor_hex_demote \| shade.catalog_merge \| shade.catalog_delete \| data_source.permission \| data_source.enable \| data_source.disable \| data_source.images \| brand.create \| brand.profile_update` (the `shade.*`, `data_source.*` and `brand.*` actions have no target user; the shade, source or brand id is in `changes`), `changes`, `note`, `createdAt` |
 | `AdminUserMergeRequest` | Admin payload for duplicate-account repair (`sourceUserId`, `targetUserId`) |
 | `AdminUserMergeResponse` | Admin merge result summary (moved row counts incl. `mergedManicureRows` + merge status/message) |
+
+### `types/sources-admin.ts` (admin Sources tab)
+
+| Type | Description |
+|------|-------------|
+| `SOURCE_PERMISSION_STATUSES` / `SourcePermissionStatus` | `not_needed \| not_asked \| asked \| granted \| declined` |
+| `SOURCE_PERMISSION_CHANNELS` / `SourcePermissionChannel` | How the OK was given: `email \| dm \| form \| phone \| other` |
+| `SourcePermission` | Stored `data_source.metadata.permission`: status, `askedAt`, `decidedAt`, `grantedBy`, `channel`, `summary`, `imagesGranted`, `recordedByUserId`, `recordedAt` |
+| `AdminSourceKind` | `brand \| retailer \| feed` (`sourceKindFromMetadata`) |
+| `AdminSourceLastJob` / `AdminSourceListItem` | One `data_source` row for `GET /api/sources-admin`: kind, connector, `needsStoreOk` (false for open-data sources), on/off, permission, verification summary, last job, listing and shade counts |
+| `AdminSourceListResponse` / `AdminSourceDetailResponse` | List payload; one source with notes and its audit history (`GET /api/sources-admin/{id}`) |
+| `AdminSourcePermissionRequest` | `PUT /api/sources-admin/{id}/permission` body, discriminated by `action`: `asked`, `granted`, `declined` or `images` (toggle `imagesGranted` on a grant) |
+| `AdminSourceEnabledRequest` | `PUT /api/sources-admin/{id}/enabled` body: `enabled`, `override?` |
+| `BRAND_PLATFORMS` / `BrandPlatform` | `shopify \| woocommerce \| bigcartel \| custom \| feed \| none \| unknown` |
+| `BRAND_BLOCKER_PRESETS` | The three quick-pick blockers in the brand panel (custom site, Cloudflare, no official store) |
+| `BrandIngestProfile` | `brand_ingest_profile` row as the API returns it: `websiteUrl`, `platform`, `blocker`, `notes`, `ownDataSourceId`, `updatedAt` |
+| `AdminBrandSourceRef` | A store or retailer linked to a brand: `dataSourceId`, `displayName`, `kind`, `enabled`, `permissionStatus`, and `link` (how it was matched: own stores `explicit` (profile link), `metadata` (`metadata.brand`) or `name` (display name equals the brand or an alias, letters and digits only); retailers `listings`) |
+| `BrandSupply` | `own \| retailer \| both \| none` (the Supplied by filter) |
+| `AdminBrandListItem` / `AdminBrandListResponse` | Brand row for `GET /api/brands-admin`: color and other shade counts, own store, retailers, profile, latest ingest |
+| `AdminBrandProfileRequest` | `PUT /api/brands-admin/{id}/profile` body: `websiteUrl`, `platform`, `blocker`, `notes`, `ownDataSourceId`; a value sets it, `null` clears it, a missing key keeps it |
+| `AdminBrandCreateRequest` / `AdminBrandCreateResponse` | `POST /api/brands-admin` body (`name`, optional `profile`) and result (`brand`; `brand_exists` is a 409 with the brand id) |
 
 ### `types/shade-review.ts`
 
@@ -563,6 +584,18 @@ Export note:
 - `HarmonyType` is already used by `types/palette.ts` for palette selection values.
 - `types/reference.ts` harmony row type is re-exported from package root as `ReferenceHarmonyType`.
 - These reference contracts are consumed by the web `use-reference-data` hook for API-backed finish/harmony option loading with fallback support.
+
+### `admin/sources-admin.ts` (admin Sources tab rules)
+
+| Export | Description |
+|--------|-------------|
+| `deriveSourcePermission({ metadata, enabled, fetchable, kind? })` | Returns `{ permission, stored }`. A non-fetchable source is `not_needed`. A stored `metadata.permission` wins (malformed fields are dropped); otherwise written permission in `verification` is granted (images allowed when `metadata.imagesPermitted` says so, else only for a brand store, `kind` defaults to `brand`), `termsScrapingClause === false` is not needed, anything else is not asked |
+| `isPermissionOk(status)` | `granted` or `not_needed`: turning the source on needs no `override` |
+| `classifyBrandSupply(ownStores, retailers)` | `own`, `retailer`, `both` or `none` for the Supplied by filter |
+| `sourceDisplayName(name)` | `HypnoticPolishShopify` → "Hypnotic Polish": strips the connector suffix and splits camel case |
+| `SOURCE_RUN_DEFAULTS` | The options a Run from the Sources tab sends: exhaustive, materialize to inventory, detect hex from image, no overwrite of detected hex, `page: 1`, `pageSize: 100` |
+
+Tested in `src/admin/sources-admin.test.ts`.
 
 ## Utilities
 
