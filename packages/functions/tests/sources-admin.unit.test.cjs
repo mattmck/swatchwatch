@@ -51,6 +51,7 @@ after(() => {
   for (const id of Object.keys(mockModules)) delete require.cache[id];
 });
 
+const isPermissionOkStatus = (s) => s === "granted" || s === "not_needed";
 const NOW = "2026-11-11T10:00:00.000Z";
 const SHOPIFY = "HypnoticPolishShopify";
 
@@ -276,6 +277,29 @@ describe("planEnabledChange", () => {
     assert.deepEqual(off.changes, {});
     const real = planEnabledChange(state({ enabled: true }), { enabled: false });
     assert.equal(real.noop, undefined);
+  });
+
+  for (const name of ["OpenBeautyFacts", "MakeupAPI"]) {
+    it(`turns on ${name} without override`, () => {
+      const plan = planEnabledChange(state({ name, metadata: {} }), { enabled: true });
+      assert.equal(plan.ok, true);
+      assert.equal("override" in plan.changes, false);
+    });
+  }
+
+  it("planner status equals the list mapper status for sample rows", () => {
+    const samples = [
+      { name: SHOPIFY, metadata: { verification: { termsScrapingClause: true } } },
+      { name: SHOPIFY, metadata: { permission: { status: "granted" } } },
+      { name: SHOPIFY, metadata: { verification: { termsScrapingClause: false } } },
+      { name: "OpenBeautyFacts", metadata: {} },
+      { name: "MakeupAPI", metadata: { pendingApproval: true } },
+    ];
+    for (const { name, metadata } of samples) {
+      const mapped = toAdminSourceListItem(sourceRow({ name, metadata, enabled: false }));
+      const plan = planEnabledChange(state({ name, metadata }), { enabled: true });
+      assert.equal(plan.ok, isPermissionOkStatus(mapped.permission.status), `${name} ${JSON.stringify(metadata)}`);
+    }
   });
 
   it("turning off works on any status", () => {

@@ -211,7 +211,7 @@ function currentStatus(state: SourceState) {
   return deriveSourcePermission({
     metadata: state.metadata,
     enabled: state.enabled,
-    fetchable: true,
+    fetchable: needsStoreOk(state.name),
     kind: sourceKindFromMetadata(state.metadata),
   });
 }
