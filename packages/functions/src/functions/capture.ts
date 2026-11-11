@@ -38,9 +38,16 @@ import {
 import { isValidUuid } from "../lib/capture-session";
 import { inlineCaptureFrameUrl, releaseCaptureFrames, storeCaptureFrameBytes } from "../lib/capture-frame-store";
 import { isFeatureEnabled } from "../lib/feature-flags";
-import { listBrandShadeNames, resolveBrandFromText, toBrandHintEcho, toBrandRef } from "../lib/brand-resolve";
+import {
+  listBrandShadeNames,
+  listCatalogBrandNames,
+  resolveBrandFromText,
+  toBrandHintEcho,
+  toBrandRef,
+} from "../lib/brand-resolve";
 import { decodeDataUri } from "../lib/detection-image";
 import { measureGlassHex, type GlassHexAudit } from "../lib/glass-color";
+import { guideRegionFor, parseGuideRegion, type NormalizedRegion } from "../lib/frame-region";
 import {
   STICKER_READ_PROMPT_VERSION,
   mergeLabelExtraction,
@@ -214,12 +221,24 @@ interface StickerReadAudit {
   promptVersion: string;
   closedSet: boolean;
   listedCount: number;
+  /** Catalog brand names listed for a closed brand read (0 when the brand was known or the list was too long). */
+  brandListedCount?: number;
   /** The read's confidence; null when no read ran or it produced nothing. */
   confidence: number | null;
-  /** Calls that were sent to the model (0 when the read was not needed, unconfigured or skipped). */
-  modelCalls: 0 | 1;
+  /** Calls that were sent to the model (0 when the read was not needed, unconfigured or skipped; 2 when the closed pick call ran). */
+  modelCalls: number;
+  /** The model's `nameComplete` for the printed name (false = partly hidden). */
+  nameComplete?: boolean | null;
+  /** Whether the closed-set pick was verified by the printed name; null on an open read. */
+  pickVerified?: boolean | null;
+  /** Agreement of the printed name with the pick (pg_trgm similarity). */
+  pickAgreement?: number | null;
+  /** A pick the printed name did not verify (a candidate only). */
+  unverifiedPick?: string | null;
   /** Barcode digits the read reported; evidence only when the check digit is valid (`mergeLabelExtraction`). */
   gtin?: string | null;
+  /** Where the read located its printed name; `off_bottle` / `off_guide` = dropped (another object). */
+  nameLocation?: string;
 }
 
 /** What a label frame's vision read needs to know; present only when the bottle-capture flag is on and the frame is a data URL. */
@@ -228,6 +247,8 @@ interface StickerReadContext {
   surface: BottleSurface | null;
   /** The catalog brand the session is known to be about, or null when none is. */
   brand: { brandId: number; name: string } | null;
+  /** The outline the client sent (`quality.guideRegion`); null without one (no default is assumed). */
+  guideRegion: NormalizedRegion | null;
 }
 
 /**
@@ -258,7 +279,8 @@ async function resolveSessionBrand(
  * Closed-set vision read of the sticker, when needed (known brand, or unusable OCR). A brand
  * with more shades than the prompt list holds is read open: a partial list would force wrong
  * picks. The front is read for its brand only, so it is read (open) only when OCR is unusable.
- * Never throws.
+ * Without a known brand the catalog's brand names are listed so the brand comes back in its
+ * catalog spelling (`brandListed`). Never throws.
  */
 async function runStickerRead(
   imageInput: string,
@@ -288,23 +310,43 @@ async function runStickerRead(
     }
   }
 
+  let brandNames: string[] = [];
+  if (!sticker.brand) {
+    try {
+      const listed = await listCatalogBrandNames();
+      if (!listed.truncated) brandNames = listed.names;
+    } catch (error) {
+      console.warn(`[capture] Catalog brand list for the sticker read failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   const vision = await readStickerWithVision(
     {
       imageDataUri: imageInput,
       surface: sticker.surface,
       brandName: sticker.brand?.name || null,
       shadeNames,
+      brandNames,
+      guideRegion: sticker.guideRegion,
     },
     {
       onLog: (level, message) => console.warn(`[capture] sticker read (${level}): ${message}`),
       onModelCall: () => {
-        audit.modelCalls = 1;
+        audit.modelCalls += 1;
       },
     }
   );
   audit.closedSet = vision?.closedSet ?? shadeNames.length > 0;
   audit.listedCount = audit.closedSet ? shadeNames.length : 0;
+  audit.brandListedCount = brandNames.length;
   audit.confidence = vision?.confidence ?? null;
+  if (vision) {
+    audit.nameComplete = vision.nameComplete;
+    audit.pickVerified = vision.pickVerified;
+    audit.pickAgreement = vision.pickAgreement;
+    audit.nameLocation = vision.nameLocation;
+    if (vision.unverifiedPick) audit.unverifiedPick = vision.unverifiedPick;
+  }
   if (vision?.gtin) audit.gtin = vision.gtin;
   return { vision, audit };
 }
@@ -315,12 +357,13 @@ function glassMissAudit(reason: "no_candidates" | "remote_url"): GlassHexAudit {
 }
 
 /**
- * Bottle capture: measure the lacquer hex from a color (glass) frame. Only a data-URL frame is
+ * Bottle capture: measure the lacquer hex from a color (glass) frame, on the outline the client
+ * showed (`quality.guideRegion`, else the default glass outline). Only a data-URL frame is
  * measured; `extracted` stays empty when nothing could be, so no hex evidence is claimed.
  */
-async function runGlassExtraction(imageInput: string): Promise<FrameAiExtractionResult> {
+async function runGlassExtraction(imageInput: string, region: NormalizedRegion): Promise<FrameAiExtractionResult> {
   const bytes = decodeDataUri(imageInput);
-  const glass = bytes ? await measureGlassHex(bytes) : null;
+  const glass = bytes ? await measureGlassHex(bytes, { region }) : null;
   if (!glass) {
     return { extracted: {}, glass: glassMissAudit(bytes ? "no_candidates" : "remote_url") };
   }
@@ -348,10 +391,11 @@ async function runFrameAiExtraction(
   imageInput: string,
   frameType: string,
   hints?: { brand?: string; shadeName?: string; finish?: string },
-  sticker?: StickerReadContext
+  sticker?: StickerReadContext,
+  quality?: Record<string, unknown>
 ): Promise<FrameAiExtractionResult | null> {
   if (frameType === "color") {
-    return isFeatureEnabled("bottleCapture") ? runGlassExtraction(imageInput) : null;
+    return isFeatureEnabled("bottleCapture") ? runGlassExtraction(imageInput, guideRegionFor("glass", quality)) : null;
   }
   if (frameType !== "label" && frameType !== "barcode") {
     return null;
@@ -574,7 +618,7 @@ async function normalizeCaptureImageInput(
 
 /**
  * A client-sent frame `quality` without the keys only the server writes: `ai` and
- * `extracted.shadeNameListed` / `brandConfidence` / `source` (`source: "glass"` marks
+ * `extracted.shadeNameListed` / `shadeNamePick` / `shadeNameComplete` / `brandConfidence` / `source` (`source: "glass"` marks
  * server-measured lacquer evidence, `"request_quality"` client evidence the server stored). The
  * client's evidence fields (`extracted.brand`, `shadeName`, `gtin`, `finish`, …) stay.
  */
@@ -586,6 +630,8 @@ function stripServerOwnedQuality(
   if ("extracted" in rest) {
     const {
       shadeNameListed: _listed,
+      shadeNamePick: _pick,
+      shadeNameComplete: _complete,
       brandConfidence: _brandConfidence,
       source: _source,
       ...extracted
@@ -1747,6 +1793,7 @@ async function addCaptureFrame(
               userId,
               surface: parseBottleSurface(frameQuality.surface),
               brand: await resolveSessionBrand(session.metadata, existingEvidence),
+              guideRegion: parseGuideRegion(frameQuality.guideRegion),
             }
           : undefined;
       aiExtraction = await runFrameAiExtraction(
@@ -1757,7 +1804,8 @@ async function addCaptureFrame(
           shadeName: existingEvidence.shadeName,
           finish: existingEvidence.finish,
         },
-        stickerContext
+        stickerContext,
+        frameQuality
       );
     }
 

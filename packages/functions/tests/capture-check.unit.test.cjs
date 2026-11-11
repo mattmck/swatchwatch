@@ -71,6 +71,8 @@ function resetState() {
     brandRow: null,
     /** Shade names returned by the closed-list query (`shade_name_canonical AS name`). */
     brandShadeNames: [],
+    /** Brand names returned by the closed-list brand query (`b.name_canonical AS name`). */
+    catalogBrandNames: [],
     /** Rows returned by the brand-first pool query (`s.brand_id = ANY($1::bigint[])`). */
     bottleCandidates: [],
     /** Rows returned by the color-distance lookup of global candidates. */
@@ -184,6 +186,11 @@ async function fakeQuery(via, sql, params = []) {
 
   if (/FROM brand b/i.test(norm) && /brand_alias/i.test(norm)) {
     return { rows: state.brandRow ? [state.brandRow] : [], rowCount: state.brandRow ? 1 : 0 };
+  }
+
+  if (/b\.name_canonical AS name/i.test(norm) && /FROM brand b/i.test(norm) && /s\.status = 'active'/i.test(norm)) {
+    const rows = state.catalogBrandNames.map((name) => ({ name }));
+    return { rows, rowCount: rows.length };
   }
 
   if (/shade_name_canonical AS name/i.test(norm) && /FROM shade s/i.test(norm)) {
@@ -922,11 +929,27 @@ describe("functions/capture — glass color frames", () => {
     assert.match(quality.extracted.hex, /^#[0-9A-F]{6}$/);
     assert.equal(quality.extracted.hexMethod, "palette-top");
     assert.equal(quality.extracted.hexConfidence, 0.3);
-    assert.equal(quality.extracted.hexPromptVersion, "glass-palette-pick/2026-10-v1");
+    assert.equal(quality.extracted.hexPromptVersion, "glass-palette-pick/2026-11-v2");
     assert.equal(quality.ai.glass.modelCalls, 0);
     assert.ok(quality.ai.glass.candidates.length >= 2);
     assert.ok(typeof quality.ai.processedAt === "string");
     assert.equal(chatCalls, 0, "an unconfigured model is never called");
+  });
+
+  it("flag on: measures the client's guide region (quality.guideRegion) only", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    const res = await addFrame({
+      frameType: "color",
+      imageBlobUrl: dataUrl,
+      quality: { surface: "glass", guideRegion: { x: 0.6, y: 0.2, w: 0.3, h: 0.6 } },
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    // Only the magenta half lies in the region: no skin chip is measured at all.
+    for (const candidate of quality.ai.glass.candidates) {
+      assert.ok(parseInt(candidate.hex.slice(3, 5), 16) < 0x30, `magenta only, got ${candidate.hex}`);
+    }
+    assert.ok(parseInt(quality.extracted.hex.slice(3, 5), 16) < 0x30);
   });
 
   it("flag on with the model configured: the model's chip becomes the hex", async () => {
@@ -1176,12 +1199,24 @@ describe("functions/capture — sticker vision read", () => {
     assert.equal(quality.extracted.source, "vision");
     assert.deepEqual(
       { ...quality.ai.sticker },
-      { promptVersion: "sticker-read/2026-10-v1", closedSet: true, listedCount: 2, confidence: 0.82, modelCalls: 1 }
+      {
+        promptVersion: "sticker-read/2026-11-v4",
+        closedSet: true,
+        listedCount: 2,
+        brandListedCount: 0,
+        confidence: 0.82,
+        modelCalls: 1,
+        nameComplete: null,
+        pickVerified: true,
+        pickAgreement: 1,
+        nameLocation: "unknown",
+      }
     );
+    // v3: the printed name, read without the list, spells a listed name, so no closed call is needed.
     assert.equal(chatRequests.length, 1);
     assert.deepEqual(shadeNameQueries().map((c) => c.params), [[3, OWNER]]);
     const userMessage = JSON.stringify(chatRequests[0].buildPayload(false));
-    assert.match(userMessage, /Unicorn Skin/);
+    assert.doesNotMatch(userMessage, /Linear Holo/, "the first read lists no shade names");
     assert.match(userMessage, /bottom of the bottle/);
   });
 
@@ -1230,6 +1265,36 @@ describe("functions/capture — sticker vision read", () => {
     assert.equal(quality.extracted.shadeName, "Unicorn Skin");
     assert.equal(quality.extracted.brand, "Holo Taco");
     assert.equal(quality.extracted.source, "vision");
+  });
+
+  it("flag on, brand unknown: the catalog brands are listed and a listed pick is the frame's brand", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    state.sessions.get(CAPTURE_UUID).metadata = {};
+    state.frames = [];
+    state.catalogBrandNames = ["ILNP", "KBShimmer"];
+    chatContent = '{"printedName":null,"brand":"kb shimmer","brandListed":"KBShimmer","brandConfidence":0.9,"confidence":0.5}';
+    const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl, quality: { surface: "front" } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(quality.ai.sticker.brandListedCount, 2);
+    assert.equal(quality.extracted.brand, "KBShimmer");
+    assert.equal(quality.extracted.brandConfidence, 0.9);
+    assert.match(JSON.stringify(chatRequests[0].buildPayload(false)), /Listed brand names/);
+  });
+
+  it("flag on, hinted brand: no brand list is loaded or sent, and the echoed brand is dropped", async () => {
+    process.env.BOTTLE_CAPTURE_ENABLED = "true";
+    useHint();
+    state.brandShadeNames = ["Unicorn Skin"];
+    state.catalogBrandNames = ["ILNP", "KBShimmer"];
+    chatContent = '{"printedName":"Unicorn Skin","closestListed":"Unicorn Skin","brand":"Holo Taco","confidence":0.9}';
+    const res = await addFrame({ frameType: "label", imageBlobUrl: dataUrl, quality: { surface: "bottom" } });
+    assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
+    const quality = insertedFrame();
+    assert.equal(quality.ai.sticker.brandListedCount, 0);
+    assert.doesNotMatch(JSON.stringify(chatRequests[0].buildPayload(false)), /KBShimmer/);
+    assert.equal(quality.extracted.brand, undefined, "the brand the prompt named is no new evidence");
+    assert.equal(quality.extracted.shadeNameListed, "Unicorn Skin");
   });
 
   it("flag on, the model fails: the frame keeps its OCR evidence and records no call result", async () => {

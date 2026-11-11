@@ -1,5 +1,6 @@
 import { DUPE_FINISH_FAMILIES, parseBottleSurface, type CaptureFrameType } from "swatchwatch-shared";
 import { SAMPLE_COLUMNS_SQL, SELECT_FRAMES_SQL, type FrameRow, type SampleRow } from "../../lib/bottle-eval";
+import { BOTTLE_POOL_PRODUCT_CATEGORIES } from "../../lib/brand-resolve";
 import { query } from "../../lib/db";
 import type { EvalSample } from "./types";
 
@@ -45,13 +46,13 @@ function finishFamilyOf(row: SampleRow): string {
 
 /**
  * Whether the labelled shade can be in its brand's resolver pool (`BOTTLE_CANDIDATES_SQL`: unmerged
- * `color` shades that are `active`, or the caller's own `user_submitted`). `null` when unknown: no
+ * shades of a bottle category, never `accessory`, that are `active`, or the caller's own `user_submitted`). `null` when unknown: no
  * shade row was read, or a `user_submitted` shade (eligible only for its creator).
  */
 export function labelPoolEligibility(row: EvalSampleRow): boolean | null {
   if (row.shadeId === null || row.shadeId === undefined || !row.labelStatus) return null;
   if (row.labelMergedIntoShadeId) return false;
-  if (row.labelCategory && row.labelCategory !== "color") return false;
+  if (row.labelCategory && !(BOTTLE_POOL_PRODUCT_CATEGORIES as readonly string[]).includes(row.labelCategory)) return false;
   if (row.labelStatus === "active") return true;
   return row.labelStatus === "user_submitted" ? null : false;
 }

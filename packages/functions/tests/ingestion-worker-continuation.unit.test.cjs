@@ -995,6 +995,23 @@ describe("processIngestionJobQueueMessage — source kinds", () => {
     assert.match(String(failed.error), /Unknown source kind "wholesale"/);
   });
 
+  it("stores no images when an admin turned downloadImages off for the source", async () => {
+    const options = await materializeOptions({ ingestion: { downloadImages: false } }, { detectHexFromImage: true });
+    assert.equal(options.storeImages, false);
+    assert.equal(options.detectHexFromImage, false);
+  });
+
+  it("skips AI hex detection when an admin turned detectHex off for the source", async () => {
+    const options = await materializeOptions({ ingestion: { detectHex: false } }, { detectHexFromImage: true });
+    assert.equal(options.storeImages, true);
+    assert.equal(options.detectHexFromImage, false);
+  });
+
+  it("never lets downloadImages grant a retailer image permission", async () => {
+    const options = await materializeOptions({ kind: "retailer", ingestion: { downloadImages: true } }, {});
+    assert.equal(options.storeImages, false);
+  });
+
   it("keeps the request's overwrite flag for a brand source", async () => {
     const options = await materializeOptions({}, { overwriteDetectedHex: true });
     assert.equal(options.overwriteDetectedHex, true);

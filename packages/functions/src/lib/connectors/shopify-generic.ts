@@ -24,6 +24,7 @@ import { parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import {
   parseEditionCap,
+  shopifyStoreProductLine,
   shopifyStoreShadeName,
   stripRetailerExclusiveSuffix,
   SHOPIFY_TITLE_PARSER_SOURCES,
@@ -1166,6 +1167,8 @@ export async function enrichShopifyRecord(
   const name = stripRetailerExclusiveSuffix(
     retailer ? retailer.title.shadeName : shopifyStoreShadeName(source, product) ?? rawTitle
   );
+  // A brand store's title parser may also name the line the title carried (Le Mini Macaron).
+  const storeProductLine = retailer ? null : shopifyStoreProductLine(source, product);
   const tags = retailer ? retailer.tags : normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
@@ -1267,6 +1270,7 @@ export async function enrichShopifyRecord(
       createdAt: asNonEmptyString(product.created_at),
       updatedAt: asNonEmptyString(product.updated_at),
       publishedAt: asNonEmptyString(product.published_at),
+      ...(storeProductLine ? { productLine: storeProductLine } : {}),
       ...(retailer
         ? {
             productLine: retailer.title.productLine,

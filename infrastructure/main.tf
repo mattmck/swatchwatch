@@ -1031,6 +1031,7 @@ resource "azurerm_linux_function_app" "main" {
     SOURCE_IMAGE_CONTAINER                = var.source_image_container
     SOURCE_IMAGE_MAX_EDGE_PX              = tostring(var.source_image_max_edge_px)
     SOURCE_IMAGE_MAX_DOWNLOAD_BYTES       = tostring(var.source_image_max_download_bytes)
+    SOURCE_IMAGE_MAX_PER_PRODUCT          = tostring(var.source_image_max_per_product)
     SUSPICIOUS_HEX_REPEAT_MIN_RECORDS     = tostring(var.suspicious_hex_repeat_min_records)
     SUSPICIOUS_HEX_REPEAT_MIN_SHARE       = tostring(var.suspicious_hex_repeat_min_share)
     SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA   = tostring(var.suspicious_hex_grayscale_max_chroma)

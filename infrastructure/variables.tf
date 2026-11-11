@@ -679,6 +679,12 @@ variable "source_image_max_edge_px" {
   default     = 2048
 }
 
+variable "source_image_max_per_product" {
+  description = "Max images (primary included) ingestion downloads and stores per product per run, 1-50; 0 or invalid = default 8, no unlimited value (SOURCE_IMAGE_MAX_PER_PRODUCT)"
+  type        = number
+  default     = 8
+}
+
 variable "source_image_max_download_bytes" {
   description = "Largest catalog image download accepted before resizing, 5-100 MB (SOURCE_IMAGE_MAX_DOWNLOAD_BYTES)"
   type        = number

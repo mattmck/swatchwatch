@@ -42,7 +42,13 @@ preload(path.resolve(__dirname, "../dist/lib/db.js"), {
 });
 
 require("../dist/functions/polishes");
-const { parseNearHexFilter, buildNearHexDistanceSql, NEAR_HEX_MAX_TARGETS, NEAR_HEX_TIER_SQL } = require("../dist/lib/near-hex");
+const {
+  parseNearHexFilter,
+  buildNearHexDistanceSql,
+  buildMeasuredHexDistanceSql,
+  NEAR_HEX_MAX_TARGETS,
+  NEAR_HEX_TIER_SQL,
+} = require("../dist/lib/near-hex");
 const { hexToOklab, colorDistance } = require("swatchwatch-shared");
 
 const MIGRATION_PATH = path.resolve(__dirname, "../migrations/20261023001520034_shade-display-oklab.sql");
@@ -124,6 +130,18 @@ describe("buildNearHexDistanceSql", () => {
     const two = buildNearHexDistanceSql(["#000000", "#FFFFFF"], 2);
     assert.equal(two.params.length, 6);
     assert.match(two.sql, /^LEAST\(sqrt\(.*\$2::float8.*\), sqrt\(.*\$7::float8, 2\)\)\)$/);
+  });
+});
+
+describe("buildMeasuredHexDistanceSql", () => {
+  it("is NULL for a shade whose display hex is only the name guess, the plain distance otherwise", () => {
+    const plain = buildNearHexDistanceSql(["#E0457B"], 4);
+    const measured = buildMeasuredHexDistanceSql(["#E0457B"], 4);
+    assert.deepEqual(measured.params, plain.params);
+    assert.equal(
+      measured.sql,
+      `CASE WHEN NULLIF(s.vendor_hex, '') IS NULL AND NULLIF(s.detected_hex, '') IS NULL THEN NULL ELSE ${plain.sql} END`
+    );
   });
 });
 

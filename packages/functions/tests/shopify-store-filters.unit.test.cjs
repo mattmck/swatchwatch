@@ -397,25 +397,30 @@ describe("store-filters/sweet-and-sour — isSweetAndSourPolish (#273 batch 3)",
 });
 
 describe("store-filters — shopifyStoreProductVerdict", () => {
-  it("registers filters for the retailers, the indie stores and the brand stores that need one, and no other source", () => {
+  it("registers filters for the retailers, the indie stores and the brand stores that need one (Shopify and not), and no other source", () => {
     assert.deepEqual(Object.keys(SHOPIFY_STORE_PRODUCT_FILTERS).sort(), [
       "AlchemyLacquersShopify",
       "BarryMShopify",
       "BeyondPolishShopify",
+      "ChinaGlazeShopify",
       "CirqueColorsShopify",
       "CndShopify",
       "CoteShopify",
       "HarlowAndCoShopify",
       "HypnoticPolishShopify",
+      "LeMiniMacaronShopify",
       "LemmingLacquerShopify",
       "LondontownShopify",
       "ManucuristShopify",
       "NoodlesNailPolishShopify",
       "OliveAndJuneShopify",
       "PahlishShopify",
+      "PaintedPolishBigCartel",
       "PenelopeLuzShopify",
+      "PicturePolishWooCommerce",
       "PiggyPaintShopify",
       "PolishPickupShopify",
+      "PotionPolishBigCartel",
       "StellaChromaShopify",
       "SweetAndSourLacquerShopify",
       "WetNWildShopify",
@@ -1871,5 +1876,107 @@ describe("store-filters/polish-pickup — isPolishPickupPolish on the November 2
     assert.equal(isPolishPickupPolish(storeProduct(POLISH_PICKUP, "Top Coat by Glisten & Glow")), null);
     assert.equal(isPolishPickupPolish(POLISH_PICKUP.find((product) => product.product_type.trim() === "PPU")), true);
     assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.PolishPickupShopify, isPolishPickupPolish);
+  });
+});
+
+// Non-Shopify brand stores enabled on 2026-11-10 (owner decision, no store OK). Their filters and
+// title parsers live in the same source-keyed registries as the Shopify ones. Fixtures are
+// hand-made from the shapes measured on 2026-11-10 (no store data is copied into the repo).
+const { isPaintedPolishPolish, parsePaintedPolishTitle } = require("../dist/lib/connectors/store-filters/painted-polish");
+const { isPotionPolishPolish, parsePotionPolishTitle } = require("../dist/lib/connectors/store-filters/potion-polish");
+const { isPicturePolishPolish, parsePicturePolishTitle } = require("../dist/lib/connectors/store-filters/picture-polish");
+const { shopifyStoreShadeName } = require("../dist/lib/connectors/shopify-title");
+
+describe("store-filters/painted-polish — Painted Polish (Big Cartel)", () => {
+  const product = (title, categories) => ({ title, product_type: categories[0] ?? null, tags: categories });
+
+  it("keeps Individual Shades, drops Sets and the Imperfect Label Bottles listing, defers the rest", () => {
+    assert.equal(isPaintedPolishPolish(product("Party Fowl", ["Individual Shades"])), true);
+    assert.equal(isPaintedPolishPolish(product("Party Fowl", ["Thermals", "Individual Shades"])), true);
+    assert.equal(isPaintedPolishPolish(product("Booked For Love: Part I", ["Sets"])), false);
+    assert.equal(isPaintedPolishPolish(product("The Great Pumpkin Duo", ["Limited Edition", "Sets"])), false);
+    assert.equal(isPaintedPolishPolish(product("Imperfect Label Bottles", [])), false);
+    assert.equal(isPaintedPolishPolish(product("imperfect label bottles", ["Individual Shades"])), false);
+    assert.equal(isPaintedPolishPolish(product("Stay Wicked", ["Jellies", "Flakies", "Low Final Stock"])), null);
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.PaintedPolishBigCartel, isPaintedPolishPolish);
+  });
+
+  it("drops one trailing parenthetical stock note that says FINAL; keeps any other note", () => {
+    const parse = (title) => parsePaintedPolishTitle({ title });
+    assert.equal(parse("Pumpkin To Talk About (FINAL 3 BOTTLES)"), "Pumpkin To Talk About");
+    assert.equal(parse("Hot Mess to Spotless (FINAL BOTTLE)"), "Hot Mess to Spotless");
+    assert.equal(parse("Pretty Poison (Please Read Listing - FINAL 10 BOTTLES)"), "Pretty Poison");
+    assert.equal(parse("Groovy Ghouls (LOW FINAL STOCK)"), "Groovy Ghouls");
+    assert.equal(parse("Party Fowl (final 2 bottles) "), "Party Fowl");
+    assert.equal(parse("Summer Sparkler 2.0 (FINAL 2 BOTTLES)"), "Summer Sparkler 2.0");
+    // Only one note comes off, and only a FINAL one.
+    assert.equal(parse("Party Fowl (LE) (FINAL BOTTLE)"), "Party Fowl (LE)");
+    assert.equal(parse("Pucking Obsessed (LE)"), null);
+    assert.equal(parse("Talk Birdy To Me (Holo-Maniacs FB Group Custom)"), null);
+    assert.equal(parse("Party Fowl"), null);
+    // A title that is only the note keeps the raw title.
+    assert.equal(parse("(FINAL BOTTLE)"), null);
+    assert.equal(SHOPIFY_STORE_TITLE_PARSERS.PaintedPolishBigCartel, parsePaintedPolishTitle);
+    assert.equal(shopifyStoreShadeName("PaintedPolishBigCartel", { title: "Party Fowl (FINAL BOTTLE)" }), "Party Fowl");
+  });
+});
+
+describe("store-filters/potion-polish — Potion Polish (Big Cartel)", () => {
+  const product = (title, categories) => ({ title, product_type: categories[0] ?? null, tags: categories });
+
+  it("keeps every product except the Mystery Polish category", () => {
+    assert.equal(isPotionPolishPolish(product("Cinnamon Cider 2.0 - Limited Edition", ["Holos", "Autumn 2026"])), true);
+    assert.equal(isPotionPolishPolish(product("Arizona", ["Returning Favorites", "Shifty Shimmers"])), true);
+    assert.equal(isPotionPolishPolish(product("Oakmoss", [])), true);
+    assert.equal(isPotionPolishPolish(product("Magnetic Mystery Duo", ["Magnetics", "Mystery Polish"])), false);
+    assert.equal(isPotionPolishPolish(product("Holiday Mystery Trio 2025 Overpour", ["On Sale", "mystery polish"])), false);
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.PotionPolishBigCartel, isPotionPolishPolish);
+  });
+
+  it("drops trailing edition, finish and stock notes after \" - \", repeatedly; keeps 2.0", () => {
+    const parse = (title) => parsePotionPolishTitle({ title });
+    assert.equal(parse("Cinnamon Cider 2.0 - Limited Edition"), "Cinnamon Cider 2.0");
+    assert.equal(parse("Autumn Enthusiast - Magnetic - Limited Edition"), "Autumn Enthusiast");
+    assert.equal(parse("Yellow Eyes - Magnetic - Last Chance For Now!"), "Yellow Eyes");
+    assert.equal(parse("Ruby - Last Chance For Now!"), "Ruby");
+    assert.equal(parse("Heavyweight Witchcraft 2.0 - Back In Stock 11/27 for Black Friday!"), "Heavyweight Witchcraft 2.0");
+    assert.equal(parse("One More Chapter - Magnetic"), "One More Chapter");
+    assert.equal(parse("Rose Noir - Magnetic "), "Rose Noir");
+    assert.equal(parse("Fallen Leaves 2.0 – Last Chance For Now!"), "Fallen Leaves 2.0");
+    // Nothing to drop, or only the note: keep the raw title.
+    assert.equal(parse("Fantasy Over Reality"), null);
+    assert.equal(parse("Sam & Dean - In The Graveyard"), null);
+    assert.equal(parse("Limited Edition"), null);
+    assert.equal(parse("Magnetic - Limited Edition"), "Magnetic");
+    assert.equal(SHOPIFY_STORE_TITLE_PARSERS.PotionPolishBigCartel, parsePotionPolishTitle);
+  });
+});
+
+describe("store-filters/picture-polish — Picture Polish (WooCommerce)", () => {
+  const product = (title, categories, tags = []) => ({
+    title,
+    product_type: categories[0] ?? null,
+    tags: [...tags, ...categories.slice(1)],
+  });
+
+  it("keeps Nail Colours unless Bundles is also present, drops Bundles, defers the rest", () => {
+    assert.equal(isPicturePolishPolish(product("Camelot | Purple | Flakie", ["Flakie", "Nail Colours", "Purple"])), true);
+    assert.equal(isPicturePolishPolish(product("Camelot | Purple | Flakie", ["Nail Colours"])), true);
+    assert.equal(isPicturePolishPolish(product("Neon Bundle", ["Bundles", "Nail Paint", "Nail Polish"])), false);
+    assert.equal(isPicturePolishPolish(product("Magnet Kit", ["Bundles", "Nail Colours"])), false);
+    assert.equal(isPicturePolishPolish(product("Fast Dry Top Coat", ["Base & Top Coats", "Nail Paint"])), null);
+    assert.equal(isPicturePolishPolish(product("Glass Nail File", ["Nail Care"])), null);
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.PicturePolishWooCommerce, isPicturePolishPolish);
+  });
+
+  it("names the shade by the first \" | \" segment (not the line-and-shade split)", () => {
+    const parse = (title) => parsePicturePolishTitle({ title });
+    assert.equal(parse("Camelot | Purple | Flakie"), "Camelot");
+    assert.equal(parse("Stardust | Holographic | New"), "Stardust");
+    assert.equal(parse("Supernova | Multi-chrome | Magnetic"), "Supernova");
+    assert.equal(parse("Rock & Roll | Black | Glitter"), "Rock & Roll");
+    assert.equal(parse("Peaches N Cream"), null);
+    assert.equal(parse(" | Purple | Flakie"), null);
+    assert.equal(SHOPIFY_STORE_TITLE_PARSERS.PicturePolishWooCommerce, parsePicturePolishTitle);
   });
 });

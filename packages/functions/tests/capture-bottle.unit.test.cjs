@@ -763,13 +763,22 @@ describe("functions/capture — nextFrame after a frame", () => {
     const quality = {
       surface: "bottom",
       ai: { sticker: { confidence: 0.99, modelCalls: 5 }, glass: { modelCalls: 3 } },
-      extracted: { shadeName: "Big Appl", shadeNameListed: "Big Apple Red", brandConfidence: 0.99, source: "vision" },
+      extracted: {
+        shadeName: "Big Appl",
+        shadeNameListed: "Big Apple Red",
+        shadeNamePick: "Big Apple Red",
+        shadeNameComplete: true,
+        brandConfidence: 0.99,
+        source: "vision",
+      },
     };
     const res = await frame({ frameType: "other", quality });
     assert.equal(res.status, 201, JSON.stringify(res.jsonBody));
     const stored = handlerCalls().find((c) => /INSERT INTO capture_frame/i.test(c.sql)).params[3];
     assert.equal(stored.ai, undefined, "no client ai block is stored");
     assert.equal(stored.extracted.shadeNameListed, undefined);
+    assert.equal(stored.extracted.shadeNamePick, undefined);
+    assert.equal(stored.extracted.shadeNameComplete, undefined);
     assert.equal(stored.extracted.brandConfidence, undefined);
     assert.notEqual(stored.extracted.source, "vision");
     assert.equal(stored.extracted.shadeName, "Big Appl", "the client's own evidence stays");

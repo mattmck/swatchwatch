@@ -7,6 +7,7 @@ import {
   hintsToStartMetadata,
   type BottleSurface,
   type CaptureFrameType,
+  type CaptureGuideRegion,
   type CaptureQuestion,
   type CaptureStatus,
   type StickyHints,
@@ -123,6 +124,8 @@ export interface FrameQualityInput {
   fileSize?: number;
   /** Which side of the bottle this frame shows (bottle flow). */
   surface?: BottleSurface | null;
+  /** The outline drawn over the preview, in fractions of this frame (`lib/guide-region.ts`); bottle flow only. */
+  guideRegion?: CaptureGuideRegion | null;
 }
 
 /**
@@ -149,6 +152,7 @@ export function buildFrameQuality(input: FrameQualityInput): Record<string, unkn
   if (input.mimeType !== undefined) quality.mimeType = input.mimeType;
   if (input.fileSize !== undefined) quality.fileSize = input.fileSize;
   if (input.surface) quality.surface = input.surface;
+  if (input.guideRegion) quality.guideRegion = { ...input.guideRegion };
   return quality;
 }
 

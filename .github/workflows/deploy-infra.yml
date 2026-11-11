@@ -170,6 +170,7 @@ jobs:
       TF_VAR_source_image_container: ${{ vars.SOURCE_IMAGE_CONTAINER || 'source-images' }}
       TF_VAR_source_image_max_edge_px: ${{ vars.SOURCE_IMAGE_MAX_EDGE_PX || '2048' }}
       TF_VAR_source_image_max_download_bytes: ${{ vars.SOURCE_IMAGE_MAX_DOWNLOAD_BYTES || '26214400' }}
+      TF_VAR_source_image_max_per_product: ${{ vars.SOURCE_IMAGE_MAX_PER_PRODUCT || '8' }}
       TF_VAR_suspicious_hex_repeat_min_records: ${{ vars.SUSPICIOUS_HEX_REPEAT_MIN_RECORDS || '3' }}
       TF_VAR_suspicious_hex_repeat_min_share: ${{ vars.SUSPICIOUS_HEX_REPEAT_MIN_SHARE || '0.1' }}
       TF_VAR_suspicious_hex_grayscale_max_chroma: ${{ vars.SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA || '0.02' }}

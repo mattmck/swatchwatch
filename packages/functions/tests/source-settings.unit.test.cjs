@@ -7,6 +7,8 @@ const assert = require("node:assert/strict");
 
 const {
   readSourceSettings,
+  readIngestionSwitches,
+  planSourceImageWork,
   sourceKindFromMetadata,
   sourceKindSql,
   isBrandSourceSql,
@@ -236,5 +238,55 @@ describe("planIngestedFinishes", () => {
   it("restricted retailer fills an empty list", () => {
     assert.deepEqual(planIngestedFinishes({ ...base, current: [], restrictedRetailer: true }), ["Shimmer"]);
     assert.deepEqual(planIngestedFinishes({ ...base, current: [], restrictedRetailer: true, fromEmpty: null }), []);
+  });
+});
+
+describe("readIngestionSwitches (admin operational switches, metadata.ingestion)", () => {
+  it("defaults both switches on", () => {
+    for (const metadata of [undefined, null, {}, { ingestion: null }, { ingestion: "x" }, { ingestion: {} }]) {
+      assert.deepEqual(readIngestionSwitches(metadata), { downloadImages: true, detectHex: true });
+    }
+  });
+
+  it("turns a switch off only for an explicit false", () => {
+    assert.deepEqual(readIngestionSwitches({ ingestion: { downloadImages: false } }), { downloadImages: false, detectHex: true });
+    assert.deepEqual(readIngestionSwitches({ ingestion: { detectHex: false } }), { downloadImages: true, detectHex: false });
+    assert.deepEqual(readIngestionSwitches({ ingestion: { downloadImages: "false", detectHex: 0 } }), {
+      downloadImages: true,
+      detectHex: true,
+    });
+  });
+
+  it("is independent of the image permission", () => {
+    // A retailer without permission keeps the switch on; the switch never grants permission.
+    assert.equal(readIngestionSwitches({ kind: "retailer" }).downloadImages, true);
+    assert.equal(readSourceSettings({ kind: "brand", ingestion: { downloadImages: false } }).imagesPermitted, true);
+  });
+});
+
+describe("planSourceImageWork", () => {
+  const on = { downloadImages: true, detectHex: true };
+  it("stores images only when permitted and switched on", () => {
+    assert.deepEqual(planSourceImageWork({ imagesPermitted: true, switches: on, requestDetectHex: true }), {
+      storeImages: true,
+      detectHexFromImage: true,
+    });
+    assert.equal(planSourceImageWork({ imagesPermitted: false, switches: on, requestDetectHex: true }).storeImages, false);
+    assert.deepEqual(
+      planSourceImageWork({ imagesPermitted: true, switches: { ...on, downloadImages: false }, requestDetectHex: true }),
+      { storeImages: false, detectHexFromImage: false }
+    );
+  });
+
+  it("detects hex only when the request and the source switch both say so", () => {
+    assert.equal(
+      planSourceImageWork({ imagesPermitted: true, switches: { ...on, detectHex: false }, requestDetectHex: true }).detectHexFromImage,
+      false
+    );
+    assert.equal(planSourceImageWork({ imagesPermitted: true, switches: on, requestDetectHex: false }).detectHexFromImage, false);
+    assert.equal(
+      planSourceImageWork({ imagesPermitted: true, switches: { ...on, detectHex: false }, requestDetectHex: true }).storeImages,
+      true
+    );
   });
 });

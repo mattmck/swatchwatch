@@ -22,13 +22,14 @@
  */
 
 import type { ProductCategory } from "swatchwatch-shared";
-import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
+import { classifyProductCategory } from "../product-category.js";
 import { normalizeCurrencyCode, normalizePriceAmount, type ProductPrice } from "../product-price.js";
 import { htmlToPlainText, normalizeDescriptors, PRODUCT_DESCRIPTION_MAX_CHARS } from "../product-text.js";
 import { isPathDisallowed } from "../robots.js";
 import type { SourceSettings } from "../source-settings.js";
 import { isRetailerSetSegment, parseConnectorTitle, type RetailerTitle } from "./retailer-title.js";
 import { isBundle, resolveConnectorBrand } from "./shopify-generic.js";
+import { classifyWithStoreShadeName, shopifyStoreShadeName } from "./shopify-title.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import { MYSTERY_TITLE_REGEX } from "./store-filters/shared.js";
 import type { StoreFilterProduct } from "./store-filters/types.js";
@@ -178,12 +179,17 @@ function hyphenateDashes(title: string): string {
   return title.replace(/\s+[–—]\s+/g, " - ");
 }
 
-/** The platform-neutral view the store filters read (`store-filters/types.ts`). */
+/**
+ * The platform-neutral view the store filters read (`store-filters/types.ts`): `product_type` =
+ * the first category and `tags` = the product tags, then every other category, the same lists the
+ * gate classifies (WordPress lists categories alphabetically, so a filter needs all of them).
+ */
 export function wooStoreFilterProduct(product: WooStoreProduct, brand: string | null): StoreFilterProduct {
+  const categories = names(product.categories);
   return {
     title: plain(product.name),
-    product_type: names(product.categories)[0] ?? null,
-    tags: names(product.tags),
+    product_type: categories[0] ?? null,
+    tags: [...names(product.tags), ...categories.slice(1)],
     body_html: typeof product.description === "string" ? product.description : null,
     vendor: brand,
   };
@@ -213,7 +219,8 @@ type GateOutcome = { accept: true; gated: GatedProduct } | { accept: false; vend
  * name) over `wooStoreFilterProduct`, else the shared gate (`classifyIngestedProduct` over the
  * name, the first category as product type, the tags and the other category names); no bundle
  * tag and no set (gate evidence `set`; a `feed`/`retailer` source also drops a title ending in a
- * set word or one `parseRetailerTitle` reads as a set).
+ * set word or one `parseRetailerTitle` reads as a set). The shade name is the source's store title
+ * parser (`shopifyStoreShadeName`) when it has one that answers, else `parseConnectorTitle`.
  */
 export function gateWooStoreProduct(product: WooStoreProduct, source: string, settings: SourceSettings): GateOutcome {
   const externalId = plain(product.id);
@@ -227,8 +234,13 @@ export function gateWooStoreProduct(product: WooStoreProduct, source: string, se
   const categories = names(product.categories);
   const productType = categories[0] ?? null;
   const tags = [...names(product.tags), ...categories.slice(1)];
-  const gate = classifyIngestedProduct({ title, productType, tags });
-  const storeVerdict = shopifyStoreProductVerdict(source, wooStoreFilterProduct(product, brand), settings);
+  const filterProduct = wooStoreFilterProduct(product, brand);
+  // A store title parser (keyed by source name, `SHOPIFY_STORE_TITLE_PARSERS`) names the shade
+  // when the store's names are not "Brand – Shade" (Picture Polish: "Camelot | Purple | Flakie").
+  // The gate classifies the raw title, unless only the part the parser dropped reads as set wording.
+  const storeShadeName = shopifyStoreShadeName(source, filterProduct);
+  const { gate, shadeText } = classifyWithStoreShadeName(title, storeShadeName, productType, tags);
+  const storeVerdict = shopifyStoreProductVerdict(source, filterProduct, settings);
   if (!(storeVerdict ?? gate.accept) || isBundle(tags) || gate.evidence === "set") {
     return { accept: false };
   }
@@ -236,11 +248,13 @@ export function gateWooStoreProduct(product: WooStoreProduct, source: string, se
   // gets the rule category, not the gate's "accessory".
   const category =
     storeVerdict === true && gate.evidence === "legacy-tag"
-      ? classifyProductCategory({ shadeName: title, products: [{ productType, tags }] }).category
+      ? classifyProductCategory({ shadeName: shadeText, products: [{ productType, tags }] }).category
       : gate.category;
 
   const parseable = hyphenateDashes(title);
-  const listing = parseConnectorTitle(parseable, brand, settings.kind, names(product.brands)[0] ?? brandAttribute(product));
+  const listing: RetailerTitle | null = storeShadeName
+    ? { shadeName: storeShadeName, productLine: null, vendorCode: null, isSet: false }
+    : parseConnectorTitle(parseable, brand, settings.kind, names(product.brands)[0] ?? brandAttribute(product));
   if (settings.kind !== "brand" && (isRetailerSetSegment(parseable) || !listing || listing.isSet)) {
     return { accept: false };
   }
