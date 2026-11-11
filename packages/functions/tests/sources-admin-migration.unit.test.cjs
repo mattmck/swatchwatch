@@ -6,7 +6,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { ADMIN_AUDIT_ACTIONS } = require("swatchwatch-shared");
+const { ADMIN_AUDIT_ACTIONS, BRAND_PLATFORMS } = require("swatchwatch-shared");
 
 const MIGRATION = fs.readFileSync(
   path.join(__dirname, "../migrations/20261111120000000_admin-sources-brands.sql"),
@@ -37,7 +37,8 @@ describe("sources admin migration", () => {
   });
 
   it("platform CHECK matches the seven platforms", () => {
-    const expected = ["shopify", "woocommerce", "bigcartel", "custom", "feed", "none", "unknown"].sort();
+    const expected = [...BRAND_PLATFORMS].sort();
+    assert.equal(expected.length, 7);
     const anchor = /CHECK \(platform IN/;
     assert.deepEqual(quotedList(UP, anchor).sort(), expected);
     assert.deepEqual(quotedList(SCHEMA, anchor).sort(), expected);
