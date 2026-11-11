@@ -12,6 +12,7 @@ import {
   type BrandPlatform,
 } from "swatchwatch-shared";
 import { updateAdminBrandProfile } from "@/lib/api";
+import { brandProfileForm, changedProfileFields, type BrandProfileForm } from "@/lib/sources-admin-view";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,11 +42,22 @@ export function BrandPanel({
   onOpenSite: (id: number) => void;
 }) {
   const profile = brand.profile;
-  const [website, setWebsite] = useState(profile?.websiteUrl ?? "");
-  const [platform, setPlatform] = useState<BrandPlatform | "">(profile?.platform ?? "");
-  const [blocker, setBlocker] = useState(profile?.blocker ?? "");
-  const [notes, setNotes] = useState(profile?.notes ?? "");
-  const [ownId, setOwnId] = useState<string>(profile?.ownDataSourceId ? String(profile.ownDataSourceId) : "none");
+  // The profile the form was last filled from (on open, then from each save response). Edits are
+  // measured against it, not against `brand.profile`, which a list refresh may replace.
+  const [baseline, setBaseline] = useState(profile);
+  const fill = (form: BrandProfileForm) => {
+    setWebsite(form.websiteUrl);
+    setPlatform(form.platform);
+    setBlocker(form.blocker);
+    setNotes(form.notes);
+    setOwnId(form.ownDataSourceId);
+  };
+  const initial = brandProfileForm(profile);
+  const [website, setWebsite] = useState(initial.websiteUrl);
+  const [platform, setPlatform] = useState<BrandPlatform | "">(initial.platform);
+  const [blocker, setBlocker] = useState(initial.blocker);
+  const [notes, setNotes] = useState(initial.notes);
+  const [ownId, setOwnId] = useState<string>(initial.ownDataSourceId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,25 +71,16 @@ export function BrandPanel({
     setError(null);
     try {
       // Send only the fields edited here, so a save never writes this panel's older copy of a
-      // field another admin changed since it opened.
-      const next = {
-        websiteUrl: website.trim() || null,
-        platform: platform || null,
-        blocker: blocker.trim() || null,
-        notes: notes.trim() || null,
-        ownDataSourceId: ownId === "none" ? null : Number(ownId),
-      };
-      const changes: Partial<typeof next> = {};
-      if (next.websiteUrl !== (profile?.websiteUrl ?? null)) changes.websiteUrl = next.websiteUrl;
-      if (next.platform !== (profile?.platform ?? null)) changes.platform = next.platform;
-      if (next.blocker !== (profile?.blocker ?? null)) changes.blocker = next.blocker;
-      if (next.notes !== (profile?.notes ?? null)) changes.notes = next.notes;
-      if (next.ownDataSourceId !== (profile?.ownDataSourceId ?? null)) changes.ownDataSourceId = next.ownDataSourceId;
+      // field another admin changed meanwhile.
+      const changes = changedProfileFields(baseline, { websiteUrl: website, platform, blocker, notes, ownDataSourceId: ownId });
       if (Object.keys(changes).length === 0) {
         toast.success(`No changes to ${brand.name}`);
         return;
       }
       const res = await updateAdminBrandProfile(brand.brandId, changes);
+      // Refill from the saved profile, which includes other admins' newer values.
+      setBaseline(res.brand.profile);
+      fill(brandProfileForm(res.brand.profile));
       onChange(res.brand);
       toast.success(`Saved ${brand.name}`);
     } catch (err) {

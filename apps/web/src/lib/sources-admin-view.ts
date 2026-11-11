@@ -1,7 +1,10 @@
 import {
   SOURCE_PERMISSION_STATUSES,
   type AdminBrandListItem,
+  type AdminBrandProfileRequest,
   type AdminSourceListItem,
+  type BrandIngestProfile,
+  type BrandPlatform,
 } from "swatchwatch-shared";
 import type { BrandSortKey, SiteSortKey, SourcesAdminState } from "./sources-admin-url";
 
@@ -114,4 +117,62 @@ export function historyDetail(changes: Record<string, unknown>): string {
     if (before !== after) parts.push(`permission ${before} → ${after}`);
   }
   return parts.length > 0 ? `: ${parts.join(", ")}` : "";
+}
+
+/** The brand panel's form values: text as typed, `""` platform = not set, `"none"` own store = none. */
+export interface BrandProfileForm {
+  websiteUrl: string;
+  platform: BrandPlatform | "";
+  blocker: string;
+  notes: string;
+  ownDataSourceId: string;
+}
+
+export function brandProfileForm(profile: BrandIngestProfile | null): BrandProfileForm {
+  return {
+    websiteUrl: profile?.websiteUrl ?? "",
+    platform: profile?.platform ?? "",
+    blocker: profile?.blocker ?? "",
+    notes: profile?.notes ?? "",
+    ownDataSourceId: profile?.ownDataSourceId ? String(profile.ownDataSourceId) : "none",
+  };
+}
+
+/**
+ * The fields the admin changed, against `baseline`: the profile the form was last filled from
+ * (on open, or from the last save response), never a newer profile a list refresh brought in,
+ * so a field someone else changed meanwhile is not sent back with this form's older value.
+ */
+export function changedProfileFields(baseline: BrandIngestProfile | null, form: BrandProfileForm): AdminBrandProfileRequest {
+  const next = {
+    websiteUrl: form.websiteUrl.trim() || null,
+    platform: form.platform || null,
+    blocker: form.blocker.trim() || null,
+    notes: form.notes.trim() || null,
+    ownDataSourceId: form.ownDataSourceId === "none" ? null : Number(form.ownDataSourceId),
+  };
+  const changes: AdminBrandProfileRequest = {};
+  if (next.websiteUrl !== (baseline?.websiteUrl ?? null)) changes.websiteUrl = next.websiteUrl;
+  if (next.platform !== (baseline?.platform ?? null)) changes.platform = next.platform;
+  if (next.blocker !== (baseline?.blocker ?? null)) changes.blocker = next.blocker;
+  if (next.notes !== (baseline?.notes ?? null)) changes.notes = next.notes;
+  if (next.ownDataSourceId !== (baseline?.ownDataSourceId ?? null)) changes.ownDataSourceId = next.ownDataSourceId;
+  return changes;
+}
+
+/**
+ * Drops reads that a write overtook. A write calls `invalidate()` when it starts and again when
+ * it succeeds, so a read begun before the write, or while it was in flight, is no longer current.
+ */
+export function createReadGuard(): { beginRead: () => () => boolean; invalidate: () => void } {
+  let generation = 0;
+  return {
+    beginRead: () => {
+      const at = generation;
+      return () => at === generation;
+    },
+    invalidate: () => {
+      generation += 1;
+    },
+  };
 }

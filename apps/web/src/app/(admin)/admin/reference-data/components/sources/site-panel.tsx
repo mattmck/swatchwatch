@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { historyDetail } from "@/lib/sources-admin-view";
+import { createReadGuard, historyDetail } from "@/lib/sources-admin-view";
 import { CONNECTOR_LABELS, KIND_LABELS, PermissionChip, relativeTime, todayIso } from "./sites-table";
 
 type Mode = "asked" | "granted" | "declined" | "not_needed" | null;
@@ -83,41 +83,44 @@ export function SitePanel({
     },
     [onChange]
   );
-  // Bumped by every local write; a read (initial load or poll) that started before one is dropped.
-  const writeSeq = useRef(0);
+  // Every local write invalidates reads when it starts and again when it succeeds, so a load or
+  // poll begun before or during a write never lands after it.
+  const [reads] = useState(createReadGuard);
 
   useEffect(() => {
     let cancelled = false;
-    const seq = writeSeq.current;
+    const isCurrent = reads.beginRead();
     getAdminSource(source.dataSourceId)
-      .then((res) => { if (!cancelled && seq === writeSeq.current) apply(res); })
+      .then((res) => { if (!cancelled && isCurrent()) apply(res); })
       .catch((err) => { if (!cancelled) setError(errorMessage(err, "Could not load the source history.")); });
     return () => { cancelled = true; };
-  }, [source.dataSourceId, apply]);
+  }, [source.dataSourceId, apply, reads]);
 
   // After Run, and while the latest job is queued/running, refresh every 5 s; stops on unmount.
   const jobActive = isActive(source.lastJob?.status);
   useEffect(() => {
     if (!polling && !jobActive) return;
     const timer = setInterval(() => {
-      const seq = writeSeq.current;
+      const isCurrent = reads.beginRead();
       getAdminSource(source.dataSourceId)
         .then((res) => {
-          if (seq !== writeSeq.current) return;
+          if (!isCurrent()) return;
           apply(res);
           if (!isActive(res.source.lastJob?.status)) setPolling(false);
         })
         .catch(() => undefined);
     }, 5000);
     return () => clearInterval(timer);
-  }, [polling, jobActive, source.dataSourceId, apply]);
+  }, [polling, jobActive, source.dataSourceId, apply, reads]);
 
   const write = async (fn: () => Promise<AdminSourceDetailResponse>, success: string): Promise<boolean> => {
     setBusy(true);
     setError(null);
-    writeSeq.current++;
+    reads.invalidate();
     try {
-      apply(await fn());
+      const res = await fn();
+      reads.invalidate();
+      apply(res);
       toast.success(success);
       return true;
     } catch (err) {
@@ -136,9 +139,11 @@ export function SitePanel({
     setConfirm(null);
     setBusy(true);
     setError(null);
-    writeSeq.current++;
+    reads.invalidate();
     try {
-      apply(await setAdminSourceEnabled(source.dataSourceId, { enabled: true, ...(override ? { override: true } : {}) }));
+      const res = await setAdminSourceEnabled(source.dataSourceId, { enabled: true, ...(override ? { override: true } : {}) });
+      reads.invalidate();
+      apply(res);
       toast.success(`${source.displayName} is on`);
     } catch (err) {
       if (errorCode(err) === "permission_required") setConfirm("turn-on");
@@ -160,9 +165,10 @@ export function SitePanel({
       await runIngestionJob({ source: source.name as IngestionSourceName, ...SOURCE_RUN_DEFAULTS });
       toast.success(`Queued ${source.displayName}`);
       setPolling(true);
-      const seq = ++writeSeq.current;
+      reads.invalidate();
+      const isCurrent = reads.beginRead();
       const res = await getAdminSource(source.dataSourceId);
-      if (seq === writeSeq.current) apply(res);
+      if (isCurrent()) apply(res);
     } catch (err) {
       setError(runErrorMessage(err));
     } finally {

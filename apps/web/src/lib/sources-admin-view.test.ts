@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { AdminBrandListItem, AdminSourceListItem } from "swatchwatch-shared";
-import { filterBrands, filterSites, historyDetail, sortBrands, sortSites } from "./sources-admin-view";
+import {
+  brandProfileForm,
+  changedProfileFields,
+  createReadGuard,
+  filterBrands,
+  filterSites,
+  historyDetail,
+  sortBrands,
+  sortSites,
+} from "./sources-admin-view";
 import { DEFAULT_SOURCES_ADMIN_STATE, type SourcesAdminState } from "./sources-admin-url";
 
 const state = (o: Partial<SourcesAdminState>): SourcesAdminState => ({ ...DEFAULT_SOURCES_ADMIN_STATE, ...o });
@@ -112,5 +121,48 @@ describe("historyDetail", () => {
       historyDetail({ override: true, permission: { from: { status: "asked" }, to: { status: "declined" } } }),
       ": turned on without an OK, permission asked → declined",
     );
+  });
+});
+
+describe("changedProfileFields", () => {
+  const opened = { websiteUrl: "https://a.example", platform: "shopify" as const, blocker: null, notes: "old notes", ownDataSourceId: 4, updatedAt: null };
+
+  it("sends nothing for an untouched form and only the edited keys otherwise", () => {
+    assert.deepEqual(changedProfileFields(opened, brandProfileForm(opened)), {});
+    const form = { ...brandProfileForm(opened), blocker: "  Behind Cloudflare ", ownDataSourceId: "none" };
+    assert.deepEqual(changedProfileFields(opened, form), { blocker: "Behind Cloudflare", ownDataSourceId: null });
+    assert.deepEqual(changedProfileFields(null, { ...brandProfileForm(null), platform: "custom" }), { platform: "custom" });
+  });
+
+  it("two saves around another admin's notes edit never send the old notes back", () => {
+    // Save 1 edits the blocker; the response carries notes another admin saved meanwhile.
+    const first = changedProfileFields(opened, { ...brandProfileForm(opened), blocker: "No feed" });
+    assert.deepEqual(first, { blocker: "No feed" });
+    const saved = { ...opened, blocker: "No feed", notes: "their notes" };
+    // The panel refills the form and the baseline from the response; save 2 edits the website.
+    const second = changedProfileFields(saved, { ...brandProfileForm(saved), websiteUrl: "https://b.example" });
+    assert.deepEqual(second, { websiteUrl: "https://b.example" });
+    // Comparing the stale form against a refreshed profile instead would have sent "old notes".
+    assert.deepEqual(changedProfileFields(saved, brandProfileForm(opened)).notes, "old notes");
+  });
+});
+
+describe("createReadGuard", () => {
+  it("drops a poll that started during a write and returned after it", () => {
+    const guard = createReadGuard();
+    guard.invalidate(); // write starts
+    const pollIsCurrent = guard.beginRead(); // poll starts while the write is in flight
+    guard.invalidate(); // write succeeds and is applied
+    assert.equal(pollIsCurrent(), false);
+  });
+
+  it("keeps a read when no write happened, drops one begun before a write", () => {
+    const guard = createReadGuard();
+    const read = guard.beginRead();
+    assert.equal(read(), true);
+    const before = guard.beginRead();
+    guard.invalidate();
+    assert.equal(before(), false);
+    assert.equal(guard.beginRead()(), true);
   });
 });
