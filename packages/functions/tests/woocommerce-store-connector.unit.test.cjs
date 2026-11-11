@@ -12,6 +12,8 @@ const {
   minorUnitsToDecimal,
   wooStorePrice,
   wooStoreFilterProduct,
+  gateWooStoreProduct,
+  buildWooStoreRecord,
 } = require("../dist/lib/connectors/woocommerce-store");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 
@@ -342,11 +344,11 @@ describe("WooCommerce Store API helpers", () => {
     assert.deepEqual(wooStorePrice(null), { price: null, currency: null });
   });
 
-  it("maps a product onto the platform-neutral store filter fields", () => {
+  it("maps a product onto the platform-neutral store filter fields (tags = the tags, then every category after the first, as the gate reads them)", () => {
     assert.deepEqual(wooStoreFilterProduct(SAMPLE[0], "Picture Polish"), {
       title: "Picture Polish – Atomic",
       product_type: "Nail Polish",
-      tags: ["Orange"],
+      tags: ["Orange", ...SAMPLE[0].categories.slice(1).map((category) => category.name)],
       body_html: SAMPLE[0].description,
       vendor: "Picture Polish",
     });
@@ -407,5 +409,51 @@ describe("WooCommerceStoreConnector: redirects", () => {
     });
     await assert.rejects(connector(fetchImpl).instance.pullProducts(PULL), /more than 3 redirects/);
     assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1), hop(1), hop(2), hop(3)]);
+  });
+});
+
+// Picture Polish (enabled 2026-11-10): the store filter and the shade-name parser, keyed by source
+// name, through the WooCommerce gate. Hand-made products in the Store API shape; WordPress sends
+// names HTML-escaped and lists categories alphabetically, so "Nail Colours" is rarely the first.
+describe("WooCommerce gate: Picture Polish store filter and title parser", () => {
+  const wooProduct = (id, name, categories, tags = []) => ({
+    id,
+    name,
+    type: "simple",
+    permalink: `${BASE}/product/p${id}/`,
+    prices: { price: "1295", currency_code: "AUD", currency_minor_unit: 2 },
+    categories: categories.map((category, index) => ({ id: index + 1, name: category, slug: category.toLowerCase() })),
+    tags: tags.map((tag, index) => ({ id: index + 100, name: tag, slug: tag })),
+    images: [],
+    is_in_stock: true,
+  });
+
+  it("keeps a Nail Colours product (not the first category) and names it by the first \" | \" segment", () => {
+    const product = wooProduct(11, "Camelot | Purple | Flakie", ["Flakie", "Halal Breathable Nail Polish", "Nail Colours", "Purple"], ["purple flakie nail polish"]);
+    const outcome = gateWooStoreProduct(product, SOURCE, SETTINGS);
+    assert.equal(outcome.accept, true);
+    const record = buildWooStoreRecord(outcome.gated, SETTINGS);
+    assert.equal(record.normalized.name, "Camelot");
+    assert.equal(record.normalized.rawTitle, "Camelot | Purple | Flakie");
+    assert.equal(record.normalized.brand, "Picture Polish");
+  });
+
+  it("decodes an entity-encoded name before parsing it", () => {
+    const outcome = gateWooStoreProduct(wooProduct(12, "Rock &amp; Roll | Black | Glitter", ["Glitter", "Nail Colours"]), SOURCE, SETTINGS);
+    assert.equal(outcome.accept, true);
+    assert.equal(buildWooStoreRecord(outcome.gated, SETTINGS).normalized.name, "Rock & Roll");
+  });
+
+  it("classifies the raw name, not the parsed shade, unless only the dropped part reads as a set", () => {
+    // "Naked" alone would read as a polish name; the raw "… | Base Coat" keeps the coat category.
+    const outcome = gateWooStoreProduct(wooProduct(15, "Naked | Nail Care | Base Coat", ["Base &amp; Top Coats", "Nail Care", "Nail Polish"]), SOURCE, SETTINGS);
+    assert.equal(outcome.accept, true);
+    assert.equal(outcome.gated.category, "base_coat");
+    assert.equal(buildWooStoreRecord(outcome.gated, SETTINGS).normalized.name, "Naked");
+  });
+
+  it("drops a Bundles product even under Nail Colours", () => {
+    assert.equal(gateWooStoreProduct(wooProduct(13, "Neon Bundle", ["Bundles", "Nail Paint", "Nail Polish"]), SOURCE, SETTINGS).accept, false);
+    assert.equal(gateWooStoreProduct(wooProduct(14, "Magnet Kit", ["Bundles", "Nail Colours"]), SOURCE, SETTINGS).accept, false);
   });
 });

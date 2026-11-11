@@ -7,7 +7,12 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { BigCartelConnector, bigCartelStoreFilterProduct, gateBigCartelProduct } = require("../dist/lib/connectors/big-cartel");
+const {
+  BigCartelConnector,
+  bigCartelStoreFilterProduct,
+  buildBigCartelRecord,
+  gateBigCartelProduct,
+} = require("../dist/lib/connectors/big-cartel");
 const { MYSTERY_TITLE_REGEX } = require("../dist/lib/connectors/store-filters/shared");
 const { readSourceSettings } = require("../dist/lib/source-settings");
 
@@ -246,5 +251,64 @@ describe("MYSTERY_TITLE_REGEX", () => {
     for (const title of ["Mysteryous Orchid", "Grab Bagel", "Blind Date", "Surprise Party", "Mystery", "Midnight Mystery"]) {
       assert.doesNotMatch(title, MYSTERY_TITLE_REGEX, title);
     }
+  });
+});
+
+// Painted Polish and Potion Polish (enabled 2026-11-10): the store filter and the shade-name
+// parser, keyed by source name, through the Big Cartel gate. Hand-made products in the v0 shape.
+describe("Big Cartel gate: store filters and title parsers", () => {
+  const STORE_FACTS = { url: "https://paintedpolish.com", currency: "USD" };
+  const bcProduct = (name, categories, extra = {}) => ({
+    name,
+    permalink: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+    url: "/product/x",
+    status: "active",
+    price: 14,
+    categories: categories.map((category, id) => ({ id, name: category, permalink: category.toLowerCase() })),
+    images: [],
+    options: [{ id: 1, name: "Default", price: 14 }],
+    ...extra,
+  });
+  const gate = (source, settings, product) => gateBigCartelProduct({ product, store: STORE_FACTS }, source, settings);
+  const POTION = "PotionPolishBigCartel";
+  const POTION_SETTINGS = readSourceSettings({ brand: "Potion Polish", subdomain: "potionpolish" }, POTION);
+
+  it("Painted Polish: keeps an Individual Shades product and names it without the FINAL stock note", () => {
+    const product = bcProduct("Party Fowl (FINAL 3 BOTTLES)", ["Individual Shades", "Thermals"]);
+    const outcome = gate(SOURCE, SETTINGS, product);
+    assert.equal(outcome.accept, true);
+    assert.equal(outcome.gated.category, "color");
+    const record = buildBigCartelRecord(outcome.gated, SETTINGS, "https://paintedpolish.com");
+    assert.equal(record.normalized.name, "Party Fowl");
+    assert.equal(record.normalized.rawTitle, "Party Fowl (FINAL 3 BOTTLES)");
+    assert.equal(record.normalized.brand, "Painted Polish");
+  });
+
+  it("Painted Polish: drops Sets and the Imperfect Label Bottles listing; a product without either category goes to the generic gate", () => {
+    assert.equal(gate(SOURCE, SETTINGS, bcProduct("Booked For Love: Part I", ["Sets"])).accept, false);
+    assert.equal(gate(SOURCE, SETTINGS, bcProduct("Imperfect Label Bottles", [])).accept, false);
+    // Deferred: no polish signal in "Jellies, Flakies" → the generic gate drops it ...
+    assert.equal(gate(SOURCE, SETTINGS, bcProduct("Stay Wicked", ["Jellies", "Flakies"])).accept, false);
+    // ... and keeps one under a polish category.
+    assert.equal(gate(SOURCE, SETTINGS, bcProduct("Stay Wicked", ["Nail Polish"])).accept, true);
+  });
+
+  it("Potion Polish: keeps a polish the generic gate would drop, as a colour polish, without its trailing notes", () => {
+    const product = bcProduct("Autumn Enthusiast - Magnetic - Limited Edition", ["Glitter Jellies", "Magnetics", "Autumn 2026"]);
+    assert.equal(gate("NotARealBigCartel", POTION_SETTINGS, product).accept, false, "the generic gate alone drops it");
+    const outcome = gate(POTION, POTION_SETTINGS, product);
+    assert.equal(outcome.accept, true);
+    assert.equal(outcome.gated.category, "color");
+    const record = buildBigCartelRecord(outcome.gated, POTION_SETTINGS, "https://www.potionpolish.com");
+    assert.equal(record.normalized.name, "Autumn Enthusiast");
+    assert.equal(record.normalized.rawTitle, "Autumn Enthusiast - Magnetic - Limited Edition");
+    assert.equal(record.normalized.productCategory, "color");
+    const twoPointOh = gate(POTION, POTION_SETTINGS, bcProduct("Cinnamon Cider 2.0 - Limited Edition", ["Holos"]));
+    assert.equal(buildBigCartelRecord(twoPointOh.gated, POTION_SETTINGS, "https://www.potionpolish.com").normalized.name, "Cinnamon Cider 2.0");
+  });
+
+  it("Potion Polish: drops the Mystery Polish category", () => {
+    assert.equal(gate(POTION, POTION_SETTINGS, bcProduct("Magnetic Mystery Duo", ["Magnetics", "Mystery Polish"])).accept, false);
+    assert.equal(gate(POTION, POTION_SETTINGS, bcProduct("Wintery Blues Overpour", ["On Sale", "Mystery Polish"])).accept, false);
   });
 });

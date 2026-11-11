@@ -159,6 +159,45 @@ export function readSourceSettings(metadata: unknown, sourceName?: string): Sour
   };
 }
 
+/**
+ * Admin operational switches for a source (`data_source.metadata.ingestion`, written by
+ * `PATCH /api/ingestion/sources/{id}/settings` and shown in the admin Jobs UI). They are separate
+ * from `imagesPermitted` on purpose: permission says whether the source's owner allows us to store
+ * its images at all; `downloadImages` is an admin's choice to not spend downloads and storage on a
+ * source that is permitted. Switching `downloadImages` on never grants permission. Each switch is
+ * on unless it is the boolean `false`.
+ */
+export interface IngestionSwitches {
+  downloadImages: boolean;
+  detectHex: boolean;
+}
+
+export function readIngestionSwitches(metadata: unknown): IngestionSwitches {
+  const ingestion = isRecord(metadata) && isRecord(metadata.ingestion) ? metadata.ingestion : {};
+  return {
+    downloadImages: ingestion.downloadImages !== false,
+    detectHex: ingestion.detectHex !== false,
+  };
+}
+
+/**
+ * What a job does with a source's images: store them only when the source permits it
+ * (`imagesPermitted`) and the admin switch is on (`downloadImages`); run AI hex detection only when
+ * the job request asks for it, the admin switch is on (`detectHex`) and images are stored (detection
+ * reads the stored blob).
+ */
+export function planSourceImageWork(params: {
+  imagesPermitted: boolean;
+  switches: IngestionSwitches;
+  requestDetectHex: boolean;
+}): { storeImages: boolean; detectHexFromImage: boolean } {
+  const storeImages = params.imagesPermitted && params.switches.downloadImages;
+  return {
+    storeImages,
+    detectHexFromImage: storeImages && params.requestDetectHex && params.switches.detectHex,
+  };
+}
+
 export interface ListingWritePlanInput {
   sourceKind: SourceKind;
   /** This listing created the shade row. */

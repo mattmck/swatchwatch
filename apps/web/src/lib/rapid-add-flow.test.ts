@@ -228,6 +228,22 @@ describe("buildStartMetadata / buildFrameQuality", () => {
     });
     assert.equal("gtin" in noBarcode, false);
     assert.equal("fileName" in noBarcode, false);
+    assert.equal("guideRegion" in noBarcode, false);
+  });
+
+  it("sends the guide outline only when one is given", () => {
+    const base = {
+      source: "web-camera" as const,
+      width: 900,
+      height: 1600,
+      sourceWidth: 1080,
+      sourceHeight: 1920,
+      metrics: { brightness: 0.5, contrast: 0.2, sharpness: 0.05 },
+      surface: "glass" as const,
+    };
+    const region = { x: 0.3, y: 0.4, w: 0.4, h: 0.2 };
+    assert.deepEqual(buildFrameQuality({ ...base, guideRegion: region }).guideRegion, region);
+    assert.equal("guideRegion" in buildFrameQuality({ ...base, guideRegion: null }), false);
   });
 });
 

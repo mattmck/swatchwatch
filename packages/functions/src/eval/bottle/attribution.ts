@@ -30,6 +30,8 @@ export interface ResolverTrace {
   brandText: string | null;
   shadeName: string | null;
   shadeNameListed: string | null;
+  /** An unverified closed-set pick (a candidate only). */
+  shadeNamePick: string | null;
   glassHex: string | null;
   thresholds: { match: number; question: number; colorHigh: number; colorMedium: number };
 }
@@ -84,6 +86,7 @@ export function resolverTraceFromStatus(status: Pick<CaptureStatusResponse, "met
     brandText: text(evidence.brand) ?? text(brandRead.text),
     shadeName: text(evidence.shadeName),
     shadeNameListed: text(evidence.shadeNameListed),
+    shadeNamePick: text(evidence.shadeNamePick),
     glassHex: text(evidence.glassHex),
     thresholds: {
       match: num(thresholds.match) ?? BOTTLE_RESOLVER_THRESHOLDS.match,
@@ -181,14 +184,16 @@ export function attributeFailure(
 
   // Stage 3: pool.
   if (sample.labelPoolEligible === false) {
-    return { stage: "candidate_pool_missing_label", detail: "label shade is merged, not active or not a color shade" };
+    return { stage: "candidate_pool_missing_label", detail: "label shade is merged, not active or an accessory" };
   }
 
   // Stage 4: name.
   if (!trace.shadeName && !trace.shadeNameListed) {
     return { stage: "name_not_read", detail: trace.glassHex ? `no name; glass ${trace.glassHex}` : "no name, no glass hex" };
   }
-  const readText = `read "${trace.shadeName ?? "-"}" listed "${trace.shadeNameListed ?? "-"}"`;
+  const readText = `read "${trace.shadeName ?? "-"}" listed "${trace.shadeNameListed ?? "-"}"${
+    trace.shadeNamePick ? ` pick "${trace.shadeNamePick}"` : ""
+  }`;
   const rank = trace.top5.findIndex((c) => c.shadeId === sample.shadeId);
   if (rank < 0) {
     return { stage: "name_wrong", detail: `${readText}; label not in top ${trace.top5.length}, top name ${fmt(trace.top5[0]?.nameScore ?? null)}` };

@@ -16,12 +16,13 @@
  */
 
 import type { ProductCategory } from "swatchwatch-shared";
-import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
+import { classifyProductCategory } from "../product-category.js";
 import { normalizeCurrencyCode, normalizePriceAmount } from "../product-price.js";
 import { htmlToPlainText, normalizeDescriptors, PRODUCT_DESCRIPTION_MAX_CHARS } from "../product-text.js";
 import type { SourceSettings } from "../source-settings.js";
 import { isRetailerSetSegment, parseConnectorTitle, type RetailerTitle } from "./retailer-title.js";
 import { isBundle, resolveConnectorBrand } from "./shopify-generic.js";
+import { classifyWithStoreShadeName, shopifyStoreShadeName } from "./shopify-title.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import { MYSTERY_TITLE_REGEX } from "./store-filters/shared.js";
 import type { StoreFilterProduct } from "./store-filters/types.js";
@@ -162,7 +163,9 @@ type GateOutcome = { accept: true; gated: GatedProduct } | { accept: false; vend
  * the source (`shopifyStoreProductVerdict`) over `bigCartelStoreFilterProduct`, else the shared
  * gate (`classifyIngestedProduct` over the name, the first category as product type and every
  * category as a tag); no bundle tag and no set (gate evidence `set`; a `feed`/`retailer` source
- * also drops a title ending in a set word or one `parseRetailerTitle` reads as a set).
+ * also drops a title ending in a set word or one `parseRetailerTitle` reads as a set). The shade
+ * name is the source's store title parser (`shopifyStoreShadeName`) when it has one that
+ * answers, else `parseConnectorTitle`.
  */
 export function gateBigCartelProduct(entry: CachedProduct, source: string, settings: SourceSettings): GateOutcome {
   const { product } = entry;
@@ -175,17 +178,24 @@ export function gateBigCartelProduct(entry: CachedProduct, source: string, setti
 
   const categories = names(product.categories);
   const productType = categories[0] ?? null;
-  const gate = classifyIngestedProduct({ title, productType, tags: categories });
-  const storeVerdict = shopifyStoreProductVerdict(source, bigCartelStoreFilterProduct(product, brand), settings);
+  const filterProduct = bigCartelStoreFilterProduct(product, brand);
+  // A store title parser (keyed by source name, `SHOPIFY_STORE_TITLE_PARSERS`) names the shade
+  // when the store's titles carry stock or finish notes. The gate classifies the raw title, unless
+  // only the note the parser dropped reads as set wording ("(FINAL 3 BOTTLES)" → "3 bottles").
+  const storeShadeName = shopifyStoreShadeName(source, filterProduct);
+  const { gate, shadeText } = classifyWithStoreShadeName(title, storeShadeName, productType, categories);
+  const storeVerdict = shopifyStoreProductVerdict(source, filterProduct, settings);
   if (!(storeVerdict ?? gate.accept) || isBundle(categories) || gate.evidence === "set") {
     return { accept: false };
   }
   const category =
     storeVerdict === true && gate.evidence === "legacy-tag"
-      ? classifyProductCategory({ shadeName: title, products: [{ productType, tags: categories }] }).category
+      ? classifyProductCategory({ shadeName: shadeText, products: [{ productType, tags: categories }] }).category
       : gate.category;
 
-  const listing = parseConnectorTitle(title, brand, settings.kind);
+  const listing: RetailerTitle | null = storeShadeName
+    ? { shadeName: storeShadeName, productLine: null, vendorCode: null, isSet: false }
+    : parseConnectorTitle(title, brand, settings.kind);
   if (settings.kind !== "brand" && (isRetailerSetSegment(title) || !listing || listing.isSet)) {
     return { accept: false };
   }

@@ -206,7 +206,9 @@ src/
   `nextFrame` ("Show the front of the bottle", "Now the bottom", "Turn it so we see the color",
   with a hint, "Step n of m" and **Can't see it**, which calls `POST /api/capture/{id}/answer`
   with `skipSurface`). The shutter and "Choose a photo" take the asked-for surface (sent as
-  `quality.surface`); the Barcode / Label / Color chips move under **More options** and apply to
+  `quality.surface`; no `quality.guideRegion` is sent: the native preview draws no outline and
+  the `expo-camera` preview-to-picture crop is not established per platform, so the server uses
+  its default outline); the Barcode / Label / Color chips move under **More options** and apply to
   the next photo only. The barcode scanner keeps running and still short-circuits to a verdict.
   When the server asks for nothing more and a photo is in, the check runs on its own (read-only,
   no `finalize`). The pure state is `bottleFlowReducer` / `deriveBottleCameraView` /

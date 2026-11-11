@@ -20,6 +20,7 @@ export * from './functions/gallery-dedupe-admin';
 export * from './functions/source-images-admin';
 export * from './functions/barcodes-admin';
 export * from './functions/makeupapi-dedupe-admin';
+export * from './functions/brand-store-rejected-admin';
 export * from './functions/inventory-admin';
 export * from './functions/shade-sources-admin';
 export * from './functions/sources-admin';

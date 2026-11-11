@@ -49,6 +49,8 @@ import { PoolClient } from "pg";
 import { recordShadeSourceProduct } from "./buy-link";
 import { MAKEUPAPI_CODE_SUFFIX_PATTERN, makeupApiNameKey, makeupApiNameKeySql } from "./makeupapi-dedupe";
 import { materializeProductBarcodes, type BarcodeConflict } from "./barcodes";
+import { correctBrandStoreShade, type BrandStoreCorrection } from "./brand-store-correction";
+import { invalidatePolishCachesForUser } from "./polish-cache";
 import {
   fingerprintColumnsSql,
   fingerprintFromColumns,
@@ -63,12 +65,14 @@ import {
   type FingerprintColumns,
   type ImageFingerprint,
 } from "./gallery-dedupe";
+import { getSourceImageMaxPerProduct, planProductImageDownloads } from "./product-image-cap";
 import { trackEvent } from "./telemetry";
 import {
   catalogAuthorityForKind,
   isBrandSourceSql,
   planIngestedFinishes,
   planListingWrites,
+  readIngestionSwitches,
   readSourceKind,
   type CatalogAuthority,
   type SourceKind,
@@ -138,6 +142,8 @@ export interface HoloTacoMaterializationMetrics {
   imageCandidates: number;
   imageUploads: number;
   imageUploadFailures: number;
+  /** Gallery images not downloaded because of `SOURCE_IMAGE_MAX_PER_PRODUCT` (lib/product-image-cap.ts). */
+  imagesSkippedByCap?: number;
   swatchesLinked: number;
   /**
    * `source_gallery` swatches unlinked: the product no longer lists the image, or a previous run
@@ -154,6 +160,14 @@ export interface HoloTacoMaterializationMetrics {
   barcodeConflicts: number;
   /** Records skipped because several shades fit them (each one is in the job log with the ids). */
   ambiguousShadesSkipped: number;
+  /** Brand store corrections (`correctBrandStoreShade`): shades moved to the record's brand. */
+  brandStoreShadesMoved: number;
+  /** Shades renamed to the store's clean name (in place, with or without a brand move). */
+  brandStoreShadesRenamed: number;
+  /** Shades merged into the record's brand's existing shade. */
+  brandStoreShadesMerged: number;
+  /** Corrections skipped (protected shade, another brand store's listing, ambiguous target; each in the job log). */
+  brandStoreCorrectionsSkipped: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -204,6 +218,11 @@ export interface HoloTacoMaterializationOptions {
    * `HoloTacoShopify` (or unset), which falls back to the "Holo Taco" brand.
    */
   sourceName?: string;
+  /**
+   * The admin who queued the job: the `admin_audit_event` actor of a brand-store correction
+   * (`correctBrandStoreShade`). Unset or null: the correction is only in the job log.
+   */
+  actorUserId?: number | null;
 }
 
 interface MakeupColorVariant {
@@ -302,6 +321,12 @@ interface HoloTacoImagePreparationMetrics {
   additionalImagesUploaded: number;
   /** Primary and gallery images whose source URL was already stored, so no download ran. */
   imagesReused: number;
+  /**
+   * Gallery images not downloaded because the product has more images than
+   * `SOURCE_IMAGE_MAX_PER_PRODUCT` (lib/product-image-cap.ts). An image past the cap whose URL an
+   * earlier run already stored is reused instead (counted in `imagesReused`, not here).
+   */
+  imagesSkippedByCap: number;
   hexDetected: number;
   hexDetectionFailures: number;
   hexDetectionSkipped: number;
@@ -1033,11 +1058,14 @@ export async function findShadesWithDetectedHex(
  * Stored images for connector image URLs this data source has already ingested, keyed by URL.
  * Shopify CDN URLs carry a `?v=` version that changes when the image is replaced, so an
  * unchanged URL means an unchanged image and the download can be skipped. A lookup failure
- * returns an empty map: reuse is an optimization and must never fail the job.
+ * returns an empty map: reuse is an optimization and must never fail the job. `onLookupFailed`
+ * tells the caller the map is empty because the lookup failed, not because nothing was stored:
+ * a capped run must then not prune (see `isProductImageSetComplete`).
  */
 export async function findStoredSourceImages(
   dataSourceId: number,
-  sourceUrls: string[]
+  sourceUrls: string[],
+  options: { onLookupFailed?: () => void } = {}
 ): Promise<Map<string, StoredSourceImage>> {
   const urls = Array.from(new Set(sourceUrls));
   if (urls.length === 0) {
@@ -1075,8 +1103,26 @@ export async function findStoredSourceImages(
         error instanceof Error ? error.message : String(error)
       }`
     );
+    options.onLookupFailed?.();
     return new Map();
   }
+}
+
+/**
+ * Whether a product's stored images are its whole current image set, which is what lets
+ * `pruneStaleGallerySwatches` unlink the rest. Images skipped by the per-product cap do not block
+ * the prune, because one an earlier run stored is reused instead of skipped. That only holds when
+ * the stored-image lookup worked: after a failed lookup a skipped image may be one the shade
+ * already links and the vendor still lists, so the set is not known to be complete.
+ */
+export function isProductImageSetComplete(input: {
+  primaryStored: boolean;
+  additionalFailures: number;
+  skippedByCap: number;
+  storedLookupFailed: boolean;
+}): boolean {
+  if (!input.primaryStored || input.additionalFailures > 0) return false;
+  return !(input.storedLookupFailed && input.skippedByCap > 0);
 }
 
 /** New catalog `image_asset` row for a stored source image, with its perceptual fingerprint when known. */
@@ -1223,6 +1269,7 @@ async function prepareHoloTacoImageData(
     imageUploadFailures: 0,
     additionalImagesUploaded: 0,
     imagesReused: 0,
+    imagesSkippedByCap: 0,
     hexDetected: 0,
     hexDetectionFailures: 0,
     hexDetectionSkipped: 0,
@@ -1295,9 +1342,14 @@ async function prepareHoloTacoImageData(
     primaryReused: boolean;
     additionalUploaded: number;
     imagesReused: number;
+    /** Gallery images left out by the per-product download cap (not downloaded, not stored before). */
+    skippedByCap: number;
   }
 
   const limit = pLimit(4);
+  // Per-product download cap: the primary, the likely on-nail photo AI detection would pick, then
+  // vendor order (planProductImageDownloads). Read once per call.
+  const maxImagesPerProduct = getSourceImageMaxPerProduct();
   const startTime = Date.now();
 
   const parsedRecords = records.map((record) => {
@@ -1312,6 +1364,7 @@ async function prepareHoloTacoImageData(
 
   // Images whose connector URL was already ingested are reused instead of downloaded: the
   // download (plus metadata strip and hashing) is what makes reruns slow, not the upload.
+  let storedLookupFailed = false;
   const storedImages = storeImages
     ? await findStoredSourceImages(
         dataSourceId,
@@ -1319,7 +1372,12 @@ async function prepareHoloTacoImageData(
           holo?.name && isHttpUrl(holo.primaryImageUrl)
             ? [holo.primaryImageUrl, ...holo.imageUrls.slice(1).filter(isHttpUrl)]
             : []
-        )
+        ),
+        {
+          onLookupFailed: () => {
+            storedLookupFailed = true;
+          },
+        }
       )
     : new Map<string, StoredSourceImage>();
   progressLogger?.info(`${sourceLogPrefix} Image upload started for ${records.length} record(s)`, {
@@ -1374,6 +1432,7 @@ async function prepareHoloTacoImageData(
         primaryReused: false,
         additionalUploaded: 0,
         imagesReused: 0,
+        skippedByCap: 0,
       };
       if (!holo) {
         console.log(`${sourceLogPrefix} Skipping record ${record.externalId}: no normalized data`);
@@ -1415,6 +1474,7 @@ async function prepareHoloTacoImageData(
       let additionalUploaded = 0;
       let imagesReused = 0;
       let additionalFailures = 0;
+      let skippedByCap = 0;
       const additionalImages: StoredSourceImage[] = [];
 
       // Upload primary image (container already ensured)
@@ -1441,10 +1501,33 @@ async function prepareHoloTacoImageData(
         });
       }
 
-      // Upload additional images
+      // Additional images, in vendor order. Only the ones the per-product cap keeps are
+      // downloaded; one past the cap whose URL an earlier run stored is reused (no download), so a
+      // capped run never drops a gallery image the vendor still lists and the stored set stays
+      // this product's whole current image set for pruning (imageSetComplete). The rest are
+      // skipped: not downloaded, not stored, never linked.
+      const downloadPlan = planProductImageDownloads({
+        imageUrls: holo.imageUrls,
+        images: holo.images,
+        primaryUrl: holo.primaryImageUrl,
+        maxImages: maxImagesPerProduct,
+      });
+      const keptUrls = new Set(downloadPlan.additional.map((image) => image.url));
+      const seenUrls = new Set<string>([holo.primaryImageUrl]);
       for (let i = 1; i < holo.imageUrls.length; i++) {
         const imgUrl = holo.imageUrls[i];
-        if (!isHttpUrl(imgUrl)) continue;
+        if (!isHttpUrl(imgUrl) || seenUrls.has(imgUrl)) continue;
+        seenUrls.add(imgUrl);
+        if (!keptUrls.has(imgUrl)) {
+          const stored = storedImages.get(imgUrl);
+          if (stored) {
+            additionalImages.push(stored);
+            imagesReused += 1;
+          } else {
+            skippedByCap += 1;
+          }
+          continue;
+        }
         try {
           const { image, reused } = await storeSourceImage(imgUrl, `${record.externalId}-img${i}`);
           additionalImages.push(image);
@@ -1468,6 +1551,14 @@ async function prepareHoloTacoImageData(
         }
       }
 
+      if (skippedByCap > 0) {
+        console.log(
+          `${sourceLogPrefix} ${record.externalId}: ${skippedByCap} of ${holo.imageUrls.length} image(s) not downloaded (SOURCE_IMAGE_MAX_PER_PRODUCT=${maxImagesPerProduct}${
+            downloadPlan.detectionUrl ? `, kept detection image ${downloadPlan.detectionUrl}` : ""
+          })`
+        );
+      }
+
       return {
         record,
         holo,
@@ -1476,11 +1567,20 @@ async function prepareHoloTacoImageData(
         fingerprint,
         sourceUrl: storageUrl ? holo.primaryImageUrl : null,
         additionalImages,
-        imageSetComplete: storageUrl !== null && additionalFailures === 0,
+        // Every image this run kept (downloaded or reused) was stored; images skipped by the cap
+        // are not part of the product's stored set, so they do not block the stale-gallery prune,
+        // unless the stored-image lookup failed (a skipped image may then be an already linked one).
+        imageSetComplete: isProductImageSetComplete({
+          primaryStored: storageUrl !== null,
+          additionalFailures,
+          skippedByCap,
+          storedLookupFailed,
+        }),
         isCandidate: true,
         primaryReused,
         additionalUploaded,
         imagesReused,
+        skippedByCap,
       };
     })
   );
@@ -1496,15 +1596,22 @@ async function prepareHoloTacoImageData(
     primaryFailed: uploadCandidates.filter((result) => !result.storageUrl).length,
     additionalUploaded: uploadResults.reduce((sum, result) => sum + result.additionalUploaded, 0),
     imagesReused: uploadResults.reduce((sum, result) => sum + result.imagesReused, 0),
+    imagesSkippedByCap: uploadResults.reduce((sum, result) => sum + result.skippedByCap, 0),
+    maxImagesPerProduct,
   };
   progressLogger?.info(
-    `${sourceLogPrefix} Image upload finished in ${uploadElapsed}s: ${uploadSummary.primaryUploaded} uploaded, ${uploadSummary.imagesReused} reused, ${uploadSummary.primaryFailed} failed`,
+    `${sourceLogPrefix} Image upload finished in ${uploadElapsed}s: ${uploadSummary.primaryUploaded} uploaded, ${uploadSummary.imagesReused} reused, ${uploadSummary.primaryFailed} failed${
+      uploadSummary.imagesSkippedByCap > 0
+        ? `, ${uploadSummary.imagesSkippedByCap} not downloaded (over ${maxImagesPerProduct} per product)`
+        : ""
+    }`,
     uploadSummary
   );
 
   // AI hex detection runs on the image most likely to show the polish on a nail
   // (alt-text ranking, see image-selection.ts); the vendor's primary image stays
-  // the fallback and the blob upload set above is unchanged.
+  // the fallback. The download cap above always kept that image, so the choice is the same
+  // as without a cap.
   const chooseDetectionImage = (result: ImageUploadResult): UploadedImageChoice | null => {
     const { holo, storageUrl, checksumSha256, additionalImages } = result;
     if (!holo) return null;
@@ -1612,6 +1719,7 @@ async function prepareHoloTacoImageData(
     }
     metrics.additionalImagesUploaded += result.additionalUploaded;
     metrics.imagesReused += result.imagesReused;
+    metrics.imagesSkippedByCap += result.skippedByCap;
 
     let detectedHex: string | null = null;
     let detectedFinishes: string[] | null = null;
@@ -2152,8 +2260,14 @@ export async function listDataSourcesWithSettings(enabledOnly = true): Promise<D
     name: row.name,
     baseUrl: row.baseUrl,
     enabled: row.enabled,
-    // metadata stays internal: the admin settings response carries only `settings`.
-    settings: (row.metadata?.ingestion) as DataSourceSettings || defaultSettings,
+    // metadata stays internal: the admin settings response carries only `settings`. The switches
+    // are read like the worker reads them (`readIngestionSwitches`: on unless explicitly false).
+    settings: {
+      ...defaultSettings,
+      ...readIngestionSwitches(row.metadata),
+      overwriteExisting:
+        (row.metadata?.ingestion as Record<string, unknown> | undefined)?.overwriteExisting === true,
+    },
   }));
 }
 
@@ -3030,6 +3144,8 @@ interface HoloTacoRecordMaterializationDelta {
   barcodeInvalidCheckDigits: string[];
   /** Another shade holds the product's raw store title while the clean name matched (admin should merge; logged by the caller). */
   rawTitleDuplicate?: { brand: string; name: string; rawTitle: string; matchedShadeId: number; rawShadeId: number };
+  /** A brand store moved, renamed, merged or left (skipped) the shade its listing pointed at (logged by the caller). */
+  correction?: BrandStoreCorrection;
   skipped: number;
   /** Why the record was skipped (job-log text); unset = no normalized data or shade name. */
   skipReason?: string;
@@ -3046,8 +3162,12 @@ interface HoloTacoRecordMaterializationDelta {
 type ShadeLookupKind = "brand" | "adopt";
 
 type ExistingShadeLookup =
-  /** Materialize onto this shade. */
-  | { outcome: "found"; shadeId: number }
+  /**
+   * Materialize onto this shade. `via`: the product's own listing (step 0), the exact identity
+   * (step 1) or a same-name candidate (step 2); only a listing match is corrected
+   * (`correctBrandStoreShade`).
+   */
+  | { outcome: "found"; shadeId: number; via?: "listing" | "identity" | "candidate" }
   /** Create a new shade; `candidateShadeIds` are same-name shades whose finishes did not fit. */
   | { outcome: "create"; candidateShadeIds: number[] }
   /** Several listings or candidates fit: skip the record, never pick one. */
@@ -3108,7 +3228,7 @@ async function findExistingShadeForRecord(
     .filter((id) => id !== null && id !== undefined)
     .map(Number);
   if (listedShadeIds.length === 1) {
-    return { outcome: "found", shadeId: listedShadeIds[0] };
+    return { outcome: "found", shadeId: listedShadeIds[0], via: "listing" };
   }
   if (listedShadeIds.length > 1 && kind === "adopt") {
     return { outcome: "ambiguous", candidateShadeIds: listedShadeIds };
@@ -3127,11 +3247,11 @@ async function findExistingShadeForRecord(
       // Several listings for one product: the exact identity decides only among the linked shades,
       // so the product never gains a third link; otherwise skip it like any ambiguous record.
       return exact && listedShadeIds.includes(Number(exact.shadeId))
-        ? { outcome: "found", shadeId: Number(exact.shadeId) }
+        ? { outcome: "found", shadeId: Number(exact.shadeId), via: "listing" }
         : { outcome: "ambiguous", candidateShadeIds: listedShadeIds };
     }
     if (exact) {
-      return { outcome: "found", shadeId: Number(exact.shadeId) };
+      return { outcome: "found", shadeId: Number(exact.shadeId), via: "identity" };
     }
   }
 
@@ -3170,7 +3290,7 @@ async function findExistingShadeForRecord(
   );
   const candidateShadeIds = candidates.rows.map((candidate) => Number(candidate.shadeId));
   if (compatible.length === 1) {
-    return { outcome: "found", shadeId: Number(compatible[0].shadeId) };
+    return { outcome: "found", shadeId: Number(compatible[0].shadeId), via: "candidate" };
   }
   return { outcome: compatible.length === 0 ? "create" : "ambiguous", candidateShadeIds };
 }
@@ -3325,7 +3445,7 @@ async function materializePreparedHoloTacoRecord(
   sourceLogPrefix: string,
   brandCache: Map<string, number>,
   finishCatalog?: FinishCatalog,
-  sourceOptions: Pick<HoloTacoMaterializationOptions, "sourceKind" | "sourceName" | "progressLogger"> = {}
+  sourceOptions: Pick<HoloTacoMaterializationOptions, "sourceKind" | "sourceName" | "progressLogger" | "actorUserId"> = {}
 ): Promise<HoloTacoRecordMaterializationDelta> {
   const delta: HoloTacoRecordMaterializationDelta = {
     processed: 0,
@@ -3444,6 +3564,22 @@ async function materializePreparedHoloTacoRecord(
   let shadeId: number;
   if (existingShade.outcome === "found") {
     shadeId = existingShade.shadeId;
+    if (sourceKind === "brand" && existingShade.via === "listing") {
+      // An earlier run may have filed the product under a vendor spelling or its raw title: move,
+      // rename or merge the shade onto the record's brand and clean name (lib/brand-store-correction.ts).
+      const correction = await correctBrandStoreShade(client, {
+        shadeId,
+        dataSourceId,
+        sourceName: sourceOptions.sourceName,
+        externalId: record.externalId,
+        record: { brandId: Number(brandId), brand: brandName, name: holo.name, finish: holo.finish, collection: holo.collection },
+        rawTitle: holo.rawTitle,
+        actorUserId: sourceOptions.actorUserId ?? null,
+        finishesFit: (candidateFinishes) => finishesFitRecord(ingestedFinishes, candidateFinishes, finishCatalog),
+      });
+      if (correction.outcome !== "unchanged") delta.correction = correction;
+      if (correction.outcome === "merged") shadeId = correction.targetShadeId;
+    }
     if (holo.rawTitle && holo.rawTitle.toLowerCase() !== holo.name.toLowerCase()) {
       const rawShadeId = await findShadeByRawTitle(client, {
         brandId,
@@ -3931,6 +4067,54 @@ async function materializePreparedHoloTacoRecord(
 }
 
 /**
+ * Job-log line(s) for one brand-store correction (info for a move, rename or merge, warn for a
+ * skip) and the counts it adds to the job metrics. After a merge the polish caches of the users
+ * whose inventory moved are dropped (the record's transaction has committed).
+ */
+async function reportBrandStoreCorrection(
+  correction: BrandStoreCorrection,
+  externalId: string,
+  sourceLogPrefix: string,
+  progressLogger: HoloTacoMaterializationOptions["progressLogger"]
+): Promise<{ moved: number; renamed: number; merged: number; skipped: number }> {
+  const counts = { moved: 0, renamed: 0, merged: 0, skipped: 0 };
+  if (correction.outcome === "unchanged") return counts;
+  if (correction.outcome === "moved") {
+    counts.moved = correction.brandChanged ? 1 : 0;
+    counts.renamed = correction.renamed ? 1 : 0;
+    const what = [
+      correction.brandChanged ? `brand ${correction.fromBrand} → ${correction.toBrand}` : null,
+      correction.renamed ? `name "${correction.fromName}" → "${correction.toName}"` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const message = `${sourceLogPrefix} Corrected shade ${correction.shadeId} of ${externalId}: ${what}`;
+    console.log(message);
+    progressLogger?.info(message, { externalId, ...correction });
+    return counts;
+  }
+  if (correction.outcome === "merged") {
+    counts.merged = 1;
+    const message = `${sourceLogPrefix} Merged shade ${correction.sourceShadeId} (${correction.fromBrand} "${correction.fromName}") of ${externalId} into ${correction.toBrand} shade ${correction.targetShadeId} "${correction.targetName}" (${correction.movedInventoryRows + correction.combinedInventoryRows} inventory rows moved)`;
+    console.log(message);
+    progressLogger?.info(message, { externalId, ...correction });
+    for (const userId of correction.affectedUserIds) {
+      try {
+        await invalidatePolishCachesForUser(userId, [correction.sourceShadeId, correction.targetShadeId]);
+      } catch (error) {
+        console.warn(`${sourceLogPrefix} Cache invalidation failed for user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return counts;
+  }
+  counts.skipped = 1;
+  const message = `${sourceLogPrefix} Left shade ${correction.shadeId} (${correction.fromBrand} "${correction.fromName}") of ${externalId} as it is (${correction.reason}); the store files it as ${correction.toBrand} "${correction.toName}"`;
+  console.warn(message);
+  progressLogger?.warn(message, { externalId, ...correction });
+  return counts;
+}
+
+/**
  * One job-log line per materialized chunk, e.g.
  * `Records 11–20 of 250 on page 3: 10 shades (2 new), 8 hex detected, 0 upload failures, 41.0s`.
  */
@@ -3939,13 +4123,29 @@ export function formatMaterializationSummary(
   metrics: Pick<
     HoloTacoMaterializationMetrics,
     "processed" | "shadesCreated" | "hexDetected" | "imageUploadFailures" | "skipped"
-  > & { hexDetectionFailures?: number; batchRequestsQueued?: number; ambiguousShadesSkipped?: number },
+  > & {
+    hexDetectionFailures?: number;
+    batchRequestsQueued?: number;
+    imagesSkippedByCap?: number;
+    ambiguousShadesSkipped?: number;
+    brandStoreShadesMoved?: number;
+    brandStoreShadesRenamed?: number;
+    brandStoreShadesMerged?: number;
+  },
   durationMs: number
 ): string {
   const parts = [
     `${metrics.processed} shade${metrics.processed === 1 ? "" : "s"} (${metrics.shadesCreated} new)`,
     `${metrics.hexDetected} hex detected`,
   ];
+  const corrections = [
+    metrics.brandStoreShadesMoved ? `${metrics.brandStoreShadesMoved} moved to the brand` : null,
+    metrics.brandStoreShadesRenamed ? `${metrics.brandStoreShadesRenamed} renamed` : null,
+    metrics.brandStoreShadesMerged ? `${metrics.brandStoreShadesMerged} merged` : null,
+  ].filter(Boolean);
+  if (corrections.length > 0) {
+    parts.push(`shades corrected: ${corrections.join(", ")}`);
+  }
   if (metrics.batchRequestsQueued) {
     parts.push(`${metrics.batchRequestsQueued} queued for batch detection`);
   }
@@ -3953,6 +4153,9 @@ export function formatMaterializationSummary(
     parts.push(`${metrics.hexDetectionFailures} hex detection failures`);
   }
   parts.push(`${metrics.imageUploadFailures} upload failures`);
+  if (metrics.imagesSkippedByCap) {
+    parts.push(`${metrics.imagesSkippedByCap} images over the per-product cap not downloaded`);
+  }
   if (metrics.skipped) {
     parts.push(
       metrics.ambiguousShadesSkipped
@@ -4002,6 +4205,10 @@ export async function materializeHoloTacoRecords(
   let barcodesLinked = 0;
   let barcodeConflicts = 0;
   let ambiguousShadesSkipped = 0;
+  let brandStoreShadesMoved = 0;
+  let brandStoreShadesRenamed = 0;
+  let brandStoreShadesMerged = 0;
+  let brandStoreCorrectionsSkipped = 0;
   let skipped = 0;
 
   const brandCache = new Map<string, number>();
@@ -4034,9 +4241,17 @@ export async function materializeHoloTacoRecords(
             sourceKind,
             sourceName: options?.sourceName,
             progressLogger: options?.progressLogger,
+            actorUserId: options?.actorUserId ?? null,
           }
         )
       );
+      if (delta.correction) {
+        const counts = await reportBrandStoreCorrection(delta.correction, record.externalId, sourceLogPrefix, options?.progressLogger);
+        brandStoreShadesMoved += counts.moved;
+        brandStoreShadesRenamed += counts.renamed;
+        brandStoreShadesMerged += counts.merged;
+        brandStoreCorrectionsSkipped += counts.skipped;
+      }
 
       processed += delta.processed;
       brandsCreated += delta.brandsCreated;
@@ -4100,6 +4315,10 @@ export async function materializeHoloTacoRecords(
     barcodesLinked,
     barcodeConflicts,
     ambiguousShadesSkipped,
+    brandStoreShadesMoved,
+    brandStoreShadesRenamed,
+    brandStoreShadesMerged,
+    brandStoreCorrectionsSkipped,
     skipped,
   };
 

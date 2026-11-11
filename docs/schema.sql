@@ -567,8 +567,10 @@ CREATE TABLE admin_audit_event (
       -- MakeupAPI dedupe backfill (migration 20261026045216957): one per merged / deleted catalog
       -- shade; target_user_id NULL, shade ids (and the deleted row as JSON) in changes
       'shade.catalog_merge', 'shade.catalog_delete',
-      -- brand-store shade correction (migration 20261110150000000): one per corrected catalog shade;
-      -- target_user_id NULL, shade id in changes
+      -- Brand-store corrections (migration 20261110150000000, lib/brand-store-correction.ts): a
+      -- brand store's re-run moved or renamed the shade its listing points at (actor = the admin
+      -- who queued the job; shade id, brand and name before/after in changes). Its merges are
+      -- 'shade.catalog_merge' rows.
       'shade.catalog_correct',
       -- admin Sources tab (migration 20261111120000000): data source permission / on-off / images
       -- and brand create / profile edits; target_user_id NULL, ids in changes
