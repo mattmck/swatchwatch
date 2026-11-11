@@ -1,5 +1,39 @@
-const { describe, it } = require("node:test");
+const { describe, it, beforeEach, afterEach, after } = require("node:test");
 const assert = require("node:assert/strict");
+const Module = require("node:module");
+
+// Handler tests need db / jose / @azure/functions mocked before the dist modules load
+// (same approach as admin-users.unit.test.cjs). The pure planners never touch the db.
+const registeredRoutes = {};
+let queryMock = async () => ({ rows: [] });
+let transactionMock = async (cb) => cb({ query: async () => ({ rows: [] }) });
+
+const mockModules = {};
+const originalResolve = Module._resolveFilename;
+Module._resolveFilename = function (request, parent, ...rest) {
+  for (const key of Object.keys(mockModules)) {
+    if (request === key || request.endsWith(key)) return key;
+  }
+  return originalResolve.call(this, request, parent, ...rest);
+};
+const dbMock = {
+  query: (...args) => queryMock(...args),
+  transaction: (...args) => transactionMock(...args),
+  getPool: () => ({}),
+  closePool: async () => {},
+};
+mockModules["@azure/functions"] = {
+  app: { http: (name, opts) => { registeredRoutes[name] = opts; } },
+};
+mockModules["jose"] = {
+  createRemoteJWKSet: () => () => {},
+  jwtVerify: async () => { throw new Error("invalid JWT"); },
+};
+mockModules["../lib/db"] = dbMock;
+mockModules["./db"] = dbMock;
+for (const [id, exports] of Object.entries(mockModules)) {
+  require.cache[id] = { id, filename: id, loaded: true, exports };
+}
 
 const {
   planPermissionChange,
@@ -7,7 +41,14 @@ const {
   parsePermissionRequest,
   grantNoteSentence,
   isFetchableSource,
+  toAdminSourceListItem,
 } = require("../dist/lib/sources-admin");
+require("../dist/functions/sources-admin");
+
+after(() => {
+  Module._resolveFilename = originalResolve;
+  for (const id of Object.keys(mockModules)) delete require.cache[id];
+});
 
 const NOW = "2026-11-11T10:00:00.000Z";
 const SHOPIFY = "HypnoticPolishShopify";
@@ -217,5 +258,259 @@ describe("parsePermissionRequest", () => {
     assert.equal(parsePermissionRequest({ ...grant, grantedBy: "   " }).ok, false);
     assert.equal(parsePermissionRequest({ ...grant, summary: "x".repeat(501) }).ok, false);
     assert.equal(parsePermissionRequest(null).ok, false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Handlers
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ADMIN = 2;
+const OTHER = 10;
+const savedEnv = {};
+beforeEach(() => {
+  for (const key of ["AUTH_DEV_BYPASS", "WEBSITE_INSTANCE_ID", "WEBSITE_HOSTNAME"]) {
+    savedEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+  process.env.AUTH_DEV_BYPASS = "true";
+  queryMock = async () => ({ rows: [] });
+  transactionMock = async (cb) => cb({ query: async () => ({ rows: [] }) });
+});
+afterEach(() => {
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
+
+function fakeContext() {
+  return { log() {}, warn() {}, error() {}, invocationId: "test-invocation" };
+}
+function fakeRequest({ method = "GET", url = "http://localhost/api/sources-admin", headers = {}, params = {}, body }) {
+  const h = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+  return {
+    method,
+    url,
+    params,
+    headers: { get: (name) => h.get(name.toLowerCase()) ?? null },
+    json: async () => {
+      if (body === undefined) throw new Error("no body");
+      return body;
+    },
+  };
+}
+function authedQuery(handler) {
+  return async (sql, params) => {
+    if (/SELECT user_id, external_id, email/.test(sql)) {
+      const id = params[0];
+      return {
+        rows: [{ user_id: id, external_id: `ext-${id}`, email: `u${id}@test.dev`, role: id === ADMIN ? "admin" : "user", suspended: false }],
+      };
+    }
+    return handler(sql, params);
+  };
+}
+function call(route, { as = ADMIN, ...rest } = {}) {
+  return registeredRoutes[route].handler(
+    fakeRequest({ ...rest, headers: { authorization: `Bearer dev:${as}` } }),
+    fakeContext()
+  );
+}
+
+function sourceRow(overrides = {}) {
+  return {
+    dataSourceId: "5",
+    name: SHOPIFY,
+    baseUrl: "https://hypnotic.example",
+    enabled: false,
+    metadata: { currency: "EUR", notes: "Existing note." },
+    lastJobId: "99",
+    lastJobStatus: "succeeded",
+    lastJobStartedAt: "2026-11-10 10:00:00+00",
+    lastJobFinishedAt: "2026-11-10 10:05:00+00",
+    lastJobProcessed: "120",
+    liveListings: "42",
+    shades: "40",
+    ...overrides,
+  };
+}
+
+/** Records every statement; the FOR UPDATE select returns `current` (or no row). */
+function txRecorder(current) {
+  const statements = [];
+  transactionMock = async (cb) =>
+    cb({
+      query: async (sql, params) => {
+        statements.push({ sql, params });
+        if (/FOR UPDATE/.test(sql)) return { rows: current ? [current] : [] };
+        return { rows: [], rowCount: 1 };
+      },
+    });
+  return statements;
+}
+
+describe("toAdminSourceListItem", () => {
+  it("maps counts to numbers and derives permission, kind and connector", () => {
+    const item = toAdminSourceListItem(sourceRow({ enabled: true }));
+    assert.equal(item.dataSourceId, 5);
+    assert.equal(item.liveListings, 42);
+    assert.equal(item.shades, 40);
+    assert.equal(item.kind, "brand");
+    assert.equal(item.fetchable, true);
+    assert.equal(item.permission.status, "not_asked");
+    assert.equal(item.onWithoutOk, true);
+    assert.equal(item.imagesPermitted, true);
+    assert.equal(item.currency, "EUR");
+    assert.deepEqual(item.lastJob, {
+      jobId: "99",
+      status: "succeeded",
+      startedAt: "2026-11-10 10:00:00+00",
+      finishedAt: "2026-11-10 10:05:00+00",
+      recordsProcessed: 120,
+    });
+  });
+
+  it("a source without jobs has lastJob null", () => {
+    const item = toAdminSourceListItem(sourceRow({ lastJobId: null, lastJobStatus: null, lastJobProcessed: null }));
+    assert.equal(item.lastJob, null);
+  });
+});
+
+describe("functions/sources-admin", () => {
+  for (const [route, method, params] of [
+    ["sources-admin-list", "GET", {}],
+    ["sources-admin-item", "GET", { id: "5" }],
+    ["sources-admin-permission", "PUT", { id: "5" }],
+    ["sources-admin-enabled", "PUT", { id: "5" }],
+  ]) {
+    it(`${route}: a regular user gets 403 and nothing runs`, async () => {
+      const seen = [];
+      queryMock = authedQuery(async (sql) => {
+        seen.push(sql);
+        return { rows: [] };
+      });
+      const statements = txRecorder(null);
+      const res = await call(route, { as: OTHER, method, params, body: { enabled: false } });
+      assert.equal(res.status, 403);
+      assert.deepEqual(seen, []);
+      assert.deepEqual(statements, []);
+    });
+  }
+
+  it("GET list maps rows", async () => {
+    queryMock = authedQuery(async () => ({ rows: [sourceRow({ enabled: true })] }));
+    const res = await call("sources-admin-list");
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.sources.length, 1);
+    assert.equal(res.jsonBody.sources[0].liveListings, 42);
+    assert.equal(res.jsonBody.sources[0].onWithoutOk, true);
+  });
+
+  it("GET item returns notes and history; unknown id is 404, bad id 400", async () => {
+    queryMock = authedQuery(async (sql, params) => {
+      if (/FROM data_source ds/.test(sql)) return { rows: params[0] === 5 ? [sourceRow()] : [] };
+      if (/FROM admin_audit_event/.test(sql)) {
+        assert.match(sql, /changes->>'dataSourceId'/);
+        return {
+          rows: [
+            {
+              auditEventId: "3",
+              actorUserId: "2",
+              actorLabel: "a@test.dev",
+              targetUserId: null,
+              action: "data_source.enable",
+              changes: { dataSourceId: 5 },
+              note: null,
+              createdAt: "2026-11-10 11:00:00+00",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const ok = await call("sources-admin-item", { params: { id: "5" } });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.jsonBody.notes, "Existing note.");
+    assert.equal(ok.jsonBody.history[0].auditEventId, 3);
+    assert.equal(ok.jsonBody.history[0].targetUserId, undefined);
+    assert.equal((await call("sources-admin-item", { params: { id: "6" } })).status, 404);
+    assert.equal((await call("sources-admin-item", { params: { id: "abc" } })).status, 400);
+  });
+
+  const detailQuery = () =>
+    authedQuery(async (sql) => (/FROM data_source ds/.test(sql) ? { rows: [sourceRow()] } : { rows: [] }));
+
+  const grantBody = {
+    action: "granted",
+    decidedAt: "2026-11-10",
+    grantedBy: "Jo",
+    channel: "email",
+    summary: "OK to read the catalog",
+    imagesGranted: true,
+  };
+
+  it("PUT permission granted: one lock, one UPDATE, one audit row, then reloads", async () => {
+    queryMock = detailQuery();
+    const statements = txRecorder({ name: SHOPIFY, enabled: false, metadata: {} });
+    const res = await call("sources-admin-permission", { method: "PUT", params: { id: "5" }, body: grantBody });
+    assert.equal(res.status, 200);
+    assert.equal(res.jsonBody.source.dataSourceId, 5);
+    assert.equal(statements.length, 3);
+    assert.match(statements[0].sql, /SELECT[\s\S]*FOR UPDATE/);
+    assert.match(statements[1].sql, /UPDATE data_source\s+SET enabled = \$2, metadata = \$3::jsonb/);
+    assert.equal(statements[1].params[1], true);
+    assert.match(statements[2].sql, /INSERT INTO admin_audit_event/);
+    assert.equal(statements[2].params[0], ADMIN);
+    assert.equal(statements[2].params[1], null);
+    assert.equal(statements[2].params[2], "data_source.permission");
+    assert.equal(JSON.parse(statements[2].params[3]).dataSourceId, 5);
+  });
+
+  it("PUT permission: invalid body and invalid JSON are 400, unknown id 404", async () => {
+    queryMock = detailQuery();
+    txRecorder({ name: SHOPIFY, enabled: false, metadata: {} });
+    const bad = await call("sources-admin-permission", { method: "PUT", params: { id: "5" }, body: { action: "nope" } });
+    assert.equal(bad.status, 400);
+    const noBody = await call("sources-admin-permission", { method: "PUT", params: { id: "5" } });
+    assert.equal(noBody.status, 400);
+    const badId = await call("sources-admin-permission", { method: "PUT", params: { id: "abc" }, body: grantBody });
+    assert.equal(badId.status, 400);
+    txRecorder(null);
+    const missing = await call("sources-admin-permission", { method: "PUT", params: { id: "5" }, body: grantBody });
+    assert.equal(missing.status, 404);
+  });
+
+  it("PUT enabled true on a not_asked source is 409 permission_required and writes nothing", async () => {
+    queryMock = detailQuery();
+    const statements = txRecorder({ name: SHOPIFY, enabled: false, metadata: {} });
+    const res = await call("sources-admin-enabled", { method: "PUT", params: { id: "5" }, body: { enabled: true } });
+    assert.equal(res.status, 409);
+    assert.equal(res.jsonBody.code, "permission_required");
+    assert.equal(statements.length, 1);
+    assert.match(statements[0].sql, /FOR UPDATE/);
+  });
+
+  it("PUT enabled true with override succeeds and the audit changes carry override", async () => {
+    queryMock = detailQuery();
+    const statements = txRecorder({ name: SHOPIFY, enabled: false, metadata: {} });
+    const res = await call("sources-admin-enabled", {
+      method: "PUT",
+      params: { id: "5" },
+      body: { enabled: true, override: true },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(statements.length, 3);
+    assert.equal(statements[2].params[2], "data_source.enable");
+    assert.match(statements[2].params[3], /"override":true/);
+  });
+
+  it("PUT enabled: a non-boolean enabled and an unknown id", async () => {
+    queryMock = detailQuery();
+    txRecorder(null);
+    const bad = await call("sources-admin-enabled", { method: "PUT", params: { id: "5" }, body: { enabled: "yes" } });
+    assert.equal(bad.status, 400);
+    const missing = await call("sources-admin-enabled", { method: "PUT", params: { id: "5" }, body: { enabled: false } });
+    assert.equal(missing.status, 404);
   });
 });

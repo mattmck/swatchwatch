@@ -9,7 +9,12 @@ import {
   type SourcePermission,
   type SourcePermissionChannel,
 } from "swatchwatch-shared";
+import type {
+  AdminSourceListItem,
+  IngestionJobStatus,
+} from "swatchwatch-shared";
 import { isRunnableProtocol, protocolOfName } from "./connectors/registry";
+import { sourceKindFromMetadata } from "./source-settings";
 
 export interface SourceState {
   name: string;
@@ -298,4 +303,92 @@ export function planEnabledChange(state: SourceState, req: AdminSourceEnabledReq
     changes.permissionStatus = permission.status;
   }
   return { ok: true, metadata, enabled: true, action: "data_source.enable", changes };
+}
+
+export interface SourceAdminRow {
+  dataSourceId: number | string;
+  name: string;
+  baseUrl: string | null;
+  enabled: boolean;
+  metadata: Record<string, unknown> | null;
+  lastJobId: number | string | null;
+  lastJobStatus: IngestionJobStatus | null;
+  lastJobStartedAt: string | null;
+  lastJobFinishedAt: string | null;
+  lastJobProcessed: number | string | null;
+  liveListings: number | string | null;
+  shades: number | string | null;
+}
+
+/** One query for every source (ordered by name), or one source when `byId`. */
+export function sourcesAdminSql(byId: boolean): string {
+  return `SELECT ds.data_source_id AS "dataSourceId",
+       ds.name,
+       ds.base_url AS "baseUrl",
+       ds.enabled,
+       ds.metadata,
+       lj.ingestion_job_id AS "lastJobId",
+       lj.status AS "lastJobStatus",
+       lj.started_at::text AS "lastJobStartedAt",
+       lj.finished_at::text AS "lastJobFinishedAt",
+       (lj.metrics_json->>'processed')::int AS "lastJobProcessed",
+       (SELECT count(*) FROM external_product ep
+         WHERE ep.data_source_id = ds.data_source_id AND ep.missing_since IS NULL) AS "liveListings",
+       (SELECT count(DISTINCT s.shade_id)
+          FROM external_product ep
+          JOIN shade_source_product ssp ON ssp.external_product_id = ep.external_product_id
+          JOIN shade s ON s.shade_id = ssp.shade_id AND s.merged_into_shade_id IS NULL
+         WHERE ep.data_source_id = ds.data_source_id) AS shades
+     FROM data_source ds
+     LEFT JOIN LATERAL (
+       SELECT j.ingestion_job_id, j.status, j.started_at, j.finished_at, j.metrics_json
+       FROM ingestion_job j
+       WHERE j.data_source_id = ds.data_source_id
+       ORDER BY j.started_at DESC, j.ingestion_job_id DESC
+       LIMIT 1
+     ) lj ON true
+     ${byId ? "WHERE ds.data_source_id = $1" : ""}
+     ORDER BY ds.name ASC`;
+}
+
+export const SOURCES_ADMIN_LIST_SQL = sourcesAdminSql(false);
+
+export function toAdminSourceListItem(row: SourceAdminRow): AdminSourceListItem {
+  const metadata = row.metadata ?? {};
+  const kind = sourceKindFromMetadata(metadata);
+  const fetchable = isFetchableSource(row.name);
+  const derived = deriveSourcePermission({ metadata, enabled: row.enabled, fetchable });
+  const verification = isRecord(metadata.verification) ? metadata.verification : {};
+  const processed = row.lastJobProcessed;
+  return {
+    dataSourceId: Number(row.dataSourceId),
+    name: row.name,
+    displayName: sourceDisplayName(row.name),
+    baseUrl: row.baseUrl,
+    kind,
+    connector: protocolOfName(row.name),
+    fetchable,
+    enabled: row.enabled,
+    permission: derived.permission,
+    permissionStored: derived.stored,
+    onWithoutOk: row.enabled && fetchable && !isPermissionOk(derived.permission.status),
+    imagesPermitted:
+      typeof metadata.imagesPermitted === "boolean" ? metadata.imagesPermitted : kind === "brand",
+    currency: typeof metadata.currency === "string" ? metadata.currency : null,
+    termsScrapingClause:
+      typeof verification.termsScrapingClause === "boolean" ? verification.termsScrapingClause : null,
+    termsCheckedAt: typeof verification.checkedAt === "string" ? verification.checkedAt : null,
+    lastJob:
+      row.lastJobId === null
+        ? null
+        : {
+            jobId: String(row.lastJobId),
+            status: row.lastJobStatus as IngestionJobStatus,
+            startedAt: row.lastJobStartedAt,
+            finishedAt: row.lastJobFinishedAt,
+            recordsProcessed: processed === null || processed === undefined ? null : Number(processed),
+          },
+    liveListings: Number(row.liveListings ?? 0),
+    shades: Number(row.shades ?? 0),
+  };
 }
