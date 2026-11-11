@@ -210,7 +210,7 @@ export function AddBrandDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => { reset(); onOpenChange(false); }}>Cancel</Button>
           <Button disabled={saving || name.trim().length === 0} onClick={submit}>{saving ? "Adding…" : "Add brand"}</Button>
         </DialogFooter>
       </DialogContent>

@@ -49,7 +49,10 @@ export function BrandPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const brandStores = sources.filter((s) => s.kind === "brand" && s.fetchable);
+  // Keep the saved link selectable even when it points outside the brand-store list.
+  const brandStores = sources.filter(
+    (s) => (s.kind === "brand" && s.fetchable) || s.dataSourceId === profile?.ownDataSourceId
+  );
 
   const save = async () => {
     setSaving(true);

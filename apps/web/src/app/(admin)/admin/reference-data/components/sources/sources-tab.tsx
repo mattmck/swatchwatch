@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   SOURCE_PERMISSION_STATUSES,
@@ -86,10 +86,19 @@ export function SourcesTab() {
       .then((r) => setSources(r.sources))
       .catch((e) => setSourcesError(e instanceof Error ? e.message : "Could not load sites."));
   }, []);
-  const fetchBrands = useCallback(() => {
+  // Only the latest brands response (or a local create) may land; older ones are dropped.
+  const brandsRequest = useRef(0);
+  const sourcesRef = useRef<AdminSourceListItem[] | null>(null);
+  useEffect(() => {
+    sourcesRef.current = sources;
+  }, [sources]);
+  const fetchBrands = useCallback((quiet = false) => {
+    const id = ++brandsRequest.current;
     listAdminBrands()
-      .then((r) => setBrands(r.brands))
-      .catch((e) => setBrandsError(e instanceof Error ? e.message : "Could not load brands."));
+      .then((r) => { if (id === brandsRequest.current) setBrands(r.brands); })
+      .catch((e) => {
+        if (!quiet && id === brandsRequest.current) setBrandsError(e instanceof Error ? e.message : "Could not load brands.");
+      });
   }, []);
   const retrySources = () => {
     setSourcesError(null);
@@ -132,9 +141,10 @@ export function SourcesTab() {
 
   const replaceSource = useCallback((next: AdminSourceListItem) => {
     setSources((prev) => prev && prev.map((s) => (s.dataSourceId === next.dataSourceId ? next : s)));
-    // A source change can alter the brands' own-store and retailer chips.
-    listAdminBrands().then((r) => setBrands(r.brands)).catch(() => undefined);
-  }, []);
+    // Own-store and retailer chips depend on on/off and permission only; polling ticks change neither.
+    const prev = sourcesRef.current?.find((s) => s.dataSourceId === next.dataSourceId);
+    if (!prev || prev.enabled !== next.enabled || prev.permission.status !== next.permission.status) fetchBrands(true);
+  }, [fetchBrands]);
   const replaceBrand = useCallback((next: AdminBrandListItem) => {
     setBrands((prev) => prev && prev.map((b) => (b.brandId === next.brandId ? next : b)));
   }, []);
@@ -251,6 +261,7 @@ export function SourcesTab() {
         open={addOpen}
         onOpenChange={setAddOpen}
         onCreated={(brand) => {
+          brandsRequest.current++;
           setBrands((prev) => (prev ? [...prev, brand] : prev));
           update({ open: brand.brandId });
         }}

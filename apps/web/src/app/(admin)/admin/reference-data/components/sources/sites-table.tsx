@@ -87,7 +87,7 @@ export function LastJob({ job }: { job: AdminSourceLastJob | null }) {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
       {icon}
-      {relativeTime(job.startedAt)}
+      {job.startedAt ? relativeTime(job.startedAt) : job.status}
       {job.recordsProcessed !== null && <span className="text-muted-foreground">· {job.recordsProcessed.toLocaleString()}</span>}
     </span>
   );
