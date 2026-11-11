@@ -97,15 +97,28 @@ export interface AdminUserIdentity {
 
 /**
  * Actions recorded in `admin_audit_event` (issue #45). The `shade.*` actions (#321, vendor hex
- * promotion) have no target user; the shade id is in `changes`.
+ * promotion; the MakeupAPI dedupe) have no target user; the shade id is in `changes`. The
+ * `data_source.*` and `brand.*` actions (admin Sources tab) also have no target user; the
+ * source or brand id is in `changes`.
  */
-export type AdminAuditAction =
-  | "user.update"
-  | "user.suspend"
-  | "user.unsuspend"
-  | "user.merge"
-  | "shade.vendor_hex_promote"
-  | "shade.vendor_hex_demote";
+export const ADMIN_AUDIT_ACTIONS = [
+  "user.update",
+  "user.suspend",
+  "user.unsuspend",
+  "user.merge",
+  "shade.vendor_hex_promote",
+  "shade.vendor_hex_demote",
+  "shade.catalog_merge",
+  "shade.catalog_delete",
+  "data_source.permission",
+  "data_source.enable",
+  "data_source.disable",
+  "data_source.images",
+  "brand.create",
+  "brand.profile_update",
+] as const;
+
+export type AdminAuditAction = (typeof ADMIN_AUDIT_ACTIONS)[number];
 
 /** One audit row: who (`actorUserId`) did what to which user, and when. */
 export interface AdminAuditEvent {
