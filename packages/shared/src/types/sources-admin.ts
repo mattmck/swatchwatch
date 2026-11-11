@@ -44,6 +44,8 @@ export interface AdminSourceListItem {
   kind: AdminSourceKind;
   connector: ConnectorProtocol;
   fetchable: boolean;
+  /** False for open-data sources (MakeupAPI, OpenBeautyFacts): fetchable, but no store permission applies. */
+  needsStoreOk: boolean;
   enabled: boolean;
   permission: SourcePermission;
   /** True when `permission` was read from `metadata.permission`, false when derived from older fields. */

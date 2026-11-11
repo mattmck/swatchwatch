@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -83,22 +83,27 @@ export function SitePanel({
     },
     [onChange]
   );
+  // Bumped by every local write; a read (initial load or poll) that started before one is dropped.
+  const writeSeq = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const seq = writeSeq.current;
     getAdminSource(source.dataSourceId)
-      .then((res) => { if (!cancelled) setDetail(res); })
+      .then((res) => { if (!cancelled && seq === writeSeq.current) apply(res); })
       .catch((err) => { if (!cancelled) setError(errorMessage(err, "Could not load the source history.")); });
     return () => { cancelled = true; };
-  }, [source.dataSourceId]);
+  }, [source.dataSourceId, apply]);
 
   // After Run, and while the latest job is queued/running, refresh every 5 s; stops on unmount.
   const jobActive = isActive(source.lastJob?.status);
   useEffect(() => {
     if (!polling && !jobActive) return;
     const timer = setInterval(() => {
+      const seq = writeSeq.current;
       getAdminSource(source.dataSourceId)
         .then((res) => {
+          if (seq !== writeSeq.current) return;
           apply(res);
           if (!isActive(res.source.lastJob?.status)) setPolling(false);
         })
@@ -110,6 +115,7 @@ export function SitePanel({
   const write = async (fn: () => Promise<AdminSourceDetailResponse>, success: string): Promise<boolean> => {
     setBusy(true);
     setError(null);
+    writeSeq.current++;
     try {
       apply(await fn());
       toast.success(success);
@@ -130,6 +136,7 @@ export function SitePanel({
     setConfirm(null);
     setBusy(true);
     setError(null);
+    writeSeq.current++;
     try {
       apply(await setAdminSourceEnabled(source.dataSourceId, { enabled: true, ...(override ? { override: true } : {}) }));
       toast.success(`${source.displayName} is on`);
@@ -153,7 +160,9 @@ export function SitePanel({
       await runIngestionJob({ source: source.name as IngestionSourceName, ...SOURCE_RUN_DEFAULTS });
       toast.success(`Queued ${source.displayName}`);
       setPolling(true);
-      apply(await getAdminSource(source.dataSourceId));
+      const seq = ++writeSeq.current;
+      const res = await getAdminSource(source.dataSourceId);
+      if (seq === writeSeq.current) apply(res);
     } catch (err) {
       setError(runErrorMessage(err));
     } finally {
@@ -229,7 +238,10 @@ export function SitePanel({
               <p className="text-muted-foreground">{perm.decidedAt ?? ""}{perm.summary ? `: ${perm.summary}` : ""}</p>
             )}
 
-            {mode === null && (
+            {!source.needsStoreOk && (
+              <p className="text-muted-foreground">Open data: no store permission applies. It can still be turned on, off or run.</p>
+            )}
+            {mode === null && source.needsStoreOk && (
               <div className="flex flex-wrap gap-2">
                 {!grantedAlready && <Button size="sm" variant="outline" onClick={() => openMode("asked")}>Mark asked</Button>}
                 <Button size="sm" variant={grantedAlready ? "outline" : "default"} onClick={() => openMode("granted")}>

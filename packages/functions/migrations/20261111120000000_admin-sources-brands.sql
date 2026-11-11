@@ -53,7 +53,15 @@ FROM (VALUES
    'WooCommerce behind Cloudflare, which answers 403 to automated requests'),
   ('I Scream Nails', NULL, 'none', 'No official store; carried by Beyond Polish and Sleek Nail')
 ) AS p(name, website_url, platform, blocker)
-JOIN brand b ON lower(b.name_canonical) = lower(p.name)
+-- Same lookup as the brand insert above: the canonical name first, else an alias, so a brand
+-- known here under another canonical spelling still gets its profile.
+CROSS JOIN LATERAL (
+  SELECT COALESCE(
+    (SELECT c.brand_id FROM brand c WHERE lower(c.name_canonical) = lower(p.name) ORDER BY c.brand_id LIMIT 1),
+    (SELECT a.brand_id FROM brand_alias a WHERE lower(a.alias) = lower(p.name) ORDER BY a.brand_id LIMIT 1)
+  ) AS brand_id
+) b
+WHERE b.brand_id IS NOT NULL
 ON CONFLICT (brand_id) DO NOTHING;
 
 UPDATE data_source

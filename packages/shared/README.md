@@ -308,7 +308,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `SOURCE_PERMISSION_CHANNELS` / `SourcePermissionChannel` | How the OK was given: `email \| dm \| form \| phone \| other` |
 | `SourcePermission` | Stored `data_source.metadata.permission`: status, `askedAt`, `decidedAt`, `grantedBy`, `channel`, `summary`, `imagesGranted`, `recordedByUserId`, `recordedAt` |
 | `AdminSourceKind` | `brand \| retailer \| feed` (`sourceKindFromMetadata`) |
-| `AdminSourceLastJob` / `AdminSourceListItem` | One `data_source` row for `GET /api/sources-admin`: kind, connector, on/off, permission, verification summary, last job, listing and shade counts |
+| `AdminSourceLastJob` / `AdminSourceListItem` | One `data_source` row for `GET /api/sources-admin`: kind, connector, `needsStoreOk` (false for open-data sources), on/off, permission, verification summary, last job, listing and shade counts |
 | `AdminSourceListResponse` / `AdminSourceDetailResponse` | List payload; one source with notes and its audit history (`GET /api/sources-admin/{id}`) |
 | `AdminSourcePermissionRequest` | `PUT /api/sources-admin/{id}/permission` body, discriminated by `action`: `asked`, `granted`, `declined` or `images` (toggle `imagesGranted` on a grant) |
 | `AdminSourceEnabledRequest` | `PUT /api/sources-admin/{id}/enabled` body: `enabled`, `override?` |

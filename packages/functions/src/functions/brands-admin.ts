@@ -155,16 +155,30 @@ async function createBrand(
 
   try {
     const brandId = await transaction(async (client) => {
-      const duplicate = await client.query<{ brandId: number | string }>(BRAND_DUPLICATE_SQL, [name]);
-      if (duplicate.rows[0]) {
-        throw new Rejected(409, { code: "brand_exists", brandId: Number(duplicate.rows[0].brandId) });
-      }
+      // Serialize creates of the same name (any case) so two requests cannot both pass the
+      // duplicate check; the lock is released at commit or rollback.
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext('brands-admin:create:' || lower($1)))`, [name]);
+      const rejectDuplicate = async () => {
+        const duplicate = await client.query<{ brandId: number | string }>(BRAND_DUPLICATE_SQL, [name]);
+        if (duplicate.rows[0]) {
+          throw new Rejected(409, { code: "brand_exists", brandId: Number(duplicate.rows[0].brandId) });
+        }
+      };
+      await rejectDuplicate();
       if (profile?.ownDataSourceId) await ensureDataSourceExists(client, profile.ownDataSourceId);
 
+      // Another writer (ingestion, a polish create) may insert the same name meanwhile: that is a
+      // 409 with its id, never a 500.
       const inserted = await client.query<{ brandId: number | string }>(
-        `INSERT INTO brand (name_canonical) VALUES ($1) RETURNING brand_id AS "brandId"`,
+        `INSERT INTO brand (name_canonical) VALUES ($1)
+         ON CONFLICT (name_canonical) DO NOTHING
+         RETURNING brand_id AS "brandId"`,
         [name]
       );
+      if (!inserted.rows[0]) {
+        await rejectDuplicate();
+        throw new Error(`Brand insert for ${name} conflicted but no duplicate was found`);
+      }
       const id = Number(inserted.rows[0].brandId);
       const profileChanges = profile ? await writeProfile(client, adminUserId, id, EMPTY_PROFILE, profile) : {};
       await recordAdminAuditEvent(client, {

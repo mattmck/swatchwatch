@@ -355,14 +355,16 @@ describe("functions/brands-admin", () => {
 
   it("POST with a name that matches an existing brand or alias is 409 and inserts nothing", async () => {
     queryMock = listQueries();
-    const statements = txRecorder((sql) => (/lower\(/.test(sql) ? { rows: [{ brandId: "7" }] } : null));
+    const statements = txRecorder((sql) => (/name_canonical\) = lower\(/.test(sql) ? { rows: [{ brandId: "7" }] } : null));
     const res = await call("brands-admin-list", { method: "POST", body: { name: " i  LNP " } });
     assert.equal(res.status, 409);
     assert.deepEqual(res.jsonBody, { code: "brand_exists", brandId: 7 });
-    assert.equal(statements.length, 1);
-    assert.match(statements[0].sql, /lower\(b\.name_canonical\) = lower\(\$1\)/);
-    assert.match(statements[0].sql, /lower\(ba\.alias\) = lower\(\$1\)/);
+    assert.equal(statements.length, 2);
+    assert.match(statements[0].sql, /pg_advisory_xact_lock\(hashtext\('brands-admin:create:' \|\| lower\(\$1\)\)\)/);
     assert.equal(statements[0].params[0], "i LNP");
+    assert.match(statements[1].sql, /lower\(b\.name_canonical\) = lower\(\$1\)/);
+    assert.match(statements[1].sql, /lower\(ba\.alias\) = lower\(\$1\)/);
+    assert.equal(statements[1].params[0], "i LNP");
     assert.equal(statements.some((s) => /INSERT/.test(s.sql)), false);
   });
 
@@ -380,18 +382,34 @@ describe("functions/brands-admin", () => {
     assert.equal(res.status, 201);
     assert.equal(res.jsonBody.brand.brandId, 9);
     const sqls = statements.map((s) => s.sql);
-    assert.match(sqls[1], /INSERT INTO brand \(name_canonical\)/);
-    assert.equal(statements[1].params[0], "New Brand");
-    assert.match(sqls[2], /INSERT INTO brand_ingest_profile/);
-    assert.match(sqls[2], /ON CONFLICT \(brand_id\) DO UPDATE/);
-    assert.equal(statements[2].params[0], 9);
-    assert.equal(statements[2].params[1], "https://nb.example");
-    assert.equal(statements[2].params[6], ADMIN);
-    assert.match(sqls[3], /INSERT INTO admin_audit_event/);
-    assert.equal(statements[3].params[2], "brand.create");
-    const changes = JSON.parse(statements[3].params[3]);
+    assert.match(sqls[0], /pg_advisory_xact_lock/);
+    assert.match(sqls[2], /INSERT INTO brand \(name_canonical\)/);
+    assert.match(sqls[2], /ON CONFLICT \(name_canonical\) DO NOTHING/);
+    assert.equal(statements[2].params[0], "New Brand");
+    assert.match(sqls[3], /INSERT INTO brand_ingest_profile/);
+    assert.match(sqls[3], /ON CONFLICT \(brand_id\) DO UPDATE/);
+    assert.equal(statements[3].params[0], 9);
+    assert.equal(statements[3].params[1], "https://nb.example");
+    assert.equal(statements[3].params[6], ADMIN);
+    assert.match(sqls[4], /INSERT INTO admin_audit_event/);
+    assert.equal(statements[4].params[2], "brand.create");
+    const changes = JSON.parse(statements[4].params[3]);
     assert.equal(changes.brandId, 9);
     assert.deepEqual(changes.platform, { from: null, to: "custom" });
+  });
+
+  it("POST whose insert loses a race to another writer is 409 with that brand's id, not a 500", async () => {
+    queryMock = listQueries();
+    let checks = 0;
+    const statements = txRecorder((sql) => {
+      if (/name_canonical\) = lower\(/.test(sql)) return { rows: checks++ === 0 ? [] : [{ brandId: "11" }] };
+      if (/INSERT INTO brand \(/.test(sql)) return { rows: [] };
+      return null;
+    });
+    const res = await call("brands-admin-list", { method: "POST", body: { name: "Racer" } });
+    assert.equal(res.status, 409);
+    assert.deepEqual(res.jsonBody, { code: "brand_exists", brandId: 11 });
+    assert.equal(statements.some((s) => /admin_audit_event|brand_ingest_profile/.test(s.sql)), false);
   });
 
   it("POST without a profile writes no profile row; bad body is 400", async () => {

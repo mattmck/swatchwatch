@@ -210,6 +210,22 @@ describe("planPermissionChange", () => {
     assert.equal(plan.code, "not_granted");
   });
 
+  for (const name of ["MakeupAPI", "OpenBeautyFacts"]) {
+    it(`rejects every permission action on the open-data source ${name}`, () => {
+      for (const req of [
+        { action: "asked", askedAt: "2026-11-09" },
+        { action: "declined", decidedAt: "2026-11-09", channel: "email" },
+        { action: "not_needed", checkedAt: "2026-11-09" },
+        { action: "images", imagesGranted: true },
+      ]) {
+        const plan = planPermissionChange(state({ name, enabled: true, metadata: {} }), req, 7, NOW);
+        assert.equal(plan.ok, false);
+        assert.equal(plan.status, 409);
+        assert.equal(plan.code, "permission_not_applicable");
+      }
+    });
+  }
+
   it("rejects a non-fetchable source", () => {
     const plan = planPermissionChange(state({ name: "Manual" }), { action: "asked", askedAt: "2026-11-09" }, 7, NOW);
     assert.equal(plan.ok, false);
@@ -467,8 +483,10 @@ describe("toAdminSourceListItem", () => {
   it("an open-data source derives not_needed and is never on without an OK", () => {
     const item = toAdminSourceListItem(sourceRow({ name: "MakeupAPI", enabled: true, metadata: {} }));
     assert.equal(item.fetchable, true);
+    assert.equal(item.needsStoreOk, false);
     assert.equal(item.permission.status, "not_needed");
     assert.equal(item.onWithoutOk, false);
+    assert.equal(toAdminSourceListItem(sourceRow()).needsStoreOk, true);
   });
 
   it("a source without jobs has lastJob null", () => {

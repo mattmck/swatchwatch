@@ -10,7 +10,7 @@ function site(id: number, o: Partial<AdminSourceListItem> = {}): AdminSourceList
   return {
     dataSourceId: id, name: `Src${id}`, displayName: `Site ${id}`, baseUrl: `https://s${id}.example`,
     kind: "brand", connector: "Shopify", fetchable: true, enabled: false,
-    permission: { status: "not_asked" }, permissionStored: false, onWithoutOk: false,
+    needsStoreOk: true, permission: { status: "not_asked" }, permissionStored: false, onWithoutOk: false,
     imagesPermitted: false, currency: null, termsScrapingClause: null, termsCheckedAt: null,
     lastJob: null, liveListings: 0, shades: 0, ...o,
   };

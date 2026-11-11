@@ -58,13 +58,26 @@ export function BrandPanel({
     setSaving(true);
     setError(null);
     try {
-      const res = await updateAdminBrandProfile(brand.brandId, {
+      // Send only the fields edited here, so a save never writes this panel's older copy of a
+      // field another admin changed since it opened.
+      const next = {
         websiteUrl: website.trim() || null,
         platform: platform || null,
         blocker: blocker.trim() || null,
         notes: notes.trim() || null,
         ownDataSourceId: ownId === "none" ? null : Number(ownId),
-      });
+      };
+      const changes: Partial<typeof next> = {};
+      if (next.websiteUrl !== (profile?.websiteUrl ?? null)) changes.websiteUrl = next.websiteUrl;
+      if (next.platform !== (profile?.platform ?? null)) changes.platform = next.platform;
+      if (next.blocker !== (profile?.blocker ?? null)) changes.blocker = next.blocker;
+      if (next.notes !== (profile?.notes ?? null)) changes.notes = next.notes;
+      if (next.ownDataSourceId !== (profile?.ownDataSourceId ?? null)) changes.ownDataSourceId = next.ownDataSourceId;
+      if (Object.keys(changes).length === 0) {
+        toast.success(`No changes to ${brand.name}`);
+        return;
+      }
+      const res = await updateAdminBrandProfile(brand.brandId, changes);
       onChange(res.brand);
       toast.success(`Saved ${brand.name}`);
     } catch (err) {

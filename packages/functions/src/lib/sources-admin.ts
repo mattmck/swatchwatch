@@ -180,6 +180,15 @@ export function parsePermissionRequest(
   }
 }
 
+function permissionNotApplicable(): PlanResult {
+  return {
+    ok: false,
+    status: 409,
+    code: "permission_not_applicable",
+    error: "This is an open-data source: no store permission applies, so it always reads as not needed",
+  };
+}
+
 function notFetchable(): PlanResult {
   return {
     ok: false,
@@ -223,6 +232,9 @@ export function planPermissionChange(
   nowIso: string,
 ): PlanResult {
   if (!isFetchableSource(state.name)) return notFetchable();
+  // Open-data sources always derive not_needed, so a stored decision would be discarded on read.
+  // Their on/off and Run stay available through planEnabledChange.
+  if (!needsStoreOk(state.name)) return permissionNotApplicable();
 
   const current = currentStatus(state);
   const recorded = { recordedByUserId: actorUserId, recordedAt: nowIso };
@@ -423,6 +435,7 @@ export function toAdminSourceListItem(row: SourceAdminRow): AdminSourceListItem 
     kind,
     connector: protocolOfName(row.name),
     fetchable,
+    needsStoreOk: needsStoreOk(row.name),
     enabled: row.enabled,
     permission: derived.permission,
     permissionStored: derived.stored,

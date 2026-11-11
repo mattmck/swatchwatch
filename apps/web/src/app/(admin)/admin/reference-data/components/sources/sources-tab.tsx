@@ -89,15 +89,22 @@ export function SourcesTab() {
   // Only the latest brands response (or a local create) may land; older ones are dropped.
   const brandsRequest = useRef(0);
   const sourcesRef = useRef<AdminSourceListItem[] | null>(null);
+  const brandsRef = useRef<AdminBrandListItem[] | null>(null);
   useEffect(() => {
     sourcesRef.current = sources;
   }, [sources]);
+  useEffect(() => {
+    brandsRef.current = brands;
+  }, [brands]);
+  // A quiet refresh hides its error only while a usable list is on screen; with no list yet
+  // (it replaced the first load) the error shows, so the view never spins forever.
   const fetchBrands = useCallback((quiet = false) => {
     const id = ++brandsRequest.current;
     listAdminBrands()
       .then((r) => { if (id === brandsRequest.current) setBrands(r.brands); })
       .catch((e) => {
-        if (!quiet && id === brandsRequest.current) setBrandsError(e instanceof Error ? e.message : "Could not load brands.");
+        if (id !== brandsRequest.current || (quiet && brandsRef.current)) return;
+        setBrandsError(e instanceof Error ? e.message : "Could not load brands.");
       });
   }, []);
   const retrySources = () => {
@@ -145,9 +152,12 @@ export function SourcesTab() {
     const prev = sourcesRef.current?.find((s) => s.dataSourceId === next.dataSourceId);
     if (!prev || prev.enabled !== next.enabled || prev.permission.status !== next.permission.status) fetchBrands(true);
   }, [fetchBrands]);
+  // A local write lands at once; the refetch it starts also supersedes any list request that
+  // began before the write, so an older response cannot put the old row back.
   const replaceBrand = useCallback((next: AdminBrandListItem) => {
     setBrands((prev) => prev && prev.map((b) => (b.brandId === next.brandId ? next : b)));
-  }, []);
+    fetchBrands(true);
+  }, [fetchBrands]);
 
   const toggleKind = (kind: AdminSourceKind | null) => update({ kind });
   const togglePermission = (status: SourcePermissionStatus | null) => {
@@ -261,8 +271,10 @@ export function SourcesTab() {
         open={addOpen}
         onOpenChange={setAddOpen}
         onCreated={(brand) => {
-          brandsRequest.current++;
+          // Append when the list is loaded; either way refetch, which supersedes a pending
+          // (possibly first) load that started before the create.
           setBrands((prev) => (prev ? [...prev, brand] : prev));
+          fetchBrands(true);
           update({ open: brand.brandId });
         }}
         onOpenExisting={(open) => update({ q: "", supply: null, open })}

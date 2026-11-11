@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import type { AdminBrandListItem, AdminBrandSourceRef, BrandPlatform } from "swatchwatch-shared";
-import { BRAND_PLATFORMS } from "swatchwatch-shared";
+import { BRAND_PLATFORMS, isPermissionOk } from "swatchwatch-shared";
 import { ApiError, createAdminBrand } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -23,10 +23,15 @@ export const PLATFORM_LABELS: Record<BrandPlatform, string> = {
   unknown: "Unknown",
 };
 
-/** The own-store chip: on/off, or the permission state when it is off. */
+/** The own-store chip: on/off, or the permission state when it is off; on without an OK warns like the Sites table. */
 export function StoreChip({ store }: { store: AdminBrandSourceRef }) {
-  const tone = store.enabled ? "green" : store.permissionStatus === "declined" ? "red" : store.permissionStatus === "asked" ? "amber" : "neutral";
-  const label = store.enabled ? "on" : store.permissionStatus === "not_asked" ? "off, not asked" : `off, ${store.permissionStatus.replace("_", " ")}`;
+  const okRecorded = isPermissionOk(store.permissionStatus);
+  const tone = store.enabled
+    ? okRecorded ? "green" : "amber"
+    : store.permissionStatus === "declined" ? "red" : store.permissionStatus === "asked" ? "amber" : "neutral";
+  const label = store.enabled
+    ? okRecorded ? "on" : "on, no OK recorded"
+    : store.permissionStatus === "not_asked" ? "off, not asked" : `off, ${store.permissionStatus.replace("_", " ")}`;
   return (
     <span className="inline-flex items-center gap-1">
       {store.displayName} <Chip tone={tone}>{label}</Chip>
