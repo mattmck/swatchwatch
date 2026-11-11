@@ -995,9 +995,11 @@ describe("lib/bottle-resolver — name rules (bottle-v2)", () => {
     assert.equal(decision.status, "needs_question");
   });
 
-  it("lead: a name shorter than 5 characters gives no signal", async () => {
-    const { decision } = await resolveIn([{ id: 1, name: "Ruby", trigram: 0.5 }, { id: 2, name: "Opal", trigram: 0.1 }], { shadeName: "Rubu" });
+  it("lead/exact: a read shorter than 5 characters gives no rule, even when it spells a shade (R U B Y)", async () => {
+    // "R U B Y" normalises to "ruby" (4 characters): without the floor it would be an exact name.
+    const { decision } = await resolveIn([{ id: 1, name: "Ruby", trigram: 0.1 }, { id: 2, name: "Opal", trigram: 0.1 }], { shadeName: "R U B Y" });
     assert.notEqual(decision.status, "matched");
+    assert.equal(decision.candidates.find((c) => c.shadeId === 1)?.confidence ?? 0.1, 0.1, "Ruby is not lifted");
     assert.equal(resolver(decision).audit.nameRules.printed, null);
   });
 
@@ -1017,10 +1019,11 @@ describe("lib/bottle-resolver — name rules (bottle-v2)", () => {
       { shadeName: "Party Foul", glassHex: "#B4004E" }
     );
     assert.notEqual(decision.status === "matched" && decision.entityId, 1);
+    // Behaviour: Party Fowl stays at its own trigram score (0.2), not the lifted 0.75.
+    assert.equal(decision.candidates.find((c) => c.shadeId === 1).confidence, 0.2);
     assert.deepEqual(resolver(decision).audit.nameRules.dropped, [1]);
   });
 
-  // Weak signal: exact front name.
   it("front: an exact unique front name without color is a question with that shade first", async () => {
     const { decision } = await resolveIn([{ id: 1, name: "Hell Hath No Fury", frontScore: 1 }, { id: 2, name: "Fury Road" }], {
       frontShadeName: "HELL HATH NO FURY",
@@ -1040,10 +1043,11 @@ describe("lib/bottle-resolver — name rules (bottle-v2)", () => {
   });
 
   it("front: a front that reads a collection name gives no lift", async () => {
-    // Mooncat: "Danse Macabre" is a shade and the collection of six others.
+    // Mooncat: "Danse Macabre" is a shade and the collection of six others. With a lift the
+    // 0.01 color distance would confirm it; blocked, it stays a candidate.
     const shades = [
-      { id: 1, name: "Danse Macabre", collection: "Danse Macabre", frontScore: 1 },
-      { id: 2, name: "Bone Dance", collection: "Danse Macabre", colorDistance: 0.01 },
+      { id: 1, name: "Danse Macabre", collection: "Danse Macabre", frontScore: 1, colorDistance: 0.01 },
+      { id: 2, name: "Bone Dance", collection: "Danse Macabre" },
     ];
     const { decision } = await resolveIn(shades, { frontShadeName: "DANSE MACABRE", glassHex: "#B4004E" });
     assert.notEqual(decision.status, "matched");
@@ -1075,8 +1079,11 @@ describe("lib/bottle-resolver — name rules (bottle-v2)", () => {
     assert.deepEqual(resolver(decision).audit.nameRules.signals, []);
   });
 
-  it("front: shorter than 5 characters gives no signal", async () => {
-    const { decision } = await resolveIn([{ id: 1, name: "Jinx", frontScore: 1 }], { frontShadeName: "Jinx" });
+  it("front: shorter than 5 characters gives no signal (a confirming color does not match it)", async () => {
+    const { decision } = await resolveIn([{ id: 1, name: "Jinx", frontScore: 1, colorDistance: 0.01 }], {
+      frontShadeName: "Jinx",
+      glassHex: "#B4004E",
+    });
     assert.notEqual(decision.status, "matched");
   });
 
@@ -1091,36 +1098,63 @@ describe("lib/bottle-resolver — name rules (bottle-v2)", () => {
   });
 
   // Two different weak signals.
-  it("two signals: a bottom read by lead and the exact front name of the same shade match (Guinevre + Guinevere)", async () => {
+  it("two weak signals on one shade without color stay a question (bottom Polly + front Lolly read off another bottle)", async () => {
     const { decision } = await resolveIn(
-      [{ id: 1, name: "Guinevere", trigram: 0.5, frontScore: 1 }, { id: 2, name: "Morgana", trigram: 0.05 }],
-      { shadeName: "Guinevre", frontShadeName: "guinevere" }
+      [{ id: 1, name: "Lolly", trigram: 0.33, frontScore: 1 }, { id: 2, name: "Jubilee", trigram: 0.05 }],
+      { shadeName: "Polly", frontShadeName: "Lolly" }
     );
-    assert.equal(decision.status, "matched");
-    assert.equal(decision.entityId, 1);
-    assert.equal(resolver(decision).nameRule, "two_signals");
-    assert.equal(resolver(decision).matchBasis, "two_signals");
-    assert.deepEqual(resolver(decision).signals, ["edit_lead", "front_exact"]);
+    assert.equal(decision.status, "needs_question");
+    assert.equal(decision.candidates[0].shadeId, 1);
+    assert.deepEqual(resolver(decision).top5[0].signals, ["edit_lead", "front_exact"], "both signals are recorded");
+    assert.equal(resolver(decision).top5[0].nameScore, 0.75, "lifted to weakSignal once");
   });
 
-  it("two signals: a code and a lead name of the same shade match", async () => {
+  it("two weak signals on one shade without color stay a question (bottom Polly + Lolly's code)", async () => {
     const { decision } = await resolveIn(
-      [{ id: 1, name: "Big Apple Red", aliases: ["NLN25"], trigram: 0.4 }, { id: 2, name: "Malaga Wine", aliases: ["NLL87"] }],
-      { shadeName: "Big Aple Red", frontShadeName: "NLN25" }
+      [{ id: 1, name: "Lolly", aliases: ["ZP412"], trigram: 0.33 }, { id: 2, name: "Margot", aliases: ["ZP777"] }],
+      { shadeName: "Polly", frontShadeName: "ZP412" }
     );
-    assert.equal(decision.status, "matched");
-    assert.equal(decision.entityId, 1);
-    assert.deepEqual(resolver(decision).signals, ["code", "edit_lead"]);
+    assert.equal(decision.status, "needs_question");
+    assert.equal(decision.candidates[0].shadeId, 1);
+    assert.deepEqual(resolver(decision).top5[0].signals, ["code", "edit_lead"]);
   });
 
-  it("two signals of the same kind do not count twice", () => {
-    const entries = [{ shadeId: 1, name: "Big Apple Red", aliases: ["NLN25", "N25X"] }, { shadeId: 2, name: "Other" }];
-    const plan = planPoolNameLifts(baseEvidence({ shadeName: "NLN25", frontShadeName: "N25X" }), entries);
-    assert.equal(plan.lifts.get(1).to, 0.75);
-    assert.deepEqual(plan.lifts.get(1).signals, ["code"]);
+  it("two weak signals on one shade match only with a measured color within colorHigh", async () => {
+    const shades = (colorDistance) => [
+      { id: 1, name: "Lolly", aliases: ["ZP412"], trigram: 0.33, colorDistance },
+      { id: 2, name: "Margot", aliases: ["ZP777"] },
+    ];
+    const close = await resolveIn(shades(0.02), { shadeName: "Polly", frontShadeName: "ZP412", glassHex: "#B4004E" });
+    assert.equal(close.decision.status, "matched");
+    assert.equal(resolver(close.decision).matchBasis, "signal_and_color");
+    const far = await resolveIn(shades(0.08), { shadeName: "Polly", frontShadeName: "ZP412", glassHex: "#B4004E" });
+    assert.equal(far.decision.status, "needs_question");
   });
 
-  // Weak signal: vendor code.
+  it("competing weak signals ask: the color must not pick between them (Polly -> Lolly by lead, Margot's code, glass at Margot)", async () => {
+    const { decision } = await resolveIn(
+      [
+        { id: 1, name: "Lolly", aliases: ["ZP412"], trigram: 0.33, colorDistance: 0.3 },
+        { id: 2, name: "Margot", aliases: ["ZP777"], colorDistance: 0.01 },
+      ],
+      { shadeName: "Polly", frontShadeName: "ZP777", glassHex: "#B4004E" }
+    );
+    assert.equal(decision.status, "needs_question");
+    assert.deepEqual(decision.candidates.map((c) => c.shadeId).sort(), [1, 2]);
+  });
+
+  it("competing weak signals ask even when the colored one is a lead and the other a front name", async () => {
+    const { decision } = await resolveIn(
+      [
+        { id: 1, name: "Party Fowl", trigram: 0.47, colorDistance: 0.01 },
+        { id: 2, name: "Witchy Woman", frontScore: 1 },
+      ],
+      { shadeName: "Party Foul", frontShadeName: "Witchy Woman", glassHex: "#B4004E" }
+    );
+    assert.equal(decision.status, "needs_question");
+    assert.deepEqual(decision.candidates.map((c) => c.shadeId).sort(), [1, 2]);
+  });
+
   it("code: a printed vendor code alone is a question with that shade first", async () => {
     const { decision } = await resolveIn(
       [{ id: 1, name: "Big Apple Red", aliases: ["NLN25"] }, { id: 2, name: "Malaga Wine", aliases: ["NLL87"] }],
@@ -1214,12 +1248,30 @@ describe("lib/bottle-resolver — name rules (bottle-v2)", () => {
     entityType: "shade", entityId: shadeId, shadeId, display: `${brand} — ${shadeName}`, confidence, shadeName,
   });
 
-  it("R3: a distinctive, complete, unique name one letter off matches across brands (rule brandless_edit)", async () => {
+  it("R3: a distinctive unique name one letter off is a weak signal across brands: asked without color", async () => {
     const { deps } = recorder({ global: [g(1, "Mooncat", "Matte Made in Hell", 0.86), g(2, "Zoya", "Made in Heaven", 0.3)] });
     const decision = await resolveBottle(baseEvidence({ shadeName: "Matte Made in Hel" }), ctx(), deps);
-    assert.equal(decision.status, "matched");
-    assert.equal(decision.entityId, 1);
-    assert.equal(resolver(decision).nameRule, "brandless_edit");
+    assert.equal(decision.status, "needs_question");
+    assert.equal(decision.candidates[0].shadeId, 1);
+    assert.deepEqual(resolver(decision).top5[0].signals, ["brandless_edit"]);
+  });
+
+  it("R3: ...and matched when the measured color confirms it within colorHigh", async () => {
+    const global = [g(1, "Mooncat", "Matte Made in Hell", 0.86), g(2, "Zoya", "Made in Heaven", 0.3)];
+    const evidence = baseEvidence({ shadeName: "Matte Made in Hel", glassHex: "#B4004E" });
+    const close = await resolveBottle(evidence, ctx(), recorder({ global, distances: { 1: 0.03 } }).deps);
+    assert.equal(close.status, "matched");
+    assert.equal(resolver(close).matchBasis, "signal_and_color");
+    const far = await resolveBottle(evidence, ctx(), recorder({ global, distances: { 1: 0.07 } }).deps);
+    assert.equal(far.status, "needs_question");
+  });
+
+  it("R3: a near-twin of another brand's shade with no brand (High Mintenance vs High Maintenance) is never matched by name", async () => {
+    const { deps } = recorder({ global: [g(1, "Cirque Colors", "High Maintenance", 0.6), g(2, "Zoya", "High Tide", 0.3)] });
+    const decision = await resolveBottle(baseEvidence({ shadeName: "High Mintenance" }), ctx(), deps);
+    assert.equal(decision.status, "needs_question");
+    const spaced = await resolveBottle(baseEvidence({ shadeName: "Blue Bird Song" }), ctx(), recorder({ global: [g(3, "ILNP", "Bluebird Song", 0.5)] }).deps);
+    assert.equal(spaced.status, "needs_question", "a spacing-only variant equal after normalisation is a weak signal too");
   });
 
   it("R3: a name two brands share stays a question", async () => {

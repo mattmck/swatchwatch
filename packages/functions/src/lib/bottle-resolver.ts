@@ -88,13 +88,17 @@ export const BOTTLE_RESOLVER_THRESHOLDS = {
    * otherwise the user is asked with that shade first. A lead cannot tell a misread from a real
    * shade the catalog lacks (leave-one-out 2026-11-11: 63 same-brand near-twins such as Zoya
    * Polly/Lolly), a front read can be the collection or finish word, and codes are dense (a
-   * misread code is a sibling's code). Two different weak signals naming the same shade lift it
-   * to `match`.
+   * misread code is a sibling's code). Weak signals never match without the measured color, however
+   * many agree: a front read off another bottle or a sibling's code can agree with a near-twin's
+   * lead (round-3 review: bottom "Polly" + front "Lolly" matched Lolly).
    */
   weakSignal: 0.75,
   /**
-   * Without a brand pool (`brandless_edit`, R3): edit similarity the printed name needs to one
-   * catalog shade name (a misread letter in a long name, a trailing mark)...
+   * Without a brand pool, weak signal `brandless_edit`: edit similarity the printed name needs
+   * to one catalog shade name (a misread letter in a long name, a trailing mark, a spacing
+   * variant). Across brands a near name is as likely another brand's real shade ("High
+   * Mintenance" vs "High Maintenance", "Blue Bird" vs "Bluebird"), so it lifts only to
+   * `weakSignal`...
    */
   brandlessEditMinSimilarity: 0.93,
   /** ...and its lead over the next distinct catalog name (any brand). */
@@ -109,12 +113,12 @@ export const BOTTLE_RESOLVER_THRESHOLDS = {
 /**
  * Which evidence put a candidate's name score in the match band (`nameRule` in the audit):
  * `trigram` / `listed` as in v1, `exact` / `alias` a printed name equal to one shade's name or
- * non-code alias, `two_signals` two different weak signals, `brandless_edit` the brand-less rule.
+ * non-code alias. Weak signals never reach the match band (see `weakSignal`).
  */
-export type BottleNameRule = "trigram" | "listed" | "exact" | "alias" | "two_signals" | "brandless_edit";
+export type BottleNameRule = "trigram" | "listed" | "exact" | "alias";
 
 /** Evidence that names one shade but is not enough on its own (see `weakSignal`). */
-export type BottleWeakSignal = "edit_lead" | "front_exact" | "code";
+export type BottleWeakSignal = "edit_lead" | "front_exact" | "code" | "brandless_edit";
 
 /** A name rule's lift of one shade's name score. */
 export interface BottleNameLift {
@@ -350,12 +354,14 @@ export function decideBottleResolution(
     (!isDistinctiveBrandlessName(ctx.brandlessName) || ctx.brandlessShared === true);
   const colorConfirmed = top.colorDistance !== null && top.colorDistance <= BOTTLE_RESOLVER_THRESHOLDS.colorHigh;
   const readConflictVeto = ctx.brandlessName !== undefined && ctx.brandlessReadConflict === true && !colorConfirmed;
-  if (!ctx.nameIncomplete && !brandlessVeto && !readConflictVeto && (!frontOther || top.frontNamed) && !codeOther) {
+  // Competing weak signals: when another candidate carries one, the color must not pick between them.
+  const signalOther = scored.find((candidate) => candidate.shadeId !== top.shadeId && (candidate.signals?.length ?? 0) > 0);
+  if (!ctx.nameIncomplete && !brandlessVeto && !readConflictVeto && (!frontOther || top.frontNamed) && !codeOther && !signalOther) {
     return decision;
   }
   const T = BOTTLE_RESOLVER_THRESHOLDS;
   const first = scored.slice(0, T.maxCandidates);
-  const extras = [codeOther, frontOther].filter(
+  const extras = [codeOther, frontOther, signalOther].filter(
     (other, i, all): other is ScoredBottleCandidate => other !== undefined && !first.includes(other) && all.indexOf(other) === i
   );
   const cut = [...first.slice(0, T.maxCandidates - extras.length), ...extras];
@@ -598,8 +604,8 @@ export interface PoolNamePlan {
  * - Weak signals (each names one shade): `edit_lead` (the printed name's closest name by edit
  *   similarity and lead), `front_exact` (the front's read equal to one shade's name, not a
  *   collection or finish word, unless the bottom's best name is another shade), `code` (a
- *   printed vendor code naming exactly one pool shade). One lifts to `weakSignal` (the question
- *   band); two different ones naming the same shade lift it to `match` (`two_signals`).
+ *   printed vendor code naming exactly one pool shade). Each lifts its shade to `weakSignal` (the
+ *   question band) once, however many agree: only the measured color confirms a weak signal.
  *
  * A read phrase that is generic label text is not ranked (`rankNames`), and a name two shades
  * carry decides nothing (`decideName`).
@@ -683,8 +689,8 @@ export function planPoolNameLifts(
     const list = [...kinds].sort();
     const edit = leadDecision && leadDecision.shadeId === shadeId ? leadDecision : null;
     lifts.set(shadeId, {
-      rule: list.length >= 2 ? "two_signals" : null,
-      to: list.length >= 2 ? T.match : T.weakSignal,
+      rule: null,
+      to: T.weakSignal,
       signals: list,
       ...(edit ? { editSimilarity: edit.similarity, editLead: edit.lead } : {}),
     });
@@ -745,7 +751,7 @@ export function planBrandlessLift(
   if (lead < T.brandlessEditMinLead) return null;
   return {
     shadeId: top.shadeId,
-    lift: { rule: "brandless_edit", to: T.match, signals: [], editSimilarity: top.similarity, editLead: lead },
+    lift: { rule: null, to: T.weakSignal, signals: ["brandless_edit"], editSimilarity: top.similarity, editLead: lead },
   };
 }
 
@@ -1035,8 +1041,7 @@ export async function resolveBottle(
         const trigram = candidate.confidence;
         const lift = brandless && brandless.shadeId === candidate.shadeId ? brandless.lift : null;
         const nameScore = lift ? Math.max(trigram, lift.to) : trigram;
-        const nameRule: BottleNameRule | null =
-          trigram >= T.match ? "trigram" : lift && nameScore >= T.match ? lift.rule : null;
+        const nameRule: BottleNameRule | null = trigram >= T.match ? "trigram" : null;
         return withColor({
           shadeId: candidate.shadeId,
           brandId: 0,
@@ -1045,6 +1050,7 @@ export async function resolveBottle(
           colorDistance: distances.get(candidate.shadeId) ?? null,
           fromConflictBrand: false,
           nameRule,
+          signals: lift?.signals ?? [],
           editSimilarity: lift?.editSimilarity ?? null,
           editLead: lift?.editLead ?? null,
         });
