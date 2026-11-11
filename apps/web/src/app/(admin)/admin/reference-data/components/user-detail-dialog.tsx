@@ -74,6 +74,7 @@ const ACTION_LABELS: Record<AdminAuditEvent["action"], string> = {
   "shade.vendor_hex_demote": "Undid a vendor hex promotion",
   "shade.catalog_merge": "Merged a catalog shade",
   "shade.catalog_delete": "Deleted a catalog shade",
+  "shade.catalog_correct": "Catalog shade corrected",
   // Source and brand actions have no target user either.
   "data_source.permission": "Recorded a source permission",
   "data_source.enable": "Turned a source on",

@@ -97,7 +97,7 @@ export interface AdminUserIdentity {
 
 /**
  * Actions recorded in `admin_audit_event` (issue #45). The `shade.*` actions (#321, vendor hex
- * promotion; the MakeupAPI dedupe) have no target user; the shade id is in `changes`. The
+ * promotion; the MakeupAPI dedupe; the brand-store shade correction) have no target user; the shade id is in `changes`. The
  * `data_source.*` and `brand.*` actions (admin Sources tab) also have no target user; the
  * source or brand id is in `changes`.
  */
@@ -110,6 +110,7 @@ export const ADMIN_AUDIT_ACTIONS = [
   "shade.vendor_hex_demote",
   "shade.catalog_merge",
   "shade.catalog_delete",
+  "shade.catalog_correct",
   "data_source.permission",
   "data_source.enable",
   "data_source.disable",

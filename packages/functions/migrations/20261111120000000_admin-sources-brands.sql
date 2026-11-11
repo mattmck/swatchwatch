@@ -6,7 +6,9 @@
 -- * brand_ingest_profile: per-brand website, platform, blocker and notes, plus an optional explicit
 --   link to the brand's own data_source (the admin "Brands" view).
 -- * admin_audit_event gains the data source and brand actions the tab writes (target_user_id NULL,
---   ids in `changes`).
+--   ids in `changes`). The rewritten CHECK also includes 'shade.catalog_correct' from the brand-store
+--   shade correction (PR #508, migration 20261110150000000), so the two migrations agree whichever
+--   lands first.
 -- * Seeds the three brands known to have no ingestible store (ILNP, KBShimmer, I Scream Nails) and
 --   records the OKs already in the owner's notes for Mooncat and Cupcake Polish as
 --   `metadata.permission`, marked `recordedByMigration` so the Down removes only those.
@@ -31,7 +33,7 @@ ALTER TABLE admin_audit_event ADD CONSTRAINT admin_audit_event_action_check
   CHECK (action IN (
     'user.update', 'user.suspend', 'user.unsuspend', 'user.merge',
     'shade.vendor_hex_promote', 'shade.vendor_hex_demote',
-    'shade.catalog_merge', 'shade.catalog_delete',
+    'shade.catalog_merge', 'shade.catalog_delete', 'shade.catalog_correct',
     'data_source.permission', 'data_source.enable', 'data_source.disable', 'data_source.images',
     'brand.create', 'brand.profile_update'
   ));
@@ -87,7 +89,7 @@ ALTER TABLE admin_audit_event ADD CONSTRAINT admin_audit_event_action_check
   CHECK (action IN (
     'user.update', 'user.suspend', 'user.unsuspend', 'user.merge',
     'shade.vendor_hex_promote', 'shade.vendor_hex_demote',
-    'shade.catalog_merge', 'shade.catalog_delete'
+    'shade.catalog_merge', 'shade.catalog_delete', 'shade.catalog_correct'
   ));
 
 -- The brand rows seeded above stay (they may have gained shades or aliases since).

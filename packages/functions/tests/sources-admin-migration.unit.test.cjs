@@ -30,7 +30,7 @@ function quotedList(sql, anchorRegex) {
 describe("sources admin migration", () => {
   it("audit CHECK in the migration, schema.sql and ADMIN_AUDIT_ACTIONS list the same actions", () => {
     const expected = [...ADMIN_AUDIT_ACTIONS].sort();
-    assert.equal(expected.length, 14);
+    assert.equal(expected.length, 15);
     const anchor = /admin_audit_event_action_check\s+CHECK/;
     assert.deepEqual(quotedList(UP, anchor).sort(), expected);
     assert.deepEqual(quotedList(SCHEMA, anchor).sort(), expected);
