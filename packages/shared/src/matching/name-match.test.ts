@@ -59,18 +59,35 @@ describe("decideName", () => {
   it("is null for an empty ranking and reports the lead", () => {
     assert.equal(decideName([]), null);
     const d = decideName([
-      { shadeId: 1, name: "A", normalizedName: "a", similarity: 0.9 },
-      { shadeId: 2, name: "B", normalizedName: "b", similarity: 0.5 },
+      { shadeId: 1, shadeIds: [1], name: "A", normalizedName: "a", similarity: 0.9 },
+      { shadeId: 2, shadeIds: [2], name: "B", normalizedName: "b", similarity: 0.5 },
     ]);
     assert.equal(d?.rule, "lead");
     assert.ok(Math.abs((d?.lead ?? 0) - 0.4) < 1e-9);
   });
   it("does not treat a shade's own alias as the runner-up", () => {
     const d = decideName([
-      { shadeId: 1, name: "Foo", normalizedName: "foo", similarity: 0.9 },
-      { shadeId: 1, name: "Foo Listing", normalizedName: "foolisting", similarity: 0.85 },
-      { shadeId: 2, name: "Bar", normalizedName: "bar", similarity: 0.3 },
+      { shadeId: 1, shadeIds: [1], name: "Foo", normalizedName: "foo", similarity: 0.9 },
+      { shadeId: 1, shadeIds: [1], name: "Foo Listing", normalizedName: "foolisting", similarity: 0.85 },
+      { shadeId: 2, shadeIds: [2], name: "Bar", normalizedName: "bar", similarity: 0.3 },
     ]);
     assert.equal(d?.shadeId, 1);
+  });
+  it("never decides a name more than one shade carries", () => {
+    const ranked = rankNames(["Snow Much Fun"], [
+      { shadeId: 1, name: "Snow Much Fun" },
+      { shadeId: 2, name: "Other" },
+      { shadeId: 3, name: "Snow-Much Fun!" },
+    ]);
+    assert.deepEqual(ranked[0].shadeIds, [1, 3]);
+    assert.equal(decideName(ranked), null);
+  });
+});
+
+describe("rankNames — generic read phrases", () => {
+  it("does not rank a phrase that is generic label text, unless asked to", () => {
+    const list = [{ shadeId: 1, name: "Nail Police" }];
+    assert.equal(rankNames(["NAIL POLISH"], list)[0].similarity, 0);
+    assert.ok(rankNames(["NAIL POLISH"], list, { skipStopPhrases: false })[0].similarity >= 0.8);
   });
 });

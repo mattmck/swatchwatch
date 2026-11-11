@@ -19,7 +19,7 @@ const entries: MatchListEntry[] = [
 describe("matchBottleText", () => {
   it("matches a name that wraps over two and three lines", () => {
     const two = matchBottleText({ recognitions: [rec("Suzi Takes", "A Sound Bath")], entries });
-    assert.deepEqual(two.result, { kind: "matched", shadeId: 1, via: "name", similarity: 1, lead: two.result.kind === "matched" ? two.result.lead : 0 });
+    assert.deepEqual(two.result, { kind: "matched", shadeId: 1, via: "name", rule: "exact", similarity: 1, lead: two.result.kind === "matched" ? two.result.lead : 0 });
     const three = matchBottleText({ recognitions: [rec("Suzi", "Takes A", "Sound Bath")], entries });
     assert.equal(three.result.kind === "matched" && three.result.shadeId, 1);
     const twoOnly = matchBottleText({ recognitions: [rec("Suzi", "Takes A", "Sound Bath")], entries, options: { text: { maxJoin: 2 } } });
@@ -44,7 +44,7 @@ describe("matchBottleText", () => {
   });
   it("a vendor code that names one shade wins, letters or digits only", () => {
     const a = matchBottleText({ recognitions: [rec("NLF 008", "Shake well")], entries });
-    assert.deepEqual(a.result, { kind: "matched", shadeId: 1, via: "code", similarity: 1, lead: 1 });
+    assert.deepEqual(a.result, { kind: "matched", shadeId: 1, via: "code", rule: "code", similarity: 1, lead: 1 });
     assert.deepEqual(a.codeShadeIds, [1]);
     const b = matchBottleText({ recognitions: [[line("2000344", 0.5, 0.5)]], entries });
     assert.equal(b.result.kind === "matched" && b.result.shadeId, 3);
@@ -70,5 +70,26 @@ describe("matchBottleText", () => {
     assert.deepEqual(ok.gtins, ["4006381333931"]);
     const bad = matchBottleText({ recognitions: [rec("4006381333932")], entries });
     assert.deepEqual(bad.gtins, []);
+  });
+
+  it("reports the rule: exact for an exact name, lead for a near one", () => {
+    const exact = matchBottleText({ recognitions: [rec("Cherry Bomb")], entries });
+    assert.equal(exact.result.kind === "matched" && exact.result.rule, "exact");
+    const lead = matchBottleText({ recognitions: [rec("Cherry Bimb")], entries });
+    assert.equal(lead.result.kind === "matched" && lead.result.rule, "lead");
+  });
+  it("never matches a name two shades carry: every owner is a candidate", () => {
+    const twins: MatchListEntry[] = [
+      { shadeId: 10, name: "Snow Much Fun" },
+      { shadeId: 11, name: "Snow-Much Fun!" },
+      { shadeId: 12, name: "Blizzard" },
+    ];
+    const m = matchBottleText({ recognitions: [rec("SNOW MUCH FUN")], entries: twins });
+    assert.equal(m.result.kind, "candidates");
+    if (m.result.kind === "candidates") assert.deepEqual(m.result.ranked.map((c) => c.shadeId), [10, 11]);
+  });
+  it("a read that is generic label text decides nothing, not even a near name", () => {
+    const list: MatchListEntry[] = [{ shadeId: 1, name: "Nail Police" }, { shadeId: 2, name: "Nail Polish" }];
+    assert.equal(matchBottleText({ recognitions: [rec("NAIL POLISH")], entries: list }).result.kind, "none");
   });
 });

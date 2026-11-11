@@ -10,9 +10,19 @@ export interface BottleTextCandidate {
   via: "code" | "name";
 }
 
+/**
+ * How a `matched` result was decided. Only `exact` (a printed name equal, after normalisation,
+ * to a name or alias of exactly one shade) is safe to add without confirmation. `lead` (the
+ * closest name by edit similarity with a lead) cannot tell a misread from a real shade the list
+ * lacks (63 same-brand near-twins in a leave-one-out over the catalog, e.g. Zoya Polly/Lolly),
+ * and `code` (a printed vendor code) is dense: a misread code, or another printed number, is
+ * often a sibling's code. Treat `lead` and `code` as "likely, needs a second signal".
+ */
+export type BottleTextRule = "exact" | "lead" | "code";
+
 export type BottleTextResult =
   /** `code`: a vendor code printed on the bottle names exactly one shade (similarity and lead 1). */
-  | { kind: "matched"; shadeId: number; via: "code" | "name"; similarity: number; lead: number }
+  | { kind: "matched"; shadeId: number; via: "code" | "name"; rule: BottleTextRule; similarity: number; lead: number }
   /** Nothing is confident, or a code and a name disagree: let the user choose. */
   | { kind: "candidates"; ranked: BottleTextCandidate[] }
   | { kind: "none" };
@@ -47,7 +57,12 @@ const DEFAULT_MAX_CANDIDATES = 5;
 /**
  * Identify a bottle from text printed on it, within one brand's shades. A vendor code that
  * names exactly one shade wins; otherwise the name decision (`decideName`). A code and a
- * confident name that point at different shades give candidates, never a match.
+ * confident name that point at different shades give candidates, never a match, and a name
+ * that more than one shade carries gives every owner as a candidate.
+ *
+ * Only a `matched` result with `rule: "exact"` is safe to add without asking (see
+ * {@link BottleTextRule}): `lead` and `code` mean "likely", and the caller should ask, or
+ * confirm with a second independent signal (a measured color, another photo), before adding.
  */
 export function matchBottleText(input: BottleTextInput): BottleTextMatch {
   const options = input.options ?? {};
@@ -69,9 +84,12 @@ export function matchBottleText(input: BottleTextInput): BottleTextMatch {
     const floor = options.candidateMinSimilarity ?? DEFAULT_CANDIDATE_MIN_SIMILARITY;
     const rows: NameRank[] = ranked.filter((row) => row.similarity >= floor);
     for (const row of rows) {
-      if (seen.has(row.shadeId)) continue;
-      seen.add(row.shadeId);
-      out.push({ shadeId: row.shadeId, name: nameOf.get(row.shadeId) ?? row.name, similarity: row.similarity, via: "name" });
+      // Every owner of a shared name is a candidate.
+      for (const shadeId of row.shadeIds ?? [row.shadeId]) {
+        if (seen.has(shadeId)) continue;
+        seen.add(shadeId);
+        out.push({ shadeId, name: nameOf.get(shadeId) ?? row.name, similarity: row.similarity, via: "name" });
+      }
     }
     return out.slice(0, options.maxCandidates ?? DEFAULT_MAX_CANDIDATES);
   };
@@ -82,12 +100,19 @@ export function matchBottleText(input: BottleTextInput): BottleTextMatch {
     result =
       decision && decision.shadeId !== codeId
         ? { kind: "candidates", ranked: candidates() }
-        : { kind: "matched", shadeId: codeId, via: "code", similarity: 1, lead: 1 };
+        : { kind: "matched", shadeId: codeId, via: "code", rule: "code", similarity: 1, lead: 1 };
   } else if (decision) {
     result =
       codeShadeIds.length > 1 && !codeShadeIds.includes(decision.shadeId)
         ? { kind: "candidates", ranked: candidates() }
-        : { kind: "matched", shadeId: decision.shadeId, via: "name", similarity: decision.similarity, lead: decision.lead };
+        : {
+            kind: "matched",
+            shadeId: decision.shadeId,
+            via: "name",
+            rule: decision.rule,
+            similarity: decision.similarity,
+            lead: decision.lead,
+          };
   } else {
     const list = candidates();
     result = list.length > 0 ? { kind: "candidates", ranked: list } : { kind: "none" };

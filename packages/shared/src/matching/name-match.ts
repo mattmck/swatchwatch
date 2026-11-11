@@ -49,11 +49,24 @@ export interface NameRankOptions {
   minChars?: number;
   /** Normalised names that can never match. Default {@link GENERIC_LABEL_NAMES}. */
   stopNames?: ReadonlySet<string>;
+  /**
+   * When true (default) a read phrase that normalises to a stop name ("NAIL POLISH", "TOP COAT")
+   * is not ranked: it is label text, and with the exact generic name out of the ranking it would
+   * otherwise edit-match a near name ("Nail Police").
+   */
+  skipStopPhrases?: boolean;
 }
 
 /** The best phrase similarity of one distinct normalised catalog name. */
 export interface NameRank {
+  /** The first shade (list order) that carries this name. */
   shadeId: number;
+  /**
+   * Every shade that carries this normalised name as its name or a non-code alias, in list
+   * order (`shadeIds[0] === shadeId`). More than one owner means the name does not say which
+   * shade it is: {@link decideName} never decides it.
+   */
+  shadeIds: number[];
   /** The entry name or alias this row stands for, as given. */
   name: string;
   normalizedName: string;
@@ -72,21 +85,27 @@ export function rankNames(
 ): NameRank[] {
   const minChars = options.minChars ?? NAME_MATCH_RULES.minChars;
   const stopNames = options.stopNames ?? GENERIC_LABEL_NAMES;
+  const skipStopPhrases = options.skipStopPhrases ?? true;
   const normalizedPhrases = new Set<string>();
   for (const phrase of phrases) {
     const key = normalizeMatchText(phrase);
-    if (key.length >= minChars) normalizedPhrases.add(key);
+    if (key.length >= minChars && !(skipStopPhrases && stopNames.has(key))) normalizedPhrases.add(key);
   }
   const rows = new Map<string, NameRank>();
   const consider = (shadeId: number, name: string) => {
     const key = normalizeMatchText(name);
-    if (key.length < minChars || stopNames.has(key) || rows.has(key)) return;
+    if (key.length < minChars || stopNames.has(key)) return;
+    const existing = rows.get(key);
+    if (existing) {
+      if (!existing.shadeIds.includes(shadeId)) existing.shadeIds.push(shadeId);
+      return;
+    }
     let best = 0;
     for (const phrase of normalizedPhrases) {
       const score = editSimilarity(phrase, key);
       if (score > best) best = score;
     }
-    rows.set(key, { shadeId, name, normalizedName: key, similarity: best });
+    rows.set(key, { shadeId, shadeIds: [shadeId], name, normalizedName: key, similarity: best });
   };
   for (const entry of entries) {
     consider(entry.shadeId, entry.name);
@@ -114,7 +133,16 @@ export interface NameDecision {
   similarity: number;
   /** Top similarity minus the best similarity of any other shade (the top one when there is none: 0). */
   lead: number;
-  /** `exact`: matched by the exact-name shortcut; `lead`: matched by similarity and lead. */
+  /**
+   * `exact`: matched by the exact-name shortcut; `lead`: matched by similarity and lead.
+   *
+   * Only `exact` identifies a shade on its own. `lead` cannot tell a misread from a different
+   * shade the list does not have: leave-one-out over the live catalog (2026-11-11) found 63
+   * pairs where a real shade name one or two letters from another shade of the same brand
+   * (Zoya Polly/Lolly, Bee's Knees Demon/Lemon, Cracked Polish Breezy/Freezy, OPI Less is
+   * More/Less is Norse) decides that other shade by lead. Treat `lead` as "likely, needs a
+   * second signal" (a color, another photo, the user).
+   */
   rule: "exact" | "lead";
 }
 
@@ -122,11 +150,14 @@ export interface NameDecision {
  * Decide from a ranking (see {@link rankNames}): an exact name (similarity at least
  * `exactSimilarity`) wins when the runner-up is below it, otherwise the top name needs
  * `minSimilarity` and a lead of `minLead` over the best other shade. Returns null when neither
- * holds. The runner-up is always a different shade, so a shade's own alias never costs it its lead.
+ * holds, or when the top name belongs to more than one shade (`shadeIds`). The runner-up is
+ * always a different shade, so a shade's own alias never costs it its lead.
  */
 export function decideName(ranked: readonly NameRank[], options: NameDecisionOptions = {}): NameDecision | null {
   const top = ranked[0];
   if (!top) return null;
+  // A name two shades carry does not say which one it is.
+  if ((top.shadeIds?.length ?? 1) > 1) return null;
   const minSimilarity = options.minSimilarity ?? NAME_MATCH_RULES.minSimilarity;
   const minLead = options.minLead ?? NAME_MATCH_RULES.minLead;
   const exactSimilarity = options.exactSimilarity ?? NAME_MATCH_RULES.exactSimilarity;
