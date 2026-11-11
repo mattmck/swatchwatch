@@ -55,6 +55,31 @@ export interface NameRankOptions {
    * otherwise edit-match a near name ("Nail Police").
    */
   skipStopPhrases?: boolean;
+  /**
+   * The brand's own names (any spelling; normalised here), e.g. `["Starrily"]`. A read phrase for
+   * which {@link isBrandText} is true for any of them is not ranked at all, even when it equals a
+   * shade name exactly: the brand is printed on every bottle, and with "Starrily" misread as
+   * "Starrly" a Starrily shade named "Stars" would otherwise win. A shade whose name is the brand
+   * or a fragment of it cannot be identified by text alone; that is intended. Default: none, so
+   * every phrase is ranked.
+   */
+  brandNames?: readonly string[];
+}
+
+/**
+ * True when a read phrase is the brand's own text: the same name within a misread
+ * (`editSimilarity` at least 0.75), or a truncated or split fragment of it (at least 3 characters,
+ * shorter than the brand, and 0.8 similar to the brand's same-length prefix: "star", "starr" from
+ * "Starrily"). Both arguments are already normalised with `normalizeMatchText`.
+ */
+export function isBrandText(phraseKey: string, brandKey: string): boolean {
+  if (phraseKey.length === 0 || brandKey.length === 0) return false;
+  if (editSimilarity(phraseKey, brandKey) >= 0.75) return true;
+  return (
+    phraseKey.length >= 3 &&
+    phraseKey.length < brandKey.length &&
+    editSimilarity(phraseKey, brandKey.slice(0, phraseKey.length)) >= 0.8
+  );
 }
 
 /** The best phrase similarity of one distinct normalised catalog name. */
@@ -86,10 +111,13 @@ export function rankNames(
   const minChars = options.minChars ?? NAME_MATCH_RULES.minChars;
   const stopNames = options.stopNames ?? GENERIC_LABEL_NAMES;
   const skipStopPhrases = options.skipStopPhrases ?? true;
+  const brandKeys = (options.brandNames ?? []).map(normalizeMatchText).filter((key) => key.length > 0);
   const normalizedPhrases = new Set<string>();
   for (const phrase of phrases) {
     const key = normalizeMatchText(phrase);
-    if (key.length >= minChars && !(skipStopPhrases && stopNames.has(key))) normalizedPhrases.add(key);
+    if (key.length < minChars || (skipStopPhrases && stopNames.has(key))) continue;
+    if (brandKeys.some((brandKey) => isBrandText(key, brandKey))) continue;
+    normalizedPhrases.add(key);
   }
   const rows = new Map<string, NameRank>();
   const consider = (shadeId: number, name: string) => {

@@ -93,3 +93,19 @@ describe("matchBottleText", () => {
     assert.equal(matchBottleText({ recognitions: [rec("NAIL POLISH")], entries: list }).result.kind, "none");
   });
 });
+
+describe("matchBottleText — brandNames", () => {
+  const starrily: MatchListEntry[] = [
+    { shadeId: 1, name: "Stars" },
+    { shadeId: 2, name: "Star Crossed" },
+    { shadeId: 3, name: "Orion's Belt" },
+  ];
+  it("a misread brand name is not read as the shade Stars, a real name still matches", () => {
+    const front = rec("Stary", "LUXE FORMULA");
+    assert.equal(matchBottleText({ recognitions: [front], entries: starrily }).result.kind === "matched", true);
+    const guarded = { brandNames: ["Starrily"] };
+    assert.equal(matchBottleText({ recognitions: [front], entries: starrily, options: guarded }).result.kind, "none");
+    const box = matchBottleText({ recognitions: [front, rec("ORION'S BELT")], entries: starrily, options: guarded });
+    assert.equal(box.result.kind === "matched" && box.result.shadeId, 3);
+  });
+});

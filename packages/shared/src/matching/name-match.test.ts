@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { decideName, GENERIC_LABEL_NAMES, matchName, NAME_MATCH_RULES, rankNames, type MatchListEntry } from "./name-match";
+import { decideName, GENERIC_LABEL_NAMES, isBrandText, matchName, NAME_MATCH_RULES, rankNames, type MatchListEntry } from "./name-match";
 
 const list = (...names: string[]): MatchListEntry[] => names.map((name, i) => ({ shadeId: i + 1, name }));
 
@@ -89,5 +89,48 @@ describe("rankNames — generic read phrases", () => {
     const list = [{ shadeId: 1, name: "Nail Police" }];
     assert.equal(rankNames(["NAIL POLISH"], list)[0].similarity, 0);
     assert.ok(rankNames(["NAIL POLISH"], list, { skipStopPhrases: false })[0].similarity >= 0.8);
+  });
+});
+
+describe("isBrandText and the brandNames option", () => {
+  const starrily = list("Stars", "Star Crossed", "Star Cluster", "Sparkler", "Serenity", "Orion's Belt", "Dark Music");
+  it("is true for the brand, a misread of it and a truncated or split brand word", () => {
+    for (const phrase of ["starrily", "starrly", "stary", "sarriy", "starr", "star", "tarrily"]) {
+      assert.equal(isBrandText(phrase, "starrily"), true, phrase);
+    }
+  });
+  it("is false for real shade names, even ones sharing a first letter or a short prefix", () => {
+    // Longer than the brand, or too different from its same-length prefix.
+    for (const phrase of ["starcrossed", "starcluster", "sparkler", "serenity", "orionsbelt", "darkmusic", "stella"]) {
+      assert.equal(isBrandText(phrase, "starrily"), false, phrase);
+    }
+    assert.equal(isBrandText("", "starrily"), false);
+    assert.equal(isBrandText("stars", ""), false);
+  });
+  it("Starrily misread as Stary no longer matches the shade Stars", () => {
+    // Without the option the misread leads (0.8 vs Star Crossed under 0.5) and decides a wrong shade.
+    assert.equal(matchName(["Stary"], starrily)?.shadeId, 1);
+    assert.equal(matchName(["Stary"], starrily, { brandNames: ["Starrily"] }), null);
+  });
+  it("a phrase equal to the brand, or a prefix fragment of it, is not ranked", () => {
+    const ranked = rankNames(["Starrily", "Star", "Starr"], starrily, { brandNames: ["Starrily"] });
+    assert.ok(ranked.every((row) => row.similarity < 0.8));
+    assert.equal(decideName(ranked), null);
+  });
+  it("Stars spelled exactly is a fragment of Starrily and is dropped: that shade cannot be identified by text", () => {
+    assert.equal(isBrandText("stars", "starrily"), true);
+    assert.equal(matchName(["Stars"], starrily)?.shadeId, 1);
+    assert.equal(matchName(["Stars"], starrily, { brandNames: ["Starrily"] }), null);
+  });
+  it("real shade names still rank and match: Star Crossed, Star Cluster, Orion's Belt", () => {
+    for (const [phrase, shadeId] of [["Star Crossed", 2], ["Star Cluster", 3], ["ORION'S BELT", 6]] as const) {
+      assert.equal(matchName([phrase], starrily, { brandNames: ["Starrily"] })?.shadeId, shadeId, phrase);
+    }
+  });
+  it("without brandNames nothing changes, and several or blank brand names are tolerated", () => {
+    const before = rankNames(["Starrly", "Stars"], starrily);
+    assert.deepEqual(rankNames(["Starrly", "Stars"], starrily, { brandNames: [] }), before);
+    assert.deepEqual(rankNames(["Starrly", "Stars"], starrily, { brandNames: [""] }), before);
+    assert.equal(matchName(["Stars"], starrily, { brandNames: ["Other Brand", "Starrily"] }), null);
   });
 });
