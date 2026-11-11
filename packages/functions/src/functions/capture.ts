@@ -85,6 +85,7 @@ import {
 } from "../lib/capture-questions";
 import {
   hintBrandFromMetadata,
+  loadBottleGlobalCandidates,
   loadColorDistances,
   resolveBottle,
   sumFrameModelCalls,
@@ -1325,7 +1326,7 @@ async function resolveFromEvidence(
       {
         query,
         resolveBrand: resolveBrandFromText,
-        globalCandidates: (frameEvidence) => resolveShadeCandidates(frameEvidence),
+        globalCandidates: (frameEvidence) => loadBottleGlobalCandidates(frameEvidence, userId, { query }),
         colorDistances: (shadeIds, glassHex) => loadColorDistances(shadeIds, glassHex, userId, { query }),
       }
     );

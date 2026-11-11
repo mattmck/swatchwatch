@@ -1,5 +1,5 @@
 import type { CaptureCheckResponse, CaptureStatusResponse } from "swatchwatch-shared";
-import { BOTTLE_RESOLVER_THRESHOLDS, BOTTLE_RESOLVER_VERSION } from "../../lib/bottle-resolver";
+import { BOTTLE_RESOLVER_THRESHOLDS, BOTTLE_RESOLVER_VERSION, BRAND_FIRST_RESOLVER_VERSIONS } from "../../lib/bottle-resolver";
 import { candidateShadeId } from "./scoring";
 import type { EvalSample, FailureStage, Outcome } from "./types";
 
@@ -79,7 +79,7 @@ export function resolverTraceFromStatus(status: Pick<CaptureStatusResponse, "met
     : [];
   return {
     step: text(resolver.step),
-    brandFirst: resolver.version === BOTTLE_RESOLVER_VERSION,
+    brandFirst: typeof resolver.version === "string" && BRAND_FIRST_RESOLVER_VERSIONS.includes(resolver.version),
     brand: brandRef(resolver.brand),
     conflictBrand: brandRef(record(resolver.brandConflict).read),
     top5,

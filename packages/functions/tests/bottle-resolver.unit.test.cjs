@@ -26,7 +26,7 @@ const USER = 77;
 
 describe("lib/bottle-resolver — constants", () => {
   it("version and thresholds", () => {
-    assert.equal(BOTTLE_RESOLVER_VERSION, "bottle-v1");
+    assert.equal(BOTTLE_RESOLVER_VERSION, "bottle-v2");
     assert.deepEqual({ ...BOTTLE_RESOLVER_THRESHOLDS }, {
       match: 0.92,
       question: 0.75,
@@ -40,6 +40,13 @@ describe("lib/bottle-resolver — constants", () => {
       poolLimit: 50,
       brandlessMinWords: 2,
       brandlessMinChars: 8,
+      editMinChars: 5,
+      editMinSimilarity: 0.8,
+      editMinLead: 0.25,
+      frontMinChars: 5,
+      brandlessEditMinSimilarity: 0.93,
+      brandlessEditMinLead: 0.2,
+      globalLimit: 10,
     });
     assert.deepEqual(COLOR_SCORE_BREAKPOINTS.map((p) => [...p]), [[0, 1], [0.05, 0.75], [0.1, 0.25], [0.3, 0]]);
   });
@@ -350,11 +357,17 @@ describe("lib/bottle-resolver — session helpers", () => {
 });
 
 function recorder(opts = {}) {
-  const calls = { query: [], resolveBrand: [], global: [], colorDistances: [] };
+  const calls = { query: [], names: [], resolveBrand: [], global: [], colorDistances: [] };
   const deps = {
     query: async (sql, params) => {
-      calls.query.push({ sql, params });
+      if (/LEFT JOIN shade_alias/.test(sql)) {
+        // The pool's names and aliases (R1, R2, R4) are recorded apart from the candidate query.
+        calls.names.push({ sql, params });
+        const names = opts.names ?? [];
+        return { rows: names, rowCount: names.length };
+      }
       const rows = typeof opts.rows === "function" ? opts.rows(params) : opts.rows ?? [];
+      calls.query.push({ sql, params });
       return { rows, rowCount: rows.length };
     },
     resolveBrand: async (text) => {
@@ -393,13 +406,13 @@ describe("lib/bottle-resolver — resolveBottle", () => {
     assert.equal(decision.entityId, 11);
     assert.equal(decision.confidence, 0.95);
     assert.deepEqual(calls.query[0].params.slice(0, 3), [[3], USER, "Unicorn Skin"]);
-    assert.deepEqual(calls.query[0].params.slice(3), [null, null, null, null, null]);
+    assert.deepEqual(calls.query[0].params.slice(3), [null, null, null, null, null, null]);
     assert.equal(calls.global.length, 0);
     assert.equal(decision.bottle.brand.brandId, "3");
     assert.equal(decision.bottle.modelCalls, 2);
     assert.equal(decision.bottle.tie, false);
     assert.equal(decision.bottle.suggestedShade, undefined, "a match carries no create card");
-    assert.equal(decision.metadataPatch.resolver.version, "bottle-v1");
+    assert.equal(decision.metadataPatch.resolver.version, "bottle-v2");
     assert.equal(decision.metadataPatch.resolver.step, "matched_by_name");
     assert.equal(decision.metadataPatch.resolver.method, "name");
     assert.equal(decision.metadataPatch.resolver.modelCalls, 2);
@@ -702,7 +715,8 @@ describe("lib/bottle-resolver — resolveBottle", () => {
     assert.equal(resolver.candidateCount, 7);
     assert.equal(resolver.top5.length, 5);
     assert.deepEqual(Object.keys(resolver.top5[0]).sort(), [
-      "brandId", "colorDistance", "colorScore", "display", "fromConflictBrand", "frontNamed", "nameScore", "score", "shadeId",
+      "brandId", "colorDistance", "colorScore", "display", "editLead", "editSimilarity", "fromConflictBrand", "frontNamed",
+      "nameRule", "nameScore", "score", "shadeId",
     ]);
     assert.equal(resolver.audit.frameCount, 1);
     assert.equal(resolver.audit.evidence.shadeName, "Shade");
@@ -787,14 +801,14 @@ describe("lib/bottle-resolver — SQL", () => {
   });
   it("sorts the listed pick first so the pool limit cannot cut it", () => {
     assert.match(sql, /\$7::text/);
-    assert.match(sql, /ORDER BY COALESCE\(lower\(s\.shade_name_canonical\) = lower\(\$7::text\), false\) DESC, /);
+    assert.match(sql, /ORDER BY COALESCE\(s\.shade_id = ANY\(\$9::bigint\[\]\), false\) DESC, COALESCE\(lower\(s\.shade_name_canonical\) = lower\(\$7::text\), false\) DESC, /);
   });
   it("sorts a row the front's name spells right after the pick, so a 50+ shade pool cannot cut it", () => {
     // Review: with only a front name, the front-named shade of a brand with more than 50 pooled
     // shades could fall outside the pool, so the front/bottom contradiction veto never fired.
     assert.match(
       sql,
-      /ORDER BY COALESCE\(lower\(s\.shade_name_canonical\) = lower\(\$7::text\), false\) DESC, COALESCE\(similarity\(s\.shade_name_canonical, \$8::text\) >= 0\.92, false\) DESC, "nameScore" DESC NULLS LAST/
+      /COALESCE\(lower\(s\.shade_name_canonical\) = lower\(\$7::text\), false\) DESC, COALESCE\(similarity\(s\.shade_name_canonical, \$8::text\) >= 0\.92, false\) DESC, "nameScore" DESC NULLS LAST/
     );
   });
   it("never exposes another user's private shade", () => {
@@ -826,5 +840,349 @@ describe("lib/bottle-resolver — SQL", () => {
     assert.match(calls[0].text, /created_by_user_id = \$5/);
     assert.equal((await loadColorDistances([], "#B4004E", USER, db)).size, 0);
     assert.equal(calls.length, 1, "no ids, no query");
+  });
+});
+
+/**
+ * Name rules (bottle-v2): R1 edit distance inside the brand pool, R2 exact front name, R3 the
+ * brand-less edit rule, R4 vendor codes and aliases. Each lift only puts a shade in the match
+ * band: the color check and the vetoes still decide.
+ */
+describe("lib/bottle-resolver — name rules (bottle-v2)", () => {
+  const {
+    BOTTLE_POOL_NAMES_SQL,
+    BOTTLE_GLOBAL_CANDIDATES_SQL,
+    planPoolNameLifts,
+    planBrandlessLift,
+    vendorCodeTokens,
+    loadBottleGlobalCandidates,
+  } = require("../dist/lib/bottle-resolver");
+
+  /**
+   * A brand pool: `names` answers the names query, `rows` the candidate query. Candidate rows
+   * carry the trigram score `pg_trgm` would give (set per test) and are cut to `limit` unless
+   * the resolver forces a shade id ($9), as the SQL sorts those first.
+   */
+  function pool(shades, { limit = 50 } = {}) {
+    const names = shades.map((s) => ({ shadeId: String(s.id), shadeName: s.name, aliases: s.aliases ?? [] }));
+    const rows = (params) => {
+      const forced = new Set((params[8] ?? []).map(Number));
+      const all = shades.map((s) =>
+        row(s.id, s.name, { nameScore: s.trigram ?? null, colorDistance: s.colorDistance ?? null, frontScore: s.frontScore ?? null })
+      );
+      return [...all.filter((r) => forced.has(Number(r.shadeId))), ...all.filter((r) => !forced.has(Number(r.shadeId))).slice(0, limit)];
+    };
+    return recorder({ names, rows });
+  }
+  const resolveIn = (shades, evidence, opts) => {
+    const rec = pool(shades, opts);
+    return resolveBottle(baseEvidence(evidence), ctx({ hintBrand: hint() }), rec.deps).then((decision) => ({ decision, calls: rec.calls }));
+  };
+  const resolver = (decision) => decision.metadataPatch.resolver;
+
+  // R1 — edit distance with a lead.
+  it("R1: a pun misread one letter off matches the one close shade (Party Foul -> Party Fowl)", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Party Fowl", trigram: 0.47 }, { id: 2, name: "Party Animal", trigram: 0.4 }, { id: 3, name: "Fowl Play", trigram: 0.3 }],
+      { shadeName: "Party Foul" }
+    );
+    assert.equal(decision.status, "matched");
+    assert.equal(decision.entityId, 1);
+    assert.equal(decision.confidence, 0.92);
+    assert.equal(resolver(decision).nameRule, "edit");
+    assert.equal(resolver(decision).step, "matched_by_name");
+    assert.equal(resolver(decision).top5[0].nameRule, "edit");
+    assert.ok(resolver(decision).top5[0].editSimilarity >= 0.8);
+    assert.ok(resolver(decision).top5[0].editLead >= 0.25);
+  });
+
+  it("R1: a trailing (R) does not cost an exact read its match", async () => {
+    const { decision } = await resolveIn([{ id: 1, name: "Sleet Deal", trigram: 0.88 }, { id: 2, name: "Steal Deal", trigram: 0.5 }], {
+      shadeName: "Sleet Deal(R)",
+    });
+    assert.equal(decision.status, "matched");
+    assert.equal(decision.entityId, 1);
+    assert.equal(resolver(decision).nameRule, "edit");
+  });
+
+  it("R1: a name shorter than 5 characters is left to the trigram (no edit lift)", async () => {
+    const { decision } = await resolveIn([{ id: 1, name: "Ruby", trigram: 0.5 }, { id: 2, name: "Opal", trigram: 0.1 }], { shadeName: "Rubu" });
+    assert.notEqual(decision.status, "matched");
+    assert.equal(resolver(decision).audit.nameRules.edit, null);
+  });
+
+  it("R1: two close names (lead under 0.25) stay a question", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Purple Rain", trigram: 0.6 }, { id: 2, name: "Purple Reign", trigram: 0.6 }],
+      { shadeName: "Purple Rein" }
+    );
+    assert.equal(decision.status, "needs_question");
+    assert.deepEqual(decision.candidates.map((c) => c.shadeId).sort(), [1, 2]);
+  });
+
+  it("R1: an exact name wins although a longer name contains it", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Moonlight", trigram: 0.7 }, { id: 2, name: "Moonlight Sonata", trigram: 0.5 }],
+      { shadeName: "MOONLIGHT" }
+    );
+    assert.equal(decision.status, "matched");
+    assert.equal(decision.entityId, 1);
+  });
+
+  it("R1: an incomplete name never matches (the veto stays), even when it spells a shade", async () => {
+    const { decision } = await resolveIn([{ id: 1, name: "Party Fowl", trigram: 1 }], { shadeName: "Party Fowl", shadeNameIncomplete: true });
+    assert.equal(decision.status, "needs_question");
+    assert.equal(resolver(decision).audit.nameRules.edit, null, "R1 does not run on a cut-off name");
+  });
+
+  it("R1: a measured glass color beyond MEDIUM turns the edit match into a question", async () => {
+    const { decision } = await resolveIn([{ id: 1, name: "Party Fowl", trigram: 0.47, colorDistance: 0.2 }], {
+      shadeName: "Party Foul",
+      glassHex: "#B4004E",
+    });
+    assert.equal(decision.status, "needs_question");
+    assert.equal(decision.candidates[0].shadeId, 1);
+  });
+
+  it("R1: a shade with only a guessed (name_hex) color is matched: the SQL gives it no distance", async () => {
+    // BOTTLE_CANDIDATES_SQL returns colorDistance NULL for a name_hex-only shade (tested above).
+    const { decision } = await resolveIn([{ id: 1, name: "Party Fowl", trigram: 0.47, colorDistance: null }], {
+      shadeName: "Party Foul",
+      glassHex: "#B4004E",
+    });
+    assert.equal(decision.status, "matched");
+  });
+
+  it("R1: the winner outside the trigram top 50 is forced into the candidate query and matched", async () => {
+    const shades = [
+      ...Array.from({ length: 60 }, (_, i) => ({ id: 100 + i, name: `Glitter Bomb ${i}`, trigram: 0.3 })),
+      { id: 7, name: "The Purp", trigram: 0.2 },
+    ];
+    const { decision, calls } = await resolveIn(shades, { shadeName: "The Pulp" });
+    assert.deepEqual(calls.query[0].params[8], [7]);
+    assert.equal(decision.status, "matched");
+    assert.equal(decision.entityId, 7);
+  });
+
+  it("R1: a lift never outvotes another shade's own trigram name in the question band", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Party Fowl", trigram: 0.2 }, { id: 2, name: "Party Foul Play", trigram: 0.8 }],
+      { shadeName: "Party Foul" }
+    );
+    assert.notEqual(decision.status, "matched");
+  });
+
+  it("R1: the printed name is used, never the unverified pick", () => {
+    const entries = [{ shadeId: 1, name: "Sleet Deal" }, { shadeId: 2, name: "Street Deal" }];
+    const plan = planPoolNameLifts(baseEvidence({ shadeNamePick: "Sleet Deal" }), entries);
+    assert.equal(plan.lifts.size, 0);
+  });
+
+  it("R1: a generic label name (Nail Polish) is never matched by text, by the edit rule or the trigram", async () => {
+    const { decision } = await resolveIn([{ id: 1, name: "Nail Polish", trigram: 1 }, { id: 2, name: "Ocean Mist", trigram: 0.1 }], {
+      shadeName: "Nail Polish",
+    });
+    assert.notEqual(decision.status, "matched");
+  });
+
+  it("R1: two shades with the same normalised name are no decision (rankNames keeps only the first)", () => {
+    const entries = [{ shadeId: 1, name: "Snow Much Fun" }, { shadeId: 2, name: "Snow-Much Fun!" }, { shadeId: 3, name: "Blizzard" }];
+    const plan = planPoolNameLifts(baseEvidence({ shadeName: "Snow Much Fun" }), entries);
+    assert.equal(plan.lifts.size, 0);
+    assert.equal(plan.audit.edit.owners, 2);
+  });
+
+  // R4 aliases count as names.
+  it("R4: a retailer listing title (non-code alias) names its shade through R1 (rule alias)", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Sniff Test", aliases: ["Sniff Test PPU Exclusive"], trigram: 0.3 }, { id: 2, name: "Smell Check", trigram: 0.1 }],
+      { shadeName: "Sniff Test PPU Exclusive" }
+    );
+    assert.equal(decision.status, "matched");
+    assert.equal(decision.entityId, 1);
+    assert.equal(resolver(decision).nameRule, "alias");
+  });
+
+  // R2 — exact front name.
+  it("R2: a front name equal to exactly one shade's name matches (rule front_exact)", async () => {
+    const { decision } = await resolveIn([{ id: 1, name: "Hell Hath No Fury", frontScore: 1 }, { id: 2, name: "Fury Road" }], {
+      frontShadeName: "HELL HATH NO FURY",
+    });
+    assert.equal(decision.status, "matched");
+    assert.equal(decision.entityId, 1);
+    assert.equal(resolver(decision).nameRule, "front_exact");
+  });
+
+  it("R2: a front name two shades share (after normalisation) is no match", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Witchy Woman", frontScore: 1 }, { id: 2, name: "Witchy-Woman", frontScore: 0.9 }],
+      { frontShadeName: "Witchy Woman" }
+    );
+    assert.notEqual(decision.status, "matched");
+  });
+
+  it("R2: a front name shorter than 5 characters is no match", async () => {
+    const { decision } = await resolveIn([{ id: 1, name: "Jinx", frontScore: 1 }], { frontShadeName: "Jinx" });
+    assert.notEqual(decision.status, "matched");
+  });
+
+  it("R2: a bottom name that names another shade contradicts the front: question with both", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Witchy Woman", frontScore: 1, trigram: 0.1 }, { id: 2, name: "Moon Goddess", trigram: 0.95 }],
+      { frontShadeName: "Witchy Woman", shadeName: "Moon Goddess" }
+    );
+    assert.equal(decision.status, "needs_question");
+    assert.deepEqual(decision.candidates.map((c) => c.shadeId).sort(), [1, 2]);
+    assert.equal(resolver(decision).audit.nameRules.front.contradictedBy, 2);
+  });
+
+  it("R2: the color check still applies to a front match", async () => {
+    const { decision } = await resolveIn([{ id: 1, name: "Hell Hath No Fury", frontScore: 1, colorDistance: 0.3 }], {
+      frontShadeName: "Hell Hath No Fury",
+      glassHex: "#B4004E",
+    });
+    assert.equal(decision.status, "needs_question");
+  });
+
+  // R4 — vendor codes.
+  it("R4: a printed vendor code that names one pool shade matches (rule code)", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Big Apple Red", aliases: ["NLN25"] }, { id: 2, name: "Malaga Wine", aliases: ["NLL87"] }],
+      { shadeName: "NLN25" }
+    );
+    assert.equal(decision.status, "matched");
+    assert.equal(decision.entityId, 1);
+    assert.equal(resolver(decision).nameRule, "code");
+  });
+
+  it("R4: a code two shades share is no match by code", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Big Apple Red", aliases: ["2000344"] }, { id: 2, name: "Big Apple Red Mini", aliases: ["2000344"] }],
+      { frontShadeName: "2000344" }
+    );
+    assert.notEqual(decision.status, "matched");
+  });
+
+  it("R4: a code and a confident name of another shade give a question listing both", async () => {
+    const { decision } = await resolveIn(
+      [
+        { id: 1, name: "Big Apple Red", aliases: ["NLN25"], trigram: 0.1 },
+        { id: 2, name: "Malaga Wine", trigram: 1 },
+        { id: 3, name: "Other", trigram: 0.1 },
+      ],
+      { shadeName: "Malaga Wine", frontShadeName: "NLN25" }
+    );
+    assert.equal(decision.status, "needs_question");
+    assert.deepEqual(decision.candidates.map((c) => c.shadeId).slice(0, 2).sort(), [1, 2]);
+  });
+
+  it("R4: a code and an edit-rule name of another shade give a question listing both", async () => {
+    const { decision } = await resolveIn(
+      [{ id: 1, name: "Big Apple Red", aliases: ["NLN25"] }, { id: 2, name: "Party Fowl", trigram: 0.47 }],
+      { shadeName: "Party Foul", frontShadeName: "NLN25" }
+    );
+    assert.equal(decision.status, "needs_question");
+    assert.deepEqual(decision.candidates.map((c) => c.shadeId).sort(), [1, 2]);
+  });
+
+  it("vendorCodeTokens keeps code-shaped tokens of each text", () => {
+    assert.deepEqual(vendorCodeTokens(["OPI NLF008 Matte", null, "No. 2000344"]).sort(), ["2000344", "NLF008"]);
+    assert.deepEqual(vendorCodeTokens(["Snow Much Fun"]), []);
+  });
+
+  // Visibility.
+  it("the pool names and aliases query has the pool's visibility rules (never another user's private, merged or excluded shade)", () => {
+    const sql = BOTTLE_POOL_NAMES_SQL.replace(/\s+/g, " ");
+    assert.match(sql, /s\.brand_id = ANY\(\$1::bigint\[\]\)/);
+    assert.match(sql, /s\.merged_into_shade_id IS NULL/);
+    assert.match(sql, /s\.product_category IN \('color', 'topper', 'top_coat', 'base_coat', 'treatment'\)/);
+    assert.match(sql, /\(s\.status = 'active' OR \(s\.status = 'user_submitted' AND s\.created_by_user_id = \$2\)\)/);
+    assert.ok(!/status = 'excluded'/.test(sql));
+    assert.match(sql, /LEFT JOIN shade_alias a ON a\.shade_id = s\.shade_id/);
+    assert.ok(!/LIMIT/.test(sql), "the edit rule must see every competitor");
+  });
+
+  it("the names query binds the brands and the caller", async () => {
+    const { calls } = await resolveIn([{ id: 1, name: "A" }], { shadeName: "Something" });
+    assert.deepEqual(calls.names[0].params, [[3], USER]);
+  });
+
+  it("a shade the visible pool does not return is never matched through a name or an alias", async () => {
+    // Another user's private shade carrying the exact name: the SQL leaves it out, so only visible shades compete.
+    const { decision } = await resolveIn([{ id: 2, name: "Moon Goddess", trigram: 0.3 }], { shadeName: "Private Name Exactly" });
+    assert.notEqual(decision.status, "matched");
+  });
+
+  // R3 — no brand pool.
+  const g = (shadeId, brand, shadeName, confidence) => ({
+    entityType: "shade", entityId: shadeId, shadeId, display: `${brand} — ${shadeName}`, confidence, shadeName,
+  });
+
+  it("R3: a distinctive, complete, unique name one letter off matches across brands (rule brandless_edit)", async () => {
+    const { deps } = recorder({ global: [g(1, "Mooncat", "Matte Made in Hell", 0.86), g(2, "Zoya", "Made in Heaven", 0.3)] });
+    const decision = await resolveBottle(baseEvidence({ shadeName: "Matte Made in Hel" }), ctx(), deps);
+    assert.equal(decision.status, "matched");
+    assert.equal(decision.entityId, 1);
+    assert.equal(resolver(decision).nameRule, "brandless_edit");
+  });
+
+  it("R3: a name two brands share stays a question", async () => {
+    const { deps } = recorder({ global: [g(1, "KBShimmer", "Snow Much Fun", 1), g(2, "Starrily", "Snow Much Fun", 1)] });
+    const decision = await resolveBottle(baseEvidence({ shadeName: "Snow Much Fun" }), ctx(), deps);
+    assert.equal(decision.status, "needs_question");
+    assert.equal(resolver(decision).audit.nameRules.brandlessShared, true);
+  });
+
+  it("R3: a single word never matches without a brand", async () => {
+    const { deps } = recorder({ global: [g(1, "Zoya", "Hallucinations", 0.9)] });
+    const decision = await resolveBottle(baseEvidence({ shadeName: "Hallucination" }), ctx(), deps);
+    assert.notEqual(decision.status, "matched");
+  });
+
+  it("R3: an incomplete name or a lead under 0.2 is no decision", () => {
+    const candidates = [{ shadeId: 1, shadeName: "Lilac Dreams" }, { shadeId: 2, shadeName: "Lilac Dream" }];
+    assert.equal(planBrandlessLift(baseEvidence({ shadeName: "Lilac Dreams" }), candidates), null, "lead 0.08");
+    assert.equal(planBrandlessLift(baseEvidence({ shadeName: "The Gift of Divinity", shadeNameIncomplete: true }), [candidates[0]]), null);
+    assert.ok(planBrandlessLift(baseEvidence({ shadeName: "The Gift of Divinity" }), [{ shadeId: 1, shadeName: "The Gift of Divinity" }]));
+  });
+
+  it("R3: a brand read that did not resolve is not a filter; a typed brand is", async () => {
+    const rec = recorder({ global: [] });
+    await resolveBottle(
+      baseEvidence({ brand: "(logo)", brandSource: "read", shadeName: "Matte Made in Hell", brandRead: { text: "(logo)", confidence: 0.36, source: "pipeline" } }),
+      ctx(),
+      rec.deps
+    );
+    assert.equal(rec.calls.global[0].brand, undefined);
+    const typed = recorder({ global: [] });
+    await resolveBottle(baseEvidence({ brand: "loud", brandSource: "hint", shadeName: "Zzz" }), ctx({ hintBrand: { brandId: null, name: "loud", source: "hint" } }), typed.deps);
+    assert.equal(typed.calls.global[0].brand, "loud");
+  });
+
+  it("R3: a confident read of a brand the catalog lacks turns a cross-brand name match into a question", async () => {
+    // Bottle eval 2026-11-11, sample 43: "The Foxglove King" (a collection name, 0.9) read as the brand.
+    const global = [g(1, "Bee's Knees Lacquer", "The Gift of Divinity", 1)];
+    const read = (confidence) =>
+      baseEvidence({ brand: "The Foxglove King", brandSource: "read", shadeName: "The Gift of Divinity", brandRead: { text: "The Foxglove King", confidence, source: "pipeline" } });
+    const asked = await resolveBottle(read(0.9), ctx(), recorder({ global }).deps);
+    assert.equal(asked.status, "needs_question");
+    assert.equal(asked.candidates[0].shadeId, 1);
+    const weak = await resolveBottle(read(0.36), ctx(), recorder({ global }).deps);
+    assert.equal(weak.status, "matched", "an unconfident read is no evidence against the name");
+  });
+
+  it("the global candidates query has the pool's visibility rules and binds the caller", async () => {
+    const sql = BOTTLE_GLOBAL_CANDIDATES_SQL.replace(/\s+/g, " ");
+    assert.match(sql, /s\.merged_into_shade_id IS NULL/);
+    assert.match(sql, /s\.product_category IN \('color', 'topper', 'top_coat', 'base_coat', 'treatment'\)/);
+    assert.match(sql, /\(s\.status = 'active' OR \(s\.status = 'user_submitted' AND s\.created_by_user_id = \$2\)\)/);
+    assert.match(sql, /\$3::text IS NULL OR b\.name_canonical ILIKE \$3::text/);
+    assert.match(sql, /LIMIT 10/);
+    const calls = [];
+    const db = { query: async (text, params) => (calls.push({ text, params }), { rows: [{ shadeId: "4", brand: "Zoya", shadeName: "Austin", score: 0.5 }] }) };
+    const got = await loadBottleGlobalCandidates(baseEvidence({ shadeName: "Austin" }), USER, db);
+    assert.deepEqual(calls[0].params, ["Austin", USER, null]);
+    assert.deepEqual(got, [{ entityType: "shade", entityId: 4, shadeId: 4, display: "Zoya — Austin", confidence: 0.5, shadeName: "Austin" }]);
+    assert.deepEqual(await loadBottleGlobalCandidates(baseEvidence(), USER, db), []);
   });
 });

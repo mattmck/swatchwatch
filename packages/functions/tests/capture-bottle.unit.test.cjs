@@ -193,6 +193,12 @@ async function fakeQuery(via, sql, params = []) {
     return { rows, rowCount: rows.length };
   }
 
+  if (/LEFT JOIN shade_alias/i.test(norm)) {
+    // The pool's names and aliases for the bottle resolver's name rules.
+    const rows = state.poolNames ?? [];
+    return { rows, rowCount: rows.length };
+  }
+
   if (/s\.brand_id = ANY\(\$1::bigint\[\]\)/i.test(norm) && /FROM shade s/i.test(norm)) {
     return { rows: state.bottleCandidates, rowCount: state.bottleCandidates.length };
   }
@@ -620,7 +626,7 @@ describe("functions/capture — nextFrame after a frame", () => {
     assert.deepEqual(patch.bottle.brand, LOUD_HINT, "the jsonb || merge must not drop the brand");
     assert.deepEqual(patch.bottle.lastNextFrame, res.jsonBody.nextFrame);
     assert.equal(patch.bottle.lastRejected, null);
-    assert.equal(patch.resolver.version, "bottle-v1");
+    assert.equal(patch.resolver.version, "bottle-v2");
     assert.deepEqual(surfaceEvents(), [
       { captureId: CAPTURE_UUID, surface: "bottom", frameType: "label", skipped: false, extracted: true },
     ]);
