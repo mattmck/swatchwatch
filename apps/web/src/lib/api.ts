@@ -29,6 +29,14 @@ import type {
   AdminUserListResponse,
   AdminUserMergeRequest,
   AdminUserMergeResponse,
+  AdminSourceListResponse,
+  AdminSourceDetailResponse,
+  AdminSourcePermissionRequest,
+  AdminSourceEnabledRequest,
+  AdminBrandListResponse,
+  AdminBrandCreateRequest,
+  AdminBrandCreateResponse,
+  AdminBrandProfileRequest,
   AdminUserUpdateRequest,
   ShadeReviewActionResponse,
   ShadeReviewApproveRequest,
@@ -1078,6 +1086,79 @@ export async function mergeAdminUsers(
     body: JSON.stringify(data),
   });
   return handleResponse<AdminUserMergeResponse>(response);
+}
+
+/** Admin Sources tab: every data source with its permission and last job (`GET /api/sources-admin`). */
+export async function listAdminSources(): Promise<AdminSourceListResponse> {
+  const response = await fetch(`${API_BASE_URL}/sources-admin`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<AdminSourceListResponse>(response);
+}
+
+/** One source with its notes and change history (`GET /api/sources-admin/{id}`). */
+export async function getAdminSource(id: number): Promise<AdminSourceDetailResponse> {
+  const response = await fetch(`${API_BASE_URL}/sources-admin/${id}`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<AdminSourceDetailResponse>(response);
+}
+
+/** Record a store's permission step (`PUT /api/sources-admin/{id}/permission`); audited server-side. */
+export async function updateAdminSourcePermission(
+  id: number,
+  data: AdminSourcePermissionRequest
+): Promise<AdminSourceDetailResponse> {
+  const response = await fetch(`${API_BASE_URL}/sources-admin/${id}/permission`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<AdminSourceDetailResponse>(response);
+}
+
+/** Turn a source on or off (`PUT /api/sources-admin/{id}/enabled`); 409 `permission_required` without an OK or `override`. */
+export async function setAdminSourceEnabled(
+  id: number,
+  data: AdminSourceEnabledRequest
+): Promise<AdminSourceDetailResponse> {
+  const response = await fetch(`${API_BASE_URL}/sources-admin/${id}/enabled`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<AdminSourceDetailResponse>(response);
+}
+
+/** Admin Sources tab: brands with shade counts, stores and ingest profile (`GET /api/brands-admin`). */
+export async function listAdminBrands(): Promise<AdminBrandListResponse> {
+  const response = await fetch(`${API_BASE_URL}/brands-admin`, {
+    headers: await getAuthHeaders({ admin: true }),
+  });
+  return handleResponse<AdminBrandListResponse>(response);
+}
+
+/** Add a brand (`POST /api/brands-admin`); 409 `brand_exists` carries the existing `brandId` in the error body. */
+export async function createAdminBrand(data: AdminBrandCreateRequest): Promise<AdminBrandCreateResponse> {
+  const response = await fetch(`${API_BASE_URL}/brands-admin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<AdminBrandCreateResponse>(response);
+}
+
+/** Edit a brand's ingest profile (`PUT /api/brands-admin/{id}/profile`). */
+export async function updateAdminBrandProfile(
+  id: number,
+  data: AdminBrandProfileRequest
+): Promise<AdminBrandCreateResponse> {
+  const response = await fetch(`${API_BASE_URL}/brands-admin/${id}/profile`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...await getAuthHeaders({ admin: true }) },
+    body: JSON.stringify(data),
+  });
+  return handleResponse<AdminBrandCreateResponse>(response);
 }
 
 /** Admin Hex Labeling queue (`GET /api/hex-labels-admin/queue`). */

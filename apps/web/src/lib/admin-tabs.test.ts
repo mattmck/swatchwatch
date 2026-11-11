@@ -20,6 +20,10 @@ describe("getTabFromQuery", () => {
     assert.equal(getTabFromQuery("review-queue"), "review-queue");
   });
 
+  it("recognizes the sources tab", () => {
+    assert.equal(getTabFromQuery("sources"), "sources");
+  });
+
   it("recognizes the backfills tab", () => {
     assert.equal(getTabFromQuery("backfills"), "backfills");
   });
