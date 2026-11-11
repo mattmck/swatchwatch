@@ -257,9 +257,16 @@ const listQueries = (brandRows = [brandRow()]) =>
   });
 
 describe("functions/brands-admin", () => {
+  it("no two registered routes share a route string", () => {
+    const routes = Object.values(registeredRoutes).map((r) => r.route);
+    assert.equal(new Set(routes).size, routes.length);
+    assert.equal(registeredRoutes["brands-admin-create"], undefined);
+    assert.deepEqual(registeredRoutes["brands-admin-list"].methods, ["GET", "POST", "OPTIONS"]);
+  });
+
   for (const [route, method, params] of [
     ["brands-admin-list", "GET", {}],
-    ["brands-admin-create", "POST", {}],
+    ["brands-admin-list", "POST", {}],
     ["brands-admin-profile", "PUT", { id: "1" }],
   ]) {
     it(`${route}: a regular user gets 403 and nothing runs`, async () => {
@@ -284,7 +291,7 @@ describe("functions/brands-admin", () => {
   it("POST with a name that matches an existing brand or alias is 409 and inserts nothing", async () => {
     queryMock = listQueries();
     const statements = txRecorder((sql) => (/lower\(/.test(sql) ? { rows: [{ brandId: "7" }] } : null));
-    const res = await call("brands-admin-create", { method: "POST", body: { name: " i  LNP " } });
+    const res = await call("brands-admin-list", { method: "POST", body: { name: " i  LNP " } });
     assert.equal(res.status, 409);
     assert.deepEqual(res.jsonBody, { code: "brand_exists", brandId: 7 });
     assert.equal(statements.length, 1);
@@ -301,7 +308,7 @@ describe("functions/brands-admin", () => {
       if (/INSERT INTO brand \(/.test(sql)) return { rows: [{ brandId: "9" }] };
       return null;
     });
-    const res = await call("brands-admin-create", {
+    const res = await call("brands-admin-list", {
       method: "POST",
       body: { name: "New  Brand", profile: { websiteUrl: "https://nb.example", platform: "custom" } },
     });
@@ -329,12 +336,12 @@ describe("functions/brands-admin", () => {
       if (/INSERT INTO brand \(/.test(sql)) return { rows: [{ brandId: "9" }] };
       return null;
     });
-    assert.equal((await call("brands-admin-create", { method: "POST", body: { name: "Plain" } })).status, 201);
+    assert.equal((await call("brands-admin-list", { method: "POST", body: { name: "Plain" } })).status, 201);
     assert.equal(statements.some((s) => /brand_ingest_profile/.test(s.sql)), false);
-    assert.equal((await call("brands-admin-create", { method: "POST", body: { name: "   " } })).status, 400);
-    assert.equal((await call("brands-admin-create", { method: "POST", body: {} })).status, 400);
+    assert.equal((await call("brands-admin-list", { method: "POST", body: { name: "   " } })).status, 400);
+    assert.equal((await call("brands-admin-list", { method: "POST", body: {} })).status, 400);
     assert.equal(
-      (await call("brands-admin-create", { method: "POST", body: { name: "x", profile: { platform: "nope" } } })).status,
+      (await call("brands-admin-list", { method: "POST", body: { name: "x", profile: { platform: "nope" } } })).status,
       400
     );
   });

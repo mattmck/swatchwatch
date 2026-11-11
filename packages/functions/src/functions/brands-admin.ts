@@ -257,18 +257,13 @@ async function updateProfile(
 }
 
 app.http("brands-admin-list", {
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  route: "brands-admin",
-  handler: withCors(withAdmin(async (_request, context) => listBrands(context))),
-});
-
-app.http("brands-admin-create", {
-  methods: ["POST", "OPTIONS"],
+  methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
   route: "brands-admin",
   handler: withCors(
-    withAdmin(async (request, context, adminUserId) => createBrand(request, context, adminUserId))
+    withAdmin(async (request, context, adminUserId) =>
+      request.method === "POST" ? createBrand(request, context, adminUserId) : listBrands(context)
+    )
   ),
 });
 
