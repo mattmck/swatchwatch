@@ -72,6 +72,15 @@ const ACTION_LABELS: Record<AdminAuditEvent["action"], string> = {
   // Shade actions (#321) have no target user, so they never appear in a user's history.
   "shade.vendor_hex_promote": "Promoted a hex label to a vendor hex",
   "shade.vendor_hex_demote": "Undid a vendor hex promotion",
+  "shade.catalog_merge": "Merged a catalog shade",
+  "shade.catalog_delete": "Deleted a catalog shade",
+  // Source and brand actions have no target user either.
+  "data_source.permission": "Recorded a source permission",
+  "data_source.enable": "Turned a source on",
+  "data_source.disable": "Turned a source off",
+  "data_source.images": "Changed a source's image permission",
+  "brand.create": "Added a brand",
+  "brand.profile_update": "Updated a brand profile",
 };
 
 function formatValue(value: unknown): string {

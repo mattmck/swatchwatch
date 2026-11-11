@@ -21,6 +21,7 @@ import { HexLabelingTab } from "./reference-data/components/hex-labeling-tab";
 import { JobsTab } from "./reference-data/components/jobs-tab";
 import { ProductCategoryPanel } from "./reference-data/components/product-category-panel";
 import { ReviewQueueTab } from "./reference-data/components/review-queue-tab";
+import { SourcesTab } from "./reference-data/components/sources/sources-tab";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
 const HAS_B2C_CONFIG = buildMsalConfig() !== null;
@@ -86,7 +87,7 @@ function AdminContent() {
         <CardHeader>
           <CardTitle>Admin Console</CardTitle>
           <CardDescription>
-            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, User Management searches, edits, suspends and merges user accounts, Review Queue approves, merges, or rejects user-submitted shades, Hex Labeling builds ground-truth colours for the hex-detection eval, Bottle Eval photographs labeled bottles as private samples for bottle recognition, and Backfills runs the catalog backfills in batches.
+            Configuration manages reference data, Job Runs lists recent reference-data jobs, Admin Jobs controls ingestion, Sources records the permission of each store and turns ingestion sources on and off, User Management searches, edits, suspends and merges user accounts, Review Queue approves, merges, or rejects user-submitted shades, Hex Labeling builds ground-truth colours for the hex-detection eval, Bottle Eval photographs labeled bottles as private samples for bottle recognition, and Backfills runs the catalog backfills in batches.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -141,6 +142,15 @@ function AdminTabs() {
           )}
         >
           Admin Jobs
+        </TabsPrimitive.Trigger>
+        <TabsPrimitive.Trigger
+          value="sources"
+          className={cn(
+            "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
+            "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+          )}
+        >
+          Sources
         </TabsPrimitive.Trigger>
         <TabsPrimitive.Trigger
           value="users"
@@ -199,6 +209,10 @@ function AdminTabs() {
 
       <TabsPrimitive.Content value="admin-jobs" className="outline-none">
         <AdminJobsContent />
+      </TabsPrimitive.Content>
+
+      <TabsPrimitive.Content value="sources" className="outline-none">
+        <SourcesTab />
       </TabsPrimitive.Content>
 
       <TabsPrimitive.Content value="users" className="outline-none">
