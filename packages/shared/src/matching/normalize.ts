@@ -5,13 +5,14 @@
  */
 
 /**
- * Collapse printed or catalog text to a comparison key: NFKD, lower-case, `&` → `and`,
- * `²` → `2`, `(R)` `(TM)` `(C)` and `® ™ ©` dropped, apostrophes dropped, and everything that is
- * not `a-z0-9` removed (so accents, spaces and punctuation never matter).
+ * Collapse printed or catalog text to a comparison key: `® ™ © ℠` dropped, NFKD, lower-case,
+ * `&` → `and`, `²` → `2`, `(R)` `(TM)` `(C)` dropped, apostrophes dropped, and everything that is
+ * not `a-z0-9` removed (so accents, spaces and punctuation never matter). The marks go before
+ * NFKD because it would spell `™` out as the letters "TM".
  */
 export function normalizeMatchText(text: string): string {
-  let s = (text ?? "").normalize("NFKD").toLowerCase().replace(/&/g, " and ").replace(/²/g, "2");
-  s = s.replace(/\((?:r|tm|c)\)|[®™©]/g, "");
+  let s = (text ?? "").replace(/[®™©℠]/g, "").normalize("NFKD").toLowerCase().replace(/&/g, " and ").replace(/²/g, "2");
+  s = s.replace(/\((?:r|tm|c)\)/g, "");
   s = s.replace(/[’'`]/g, "");
   return s.replace(/[^a-z0-9]+/g, "");
 }

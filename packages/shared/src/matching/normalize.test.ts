@@ -7,6 +7,8 @@ describe("normalizeMatchText", () => {
     assert.equal(normalizeMatchText("Don’t Be Koi"), "dontbekoi");
     assert.equal(normalizeMatchText("Don't Be Koi"), "dontbekoi");
     assert.equal(normalizeMatchText("Suzi Takes A Sound Bath®"), "suzitakesasoundbath");
+    assert.equal(normalizeMatchText("Glass Candy™ Top Coat"), "glasscandytopcoat");
+    assert.equal(normalizeMatchText("Harry Potter℠ Lumos (TM)"), "harrypotterlumos");
   });
   it("maps superscript two, ampersand and strips accents", () => {
     assert.equal(normalizeMatchText("H²O"), "h2o");
