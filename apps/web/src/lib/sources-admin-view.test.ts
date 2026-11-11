@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { AdminBrandListItem, AdminSourceListItem } from "swatchwatch-shared";
-import { filterBrands, filterSites, sortBrands, sortSites } from "./sources-admin-view";
+import { filterBrands, filterSites, historyDetail, sortBrands, sortSites } from "./sources-admin-view";
 import { DEFAULT_SOURCES_ADMIN_STATE, type SourcesAdminState } from "./sources-admin-url";
 
 const state = (o: Partial<SourcesAdminState>): SourcesAdminState => ({ ...DEFAULT_SOURCES_ADMIN_STATE, ...o });
@@ -89,5 +89,28 @@ describe("sortBrands", () => {
     assert.deepEqual(sortBrands(items, "shades", "desc").map((i) => i.brandId), [2, 1, 3]);
     assert.deepEqual(sortBrands(items, "blocker", "desc").map((i) => i.brandId), [1, 2, 3]);
     assert.deepEqual(sortBrands(items, "ownStore", "asc").map((i) => i.brandId), [3, 2, 1]);
+  });
+});
+
+describe("historyDetail", () => {
+  it("is empty without an override or a status change", () => {
+    assert.equal(historyDetail({}), "");
+    assert.equal(historyDetail({ enabled: { from: false, to: true } }), "");
+    assert.equal(
+      historyDetail({ permission: { from: { status: "asked", askedAt: "a" }, to: { status: "asked", askedAt: "b" } } }),
+      "",
+    );
+  });
+
+  it("shows the override and the permission status change", () => {
+    assert.equal(historyDetail({ override: true, permissionStatus: "asked" }), ": turned on without an OK");
+    assert.equal(
+      historyDetail({ permission: { from: null, to: { status: "granted" } } }),
+      ": permission none → granted",
+    );
+    assert.equal(
+      historyDetail({ override: true, permission: { from: { status: "asked" }, to: { status: "declined" } } }),
+      ": turned on without an OK, permission asked → declined",
+    );
   });
 });

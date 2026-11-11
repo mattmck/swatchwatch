@@ -80,6 +80,7 @@ export type AdminSourcePermissionRequest =
       imagesGranted: boolean;
     }
   | { action: "declined"; decidedAt: string; channel: SourcePermissionChannel; summary?: string }
+  | { action: "not_needed"; checkedAt: string; summary?: string }
   | { action: "images"; imagesGranted: boolean };
 
 export interface AdminSourceEnabledRequest {
@@ -100,9 +101,9 @@ export const BRAND_PLATFORMS = [
 export type BrandPlatform = (typeof BRAND_PLATFORMS)[number];
 
 export const BRAND_BLOCKER_PRESETS = [
-  "Custom site, no products feed",
-  "Cloudflare blocks automated access",
-  "No official store",
+  "Custom site (Laravel), no products feed",
+  "WooCommerce behind Cloudflare, which answers 403 to automated requests",
+  "No official store; carried by Beyond Polish and Sleek Nail",
 ] as const;
 
 export interface BrandIngestProfile {
@@ -120,7 +121,7 @@ export interface AdminBrandSourceRef {
   kind: AdminSourceKind;
   enabled: boolean;
   permissionStatus: SourcePermissionStatus;
-  link: "explicit" | "metadata" | "listings";
+  link: "explicit" | "metadata" | "name" | "listings";
 }
 
 export type BrandSupply = "own" | "retailer" | "both" | "none";

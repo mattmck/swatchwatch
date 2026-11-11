@@ -35,7 +35,13 @@ for (const [id, exports] of Object.entries(mockModules)) {
   require.cache[id] = { id, filename: id, loaded: true, exports };
 }
 
-const { buildBrandList, normalizeBrandName, parseBrandProfileRequest } = require("../dist/lib/brands-admin");
+const {
+  BRAND_DUPLICATE_SQL,
+  brandsAdminBrandsSql,
+  buildBrandList,
+  normalizeBrandName,
+  parseBrandProfileRequest,
+} = require("../dist/lib/brands-admin");
 require("../dist/functions/brands-admin");
 
 after(() => {
@@ -97,24 +103,70 @@ describe("buildBrandList", () => {
   });
 
   it("matches metadata.brand case-insensitively, also by alias", () => {
-    const sources = [brandSource(5, "IlnpWooCommerce", { brand: "  ilnp " }), brandSource(6, "OtherBigCartel", { brand: "I L N P" })];
-    const [byName] = buildBrandList({ brands: [brandRow()], sources, links: [] });
+    const sources = [brandSource(5, "IlnpWooCommerce", { brand: "  ilnp " }), brandSource(6, "PaintedPolishBigCartel", { brand: "I L N P" })];
+    const [byName] = buildBrandList({ brands: [brandRow({ name: "ILNP" })], sources: [sources[0], brandSource(9, "HypnoticPolishShopify", { brand: "Zed" })], links: [] });
     assert.deepEqual(byName.ownStores.map((s) => [s.dataSourceId, s.link]), [[5, "metadata"]]);
     const [byAlias] = buildBrandList({ brands: [brandRow({ aliases: ["i  l n p"] })], sources, links: [] });
     assert.deepEqual(byAlias.ownStores.map((s) => s.dataSourceId).sort(), [5, 6]);
   });
 
-  it("a brand-kind source with live listings is an own store; metadata beats listings", () => {
+  it("links a brand-kind source by its display name, ignoring punctuation and case", () => {
+    const [item] = buildBrandList({
+      brands: [brandRow({ name: "Bee's Knees Lacquer" })],
+      sources: [brandSource(5, "BeesKneesLacquerShopify")],
+      links: [],
+    });
+    assert.deepEqual(item.ownStores.map((s) => [s.dataSourceId, s.link, s.displayName]), [[5, "name", "Bees Knees Lacquer"]]);
+    const [byAlias] = buildBrandList({
+      brands: [brandRow({ name: "Bee's Knees", aliases: ["Bees Knees Lacquer"] })],
+      sources: [brandSource(5, "BeesKneesLacquerShopify")],
+      links: [],
+    });
+    assert.equal(byAlias.ownStores[0].link, "name");
+  });
+
+  it("metadata.brand names the source and beats the name link; explicit beats both", () => {
+    const [item] = buildBrandList({
+      brands: [brandRow({ hasProfile: true, ownDataSourceId: 6 })],
+      sources: [brandSource(5, "MooncatShopify", { brand: "ILNP" }), brandSource(6, "IlnpWooCommerce"), brandSource(7, "HypnoticPolishShopify", { brand: "Zed" })],
+      links: [],
+    });
+    assert.deepEqual(item.ownStores.map((s) => [s.dataSourceId, s.link]), [[6, "explicit"], [5, "metadata"]]);
+    assert.equal(item.ownStores[1].displayName, "ILNP");
+  });
+
+  it("a brand-kind source with listings on the brand's shades is not an own store without a name link", () => {
     const [item] = buildBrandList({
       brands: [brandRow()],
-      sources: [brandSource(5, "AShopify", { brand: "ILNP" }), brandSource(6, "BShopify")],
+      sources: [brandSource(5, "MooncatShopify"), brandSource(6, "HypnoticPolishShopify")],
       links: [{ brandId: 1, dataSourceId: 5 }, { brandId: 1, dataSourceId: 6 }],
     });
-    assert.deepEqual(item.ownStores.map((s) => [s.dataSourceId, s.link]), [[5, "metadata"], [6, "listings"]]);
+    assert.equal(item.ownStores.length, 0);
+    assert.equal(item.retailers.length, 0);
+    assert.equal(item.supply, "none");
+  });
+
+  it("open-data sources are neither own stores nor retailers", () => {
+    const [item] = buildBrandList({
+      brands: [brandRow({ name: "Makeup Api" })],
+      sources: [brandSource(5, "MakeupAPI"), brandSource(6, "OpenBeautyFacts", { kind: "retailer" })],
+      links: [{ brandId: 1, dataSourceId: 5 }, { brandId: 1, dataSourceId: 6 }],
+    });
+    assert.equal(item.ownStores.length, 0);
+    assert.equal(item.retailers.length, 0);
+  });
+
+  it("an open-data explicit store derives not_needed", () => {
+    const [item] = buildBrandList({
+      brands: [brandRow({ hasProfile: true, ownDataSourceId: 5 })],
+      sources: [brandSource(5, "MakeupAPI")],
+      links: [],
+    });
+    assert.equal(item.ownStores[0].permissionStatus, "not_needed");
   });
 
   it("retailer-only brand is retailer; feeds count; nothing is none", () => {
-    const sources = [brandSource(7, "ShopRetailerShopify", { kind: "retailer" }), brandSource(8, "SomeFeed", { kind: "feed" })];
+    const sources = [brandSource(7, "HarlowAndCoShopify", { kind: "retailer" }), brandSource(8, "BeyondPolishShopify", { kind: "feed" })];
     const [retail] = buildBrandList({
       brands: [brandRow()],
       sources,
@@ -128,7 +180,7 @@ describe("buildBrandList", () => {
   });
 
   it("both when an own store and a retailer exist; explicit retailer-kind source counts as own", () => {
-    const sources = [brandSource(5, "AShopify", { brand: "ILNP" }), brandSource(7, "ShopRetailerShopify", { kind: "retailer" })];
+    const sources = [brandSource(5, "MooncatShopify", { brand: "ILNP" }), brandSource(7, "HarlowAndCoShopify", { kind: "retailer" })];
     const [both] = buildBrandList({ brands: [brandRow()], sources, links: [{ brandId: 1, dataSourceId: 7 }] });
     assert.equal(both.supply, "both");
     const [explicit] = buildBrandList({
@@ -150,6 +202,19 @@ describe("buildBrandList", () => {
     assert.equal(item.otherShades, 3);
     assert.equal(item.latestIngestAt, "2026-11-10");
     assert.equal(item.profile.platform, "custom");
+  });
+});
+
+describe("brands admin SQL", () => {
+  it("duplicate lookup ranks a canonical-name match before an alias match, then brand id", () => {
+    assert.match(BRAND_DUPLICATE_SQL, /ORDER BY m\.rank, m\."brandId"/);
+    assert.match(BRAND_DUPLICATE_SQL, /UNION ALL/);
+  });
+
+  it("timestamps are ISO-8601 UTC text", () => {
+    const sql = brandsAdminBrandsSql(false);
+    assert.match(sql, /to_char\(max\(ssp\.last_seen_at\) AT TIME ZONE 'UTC'/);
+    assert.match(sql, /to_char\(bip\.updated_at AT TIME ZONE 'UTC'/);
   });
 });
 

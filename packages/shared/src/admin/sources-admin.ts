@@ -14,6 +14,8 @@ export const SOURCE_RUN_DEFAULTS: Omit<IngestionJobRunRequest, "source"> = {
   materializeToInventory: true,
   detectHexFromImage: true,
   overwriteDetectedHex: false,
+  page: 1,
+  pageSize: 100,
 };
 
 export function isPermissionOk(status: SourcePermissionStatus): boolean {
@@ -74,6 +76,8 @@ export function deriveSourcePermission(input: {
   metadata: Record<string, unknown> | null;
   enabled: boolean;
   fetchable: boolean;
+  /** Source kind; decides the images default of a derived grant (default "brand"). */
+  kind?: "brand" | "retailer" | "feed";
 }): { permission: SourcePermission; stored: boolean } {
   if (!input.fetchable) return { permission: { status: "not_needed" }, stored: false };
   const metadata = input.metadata ?? {};
@@ -88,7 +92,8 @@ export function deriveSourcePermission(input: {
       permission: {
         status: "granted",
         summary: written,
-        imagesGranted: typeof metadata.imagesPermitted === "boolean" ? metadata.imagesPermitted : true,
+        imagesGranted:
+          typeof metadata.imagesPermitted === "boolean" ? metadata.imagesPermitted : (input.kind ?? "brand") === "brand",
       },
       stored: false,
     };

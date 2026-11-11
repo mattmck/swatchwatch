@@ -44,6 +44,18 @@ describe("sources admin migration", () => {
     assert.deepEqual(quotedList(SCHEMA, anchor).sort(), expected);
   });
 
+  it("records the four known grants, each marked recordedByMigration and guarded", () => {
+    for (const name of ["MooncatShopify", "CupcakePolishShopify", "EmilyDeMollyShopify", "CirqueColorsShopify"]) {
+      assert.ok(UP.includes(`'${name}'`), `missing ${name}`);
+    }
+    assert.equal(UP.match(/NOT \(metadata \? 'permission'\)/g).length, 2);
+    assert.equal(UP.match(/'recordedByMigration', '20261111120000000'/g).length, 2);
+    assert.ok(UP.includes("'decidedAt', '2026-10-19'"));
+    assert.ok(UP.includes("Acceptable use confirmed and signed off on 2026-10-19 (see notes)"));
+    const down = MIGRATION.split("-- Down Migration")[1];
+    assert.ok(down.includes("recordedByMigration"));
+  });
+
   it("seeds the three known blockers and the Mooncat / Cupcake grants", () => {
     for (const needle of [
       "'ILNP'",

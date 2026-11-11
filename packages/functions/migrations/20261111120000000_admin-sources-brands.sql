@@ -10,7 +10,8 @@
 --   shade correction (PR #508, migration 20261110150000000), so the two migrations agree whichever
 --   lands first.
 -- * Seeds the three brands known to have no ingestible store (ILNP, KBShimmer, I Scream Nails) and
---   records the OKs already in the owner's notes for Mooncat and Cupcake Polish as
+--   records the OKs already in the owner's notes for Mooncat and Cupcake Polish (2026-11-11) and
+--   Emily de Molly and Cirque Colors (signed off 2026-10-19) as
 --   `metadata.permission`, marked `recordedByMigration` so the Down removes only those.
 
 BEGIN;
@@ -66,6 +67,19 @@ SET metadata = metadata || jsonb_build_object(
   )
 )
 WHERE name IN ('MooncatShopify', 'CupcakePolishShopify')
+  AND NOT (metadata ? 'permission');
+
+UPDATE data_source
+SET metadata = metadata || jsonb_build_object(
+  'permission', jsonb_build_object(
+    'status', 'granted',
+    'summary', 'Acceptable use confirmed and signed off on 2026-10-19 (see notes)',
+    'decidedAt', '2026-10-19',
+    'imagesGranted', COALESCE((metadata ->> 'imagesPermitted')::boolean, true),
+    'recordedByMigration', '20261111120000000'
+  )
+)
+WHERE name IN ('EmilyDeMollyShopify', 'CirqueColorsShopify')
   AND NOT (metadata ? 'permission');
 
 COMMIT;

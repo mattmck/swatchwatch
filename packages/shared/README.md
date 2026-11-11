@@ -315,7 +315,7 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `BRAND_PLATFORMS` / `BrandPlatform` | `shopify \| woocommerce \| bigcartel \| custom \| feed \| none \| unknown` |
 | `BRAND_BLOCKER_PRESETS` | The three quick-pick blockers in the brand panel (custom site, Cloudflare, no official store) |
 | `BrandIngestProfile` | `brand_ingest_profile` row as the API returns it: `websiteUrl`, `platform`, `blocker`, `notes`, `ownDataSourceId`, `updatedAt` |
-| `AdminBrandSourceRef` | A store or retailer linked to a brand: `dataSourceId`, `displayName`, `kind`, `enabled`, `permissionStatus`, and `link` (`explicit`, `metadata` or `listings`, how it was matched) |
+| `AdminBrandSourceRef` | A store or retailer linked to a brand: `dataSourceId`, `displayName`, `kind`, `enabled`, `permissionStatus`, and `link` (how it was matched: own stores `explicit` (profile link), `metadata` (`metadata.brand`) or `name` (display name equals the brand or an alias, letters and digits only); retailers `listings`) |
 | `BrandSupply` | `own \| retailer \| both \| none` (the Supplied by filter) |
 | `AdminBrandListItem` / `AdminBrandListResponse` | Brand row for `GET /api/brands-admin`: color and other shade counts, own store, retailers, profile, latest ingest |
 | `AdminBrandProfileRequest` | `PUT /api/brands-admin/{id}/profile` body: `websiteUrl`, `platform`, `blocker`, `notes`, `ownDataSourceId`; a value sets it, `null` clears it, a missing key keeps it |
@@ -588,11 +588,11 @@ Export note:
 
 | Export | Description |
 |--------|-------------|
-| `deriveSourcePermission({ metadata, enabled, fetchable })` | Returns `{ permission, stored }`. A non-fetchable source is `not_needed`. A stored `metadata.permission` wins (malformed fields are dropped); otherwise written permission in `verification` is granted, `termsScrapingClause === false` is not needed, anything else is not asked |
+| `deriveSourcePermission({ metadata, enabled, fetchable, kind? })` | Returns `{ permission, stored }`. A non-fetchable source is `not_needed`. A stored `metadata.permission` wins (malformed fields are dropped); otherwise written permission in `verification` is granted (images allowed when `metadata.imagesPermitted` says so, else only for a brand store, `kind` defaults to `brand`), `termsScrapingClause === false` is not needed, anything else is not asked |
 | `isPermissionOk(status)` | `granted` or `not_needed`: turning the source on needs no `override` |
 | `classifyBrandSupply(ownStores, retailers)` | `own`, `retailer`, `both` or `none` for the Supplied by filter |
 | `sourceDisplayName(name)` | `HypnoticPolishShopify` → "Hypnotic Polish": strips the connector suffix and splits camel case |
-| `SOURCE_RUN_DEFAULTS` | The options a Run from the Sources tab sends: exhaustive, materialize to inventory, detect hex from image, no overwrite of detected hex |
+| `SOURCE_RUN_DEFAULTS` | The options a Run from the Sources tab sends: exhaustive, materialize to inventory, detect hex from image, no overwrite of detected hex, `page: 1`, `pageSize: 100` |
 
 Tested in `src/admin/sources-admin.test.ts`.
 

@@ -41,6 +41,7 @@ const {
   parsePermissionRequest,
   grantNoteSentence,
   isFetchableSource,
+  sourcesAdminSql,
   toAdminSourceListItem,
 } = require("../dist/lib/sources-admin");
 require("../dist/functions/sources-admin");
@@ -145,6 +146,43 @@ describe("planPermissionChange", () => {
     assert.deepEqual(plan.changes.enabled, { from: true, to: false });
   });
 
+  it("declined also turns images off in the permission and the metadata", () => {
+    const plan = planPermissionChange(
+      state({ enabled: true, metadata: { imagesPermitted: true } }),
+      { action: "declined", decidedAt: "2026-11-10", channel: "dm" },
+      7,
+      NOW,
+    );
+    assert.equal(plan.ok, true);
+    assert.equal(plan.metadata.imagesPermitted, false);
+    assert.equal(plan.metadata.permission.imagesGranted, false);
+    assert.deepEqual(plan.changes.imagesPermitted, { from: true, to: false });
+  });
+
+  it("not_needed records the check date and note and changes nothing else", () => {
+    const plan = planPermissionChange(
+      state({ enabled: true, metadata: { notes: "n", imagesPermitted: true } }),
+      { action: "not_needed", checkedAt: "2026-11-09", summary: "terms checked" },
+      7,
+      NOW,
+    );
+    assert.equal(plan.ok, true);
+    assert.equal(plan.action, "data_source.permission");
+    assert.equal(plan.enabled, true);
+    assert.deepEqual(plan.metadata.permission, {
+      status: "not_needed",
+      decidedAt: "2026-11-09",
+      summary: "terms checked",
+      recordedByUserId: 7,
+      recordedAt: NOW,
+    });
+    assert.equal(plan.metadata.notes, "n");
+    assert.equal(plan.metadata.imagesPermitted, true);
+    assert.deepEqual(Object.keys(plan.changes), ["permission"]);
+    const bare = planPermissionChange(state(), { action: "not_needed", checkedAt: "2026-11-09" }, 7, NOW);
+    assert.equal("summary" in bare.metadata.permission, false);
+  });
+
   it("images toggle on a granted source sets both flags", () => {
     const plan = planPermissionChange(
       state({ enabled: true, metadata: { permission: { status: "granted", imagesGranted: false }, imagesPermitted: false } }),
@@ -226,6 +264,20 @@ describe("planEnabledChange", () => {
     assert.equal("override" in plan.changes, false);
   });
 
+  it("is a no-op when the source is already in the requested state", () => {
+    const on = planEnabledChange(state({ enabled: true }), { enabled: true });
+    assert.equal(on.ok, true);
+    assert.equal(on.noop, true);
+    assert.deepEqual(on.changes, {});
+    assert.equal(on.enabled, true);
+    const off = planEnabledChange(state({ enabled: false }), { enabled: false });
+    assert.equal(off.ok, true);
+    assert.equal(off.noop, true);
+    assert.deepEqual(off.changes, {});
+    const real = planEnabledChange(state({ enabled: true }), { enabled: false });
+    assert.equal(real.noop, undefined);
+  });
+
   it("turning off works on any status", () => {
     const plan = planEnabledChange(state({ enabled: true, metadata: { permission: { status: "declined" } } }), {
       enabled: false,
@@ -249,11 +301,23 @@ describe("parsePermissionRequest", () => {
     assert.equal(g.ok, true);
     assert.equal(g.value.grantedBy, "Jo");
     assert.equal(parsePermissionRequest({ action: "images", imagesGranted: true }).ok, true);
+    assert.deepEqual(parsePermissionRequest({ action: "not_needed", checkedAt: "2026-11-09" }), {
+      ok: true,
+      value: { action: "not_needed", checkedAt: "2026-11-09" },
+    });
+    assert.deepEqual(parsePermissionRequest({ action: "not_needed", checkedAt: "2026-11-09", summary: " ok " }).value, {
+      action: "not_needed",
+      checkedAt: "2026-11-09",
+      summary: "ok",
+    });
   });
 
   it("rejects bad input", () => {
     assert.equal(parsePermissionRequest({ action: "asked", askedAt: "2026-1-5" }).ok, false);
     assert.equal(parsePermissionRequest({ action: "nope" }).ok, false);
+    assert.equal(parsePermissionRequest({ action: "not_needed" }).ok, false);
+    assert.equal(parsePermissionRequest({ action: "not_needed", checkedAt: "yesterday" }).ok, false);
+    assert.equal(parsePermissionRequest({ action: "not_needed", checkedAt: "2026-11-09", summary: "x".repeat(501) }).ok, false);
     assert.equal(parsePermissionRequest({ ...grant, channel: "carrier-pigeon" }).ok, false);
     assert.equal(parsePermissionRequest({ ...grant, grantedBy: "   " }).ok, false);
     assert.equal(parsePermissionRequest({ ...grant, summary: "x".repeat(501) }).ok, false);
@@ -327,8 +391,8 @@ function sourceRow(overrides = {}) {
     metadata: { currency: "EUR", notes: "Existing note." },
     lastJobId: "99",
     lastJobStatus: "succeeded",
-    lastJobStartedAt: "2026-11-10 10:00:00+00",
-    lastJobFinishedAt: "2026-11-10 10:05:00+00",
+    lastJobStartedAt: "2026-11-10T10:00:00.000Z",
+    lastJobFinishedAt: "2026-11-10T10:05:00.000Z",
     lastJobProcessed: "120",
     liveListings: "42",
     shades: "40",
@@ -365,15 +429,35 @@ describe("toAdminSourceListItem", () => {
     assert.deepEqual(item.lastJob, {
       jobId: "99",
       status: "succeeded",
-      startedAt: "2026-11-10 10:00:00+00",
-      finishedAt: "2026-11-10 10:05:00+00",
+      startedAt: "2026-11-10T10:00:00.000Z",
+      finishedAt: "2026-11-10T10:05:00.000Z",
       recordsProcessed: 120,
     });
+  });
+
+  it("a metadata.brand names the source", () => {
+    assert.equal(toAdminSourceListItem(sourceRow({ metadata: { brand: " Bee's Knees " } })).displayName, "Bee's Knees");
+    assert.equal(toAdminSourceListItem(sourceRow({ metadata: { brand: "" } })).displayName, "Hypnotic Polish");
+  });
+
+  it("an open-data source derives not_needed and is never on without an OK", () => {
+    const item = toAdminSourceListItem(sourceRow({ name: "MakeupAPI", enabled: true, metadata: {} }));
+    assert.equal(item.fetchable, true);
+    assert.equal(item.permission.status, "not_needed");
+    assert.equal(item.onWithoutOk, false);
   });
 
   it("a source without jobs has lastJob null", () => {
     const item = toAdminSourceListItem(sourceRow({ lastJobId: null, lastJobStatus: null, lastJobProcessed: null }));
     assert.equal(item.lastJob, null);
+  });
+});
+
+describe("sources admin SQL", () => {
+  it("returns job timestamps as ISO-8601 UTC text", () => {
+    const sql = sourcesAdminSql(false);
+    assert.match(sql, /to_char\(lj\.started_at AT TIME ZONE 'UTC'/);
+    assert.match(sql, /to_char\(lj\.finished_at AT TIME ZONE 'UTC'/);
   });
 });
 
@@ -503,6 +587,15 @@ describe("functions/sources-admin", () => {
     assert.equal(statements.length, 3);
     assert.equal(statements[2].params[2], "data_source.enable");
     assert.match(statements[2].params[3], /"override":true/);
+  });
+
+  it("PUT enabled to the current state is 200 with no UPDATE and no audit row", async () => {
+    queryMock = detailQuery();
+    const statements = txRecorder({ name: SHOPIFY, enabled: true, metadata: {} });
+    const res = await call("sources-admin-enabled", { method: "PUT", params: { id: "5" }, body: { enabled: true } });
+    assert.equal(res.status, 200);
+    assert.equal(statements.length, 1);
+    assert.match(statements[0].sql, /FOR UPDATE/);
   });
 
   it("PUT enabled: a non-boolean enabled and an unknown id", async () => {

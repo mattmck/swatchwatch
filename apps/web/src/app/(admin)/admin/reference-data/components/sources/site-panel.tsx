@@ -19,9 +19,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { historyDetail } from "@/lib/sources-admin-view";
 import { CONNECTOR_LABELS, KIND_LABELS, PermissionChip, relativeTime, todayIso } from "./sites-table";
 
-type Mode = "asked" | "granted" | "declined" | null;
+type Mode = "asked" | "granted" | "declined" | "not_needed" | null;
 type Confirm = "turn-on" | "turn-off" | null;
 
 const CHANNEL_LABELS: Record<SourcePermissionChannel, string> = {
@@ -34,6 +35,14 @@ const CHANNEL_LABELS: Record<SourcePermissionChannel, string> = {
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
+}
+
+function runErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { message?: string; error?: string } | undefined;
+    return body?.message ?? body?.error ?? errorMessage(err, "Could not start the run.");
+  }
+  return errorMessage(err, "Could not start the run.");
 }
 
 function errorCode(err: unknown): string | undefined {
@@ -146,7 +155,7 @@ export function SitePanel({
       setPolling(true);
       apply(await getAdminSource(source.dataSourceId));
     } catch (err) {
-      setError(errorMessage(err, "Could not start the run."));
+      setError(runErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -156,6 +165,10 @@ export function SitePanel({
     setError(null);
     setMode(next);
     setDate(todayIso());
+    setGrantedBy("");
+    setChannel("email");
+    setSummary("");
+    setImagesGranted(source.kind === "brand");
     if (next === "granted" && perm.status === "granted") {
       setGrantedBy(perm.grantedBy ?? "");
       setChannel(perm.channel ?? "email");
@@ -223,6 +236,9 @@ export function SitePanel({
                   {grantedAlready ? "Edit OK" : "Record OK"}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => openMode("declined")}>Record decline</Button>
+                {perm.status !== "not_needed" && (
+                  <Button size="sm" variant="outline" onClick={() => openMode("not_needed")}>No OK needed</Button>
+                )}
               </div>
             )}
 
@@ -278,6 +294,34 @@ export function SitePanel({
                     }
                   >
                     {grantedAlready ? "Save" : "Record OK & turn on"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setMode(null)}>Cancel</Button>
+                </div>
+              </div>
+            )}
+
+            {mode === "not_needed" && (
+              <div className="space-y-2">
+                <label className="block space-y-1">
+                  <span className="text-muted-foreground">Date checked</span>
+                  <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-muted-foreground">Note</span>
+                  <Input value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="e.g. terms checked, no automated-access clause" />
+                </label>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={busy || !date}
+                    onClick={() =>
+                      savePermission(
+                        { action: "not_needed", checkedAt: date, ...(summary.trim() ? { summary: summary.trim() } : {}) },
+                        "Recorded: no OK needed"
+                      )
+                    }
+                  >
+                    No OK needed
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => setMode(null)}>Cancel</Button>
                 </div>
@@ -373,7 +417,7 @@ export function SitePanel({
               .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
               .map((h) => (
                 <li key={h.auditEventId} className="text-muted-foreground">
-                  {h.createdAt.slice(0, 10)} {h.action.replace("data_source.", "")} by {h.actorLabel ?? `#${h.actorUserId}`} ({relativeTime(h.createdAt)})
+                  {h.createdAt.slice(0, 10)} {h.action.replace("data_source.", "")} by {h.actorLabel ?? `#${h.actorUserId}`} ({relativeTime(h.createdAt)}){historyDetail(h.changes)}
                 </li>
               ))}
           </ul>

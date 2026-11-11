@@ -62,6 +62,19 @@ describe("deriveSourcePermission", () => {
     assert.equal(defaulted.permission.imagesGranted, true);
   });
 
+  it("a derived grant's images default follows the source kind", () => {
+    const metadata = { verification: { writtenPermission: "ok" } };
+    assert.equal(deriveSourcePermission({ ...base, metadata }).permission.imagesGranted, true);
+    assert.equal(deriveSourcePermission({ ...base, metadata, kind: "brand" }).permission.imagesGranted, true);
+    assert.equal(deriveSourcePermission({ ...base, metadata, kind: "retailer" }).permission.imagesGranted, false);
+    assert.equal(deriveSourcePermission({ ...base, metadata, kind: "feed" }).permission.imagesGranted, false);
+    assert.equal(
+      deriveSourcePermission({ ...base, metadata: { ...metadata, imagesPermitted: true }, kind: "retailer" }).permission
+        .imagesGranted,
+      true,
+    );
+  });
+
   it("derives not_needed when the terms have no scraping clause", () => {
     const r = deriveSourcePermission({
       ...base,
@@ -140,6 +153,8 @@ describe("constants", () => {
       materializeToInventory: true,
       detectHexFromImage: true,
       overwriteDetectedHex: false,
+      page: 1,
+      pageSize: 100,
     });
   });
 });

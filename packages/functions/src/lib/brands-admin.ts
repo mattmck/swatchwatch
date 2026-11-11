@@ -2,14 +2,14 @@ import {
   BRAND_PLATFORMS,
   classifyBrandSupply,
   deriveSourcePermission,
-  sourceDisplayName,
   type AdminBrandListItem,
   type AdminBrandProfileRequest,
   type AdminBrandSourceRef,
   type BrandIngestProfile,
   type BrandPlatform,
 } from "swatchwatch-shared";
-import { isFetchableSource } from "./sources-admin";
+import { materializesShadeProductsByName } from "./connectors/registry";
+import { isFetchableSource, isoUtcSql, needsStoreOk, sourceListName } from "./sources-admin";
 import { sourceKindFromMetadata } from "./source-settings";
 
 const MAX_URL_LENGTH = 500;
@@ -113,7 +113,17 @@ function matchKey(value: string): string {
   return normalizeBrandName(value).toLowerCase();
 }
 
-const LINK_STRENGTH: Record<AdminBrandSourceRef["link"], number> = { explicit: 0, metadata: 1, listings: 2 };
+/** Lower-case [a-z0-9] only, so "Bee's Knees Lacquer" and "BeesKneesLacquer" compare equal. */
+function nameKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const LINK_STRENGTH: Record<AdminBrandSourceRef["link"], number> = {
+  explicit: 0,
+  metadata: 1,
+  name: 2,
+  listings: 3,
+};
 
 export function buildBrandList(rows: {
   brands: BrandRow[];
@@ -124,7 +134,13 @@ export function buildBrandList(rows: {
   const brandKindSources: SourceRow[] = [];
   for (const source of rows.sources) {
     sourcesById.set(Number(source.dataSourceId), source);
-    if (sourceKindFromMetadata(source.metadata ?? {}) === "brand") brandKindSources.push(source);
+    if (
+      sourceKindFromMetadata(source.metadata ?? {}) === "brand" &&
+      isFetchableSource(source.name) &&
+      materializesShadeProductsByName(source.name)
+    ) {
+      brandKindSources.push(source);
+    }
   }
 
   const linksByBrand = new Map<number, Set<number>>();
@@ -139,13 +155,14 @@ export function buildBrandList(rows: {
     const metadata = source.metadata ?? {};
     return {
       dataSourceId: Number(source.dataSourceId),
-      displayName: sourceDisplayName(source.name),
+      displayName: sourceListName(source.name, metadata),
       kind: sourceKindFromMetadata(metadata),
       enabled: source.enabled,
       permissionStatus: deriveSourcePermission({
         metadata,
         enabled: source.enabled,
-        fetchable: isFetchableSource(source.name),
+        fetchable: needsStoreOk(source.name),
+        kind: sourceKindFromMetadata(metadata),
       }).permission.status,
       link,
     };
@@ -155,6 +172,8 @@ export function buildBrandList(rows: {
     const brandId = Number(row.brandId);
     const ownDataSourceId = row.ownDataSourceId === null ? null : Number(row.ownDataSourceId);
     const names = new Set([matchKey(row.name), ...(row.aliases ?? []).map(matchKey)]);
+    const nameKeys = new Set([nameKey(row.name), ...(row.aliases ?? []).map(nameKey)]);
+    nameKeys.delete("");
     const listed = linksByBrand.get(brandId) ?? new Set<number>();
 
     const own = new Map<number, AdminBrandSourceRef>();
@@ -171,7 +190,7 @@ export function buildBrandList(rows: {
     for (const source of brandKindSources) {
       const metadataBrand = (source.metadata ?? {}).brand;
       if (typeof metadataBrand === "string" && names.has(matchKey(metadataBrand))) addOwn(source, "metadata");
-      if (listed.has(Number(source.dataSourceId))) addOwn(source, "listings");
+      if (nameKeys.has(nameKey(sourceListName(source.name, source.metadata)))) addOwn(source, "name");
     }
 
     const retailers: AdminBrandSourceRef[] = [];
@@ -179,6 +198,7 @@ export function buildBrandList(rows: {
       const source = sourcesById.get(id);
       if (!source || own.has(id)) continue;
       if (sourceKindFromMetadata(source.metadata ?? {}) === "brand") continue;
+      if (!materializesShadeProductsByName(source.name)) continue;
       retailers.push(toRef(source, "listings"));
     }
     retailers.sort((a, b) => a.displayName.localeCompare(b.displayName));
@@ -223,7 +243,7 @@ export function brandsAdminBrandsSql(byId: boolean): string {
        (SELECT count(*) FROM shade s
          WHERE s.brand_id = b.brand_id AND s.status = 'active' AND s.merged_into_shade_id IS NULL
            AND s.product_category <> 'color') AS "otherShades",
-       (SELECT max(ssp.last_seen_at)::text
+       (SELECT ${isoUtcSql("max(ssp.last_seen_at)")}
           FROM shade s
           JOIN shade_source_product ssp ON ssp.shade_id = s.shade_id
          WHERE s.brand_id = b.brand_id AND s.status = 'active' AND s.merged_into_shade_id IS NULL) AS "latestIngestAt",
@@ -233,7 +253,7 @@ export function brandsAdminBrandsSql(byId: boolean): string {
        bip.blocker,
        bip.notes,
        bip.own_data_source_id AS "ownDataSourceId",
-       bip.updated_at::text AS "profileUpdatedAt"
+       ${isoUtcSql("bip.updated_at")} AS "profileUpdatedAt"
      FROM brand b
      LEFT JOIN brand_ingest_profile bip ON bip.brand_id = b.brand_id
      ${byId ? "WHERE b.brand_id = $1" : ""}
@@ -255,13 +275,18 @@ export function brandsAdminLinksSql(byId: boolean): string {
        ${byId ? "AND s.brand_id = $1" : ""}`;
 }
 
-export const BRAND_DUPLICATE_SQL = `SELECT b.brand_id AS "brandId"
-     FROM brand b
-     WHERE lower(b.name_canonical) = lower($1)
-     UNION
-     SELECT ba.brand_id AS "brandId"
-     FROM brand_alias ba
-     WHERE lower(ba.alias) = lower($1)
+/** A canonical-name match wins over an alias match, then the lowest brand id. */
+export const BRAND_DUPLICATE_SQL = `SELECT m."brandId"
+     FROM (
+       SELECT b.brand_id AS "brandId", 0 AS rank
+       FROM brand b
+       WHERE lower(b.name_canonical) = lower($1)
+       UNION ALL
+       SELECT ba.brand_id AS "brandId", 1 AS rank
+       FROM brand_alias ba
+       WHERE lower(ba.alias) = lower($1)
+     ) m
+     ORDER BY m.rank, m."brandId"
      LIMIT 1`;
 
 export const PROFILE_FIELDS = ["websiteUrl", "platform", "blocker", "notes", "ownDataSourceId"] as const;

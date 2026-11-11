@@ -8,6 +8,7 @@ import { trackEvent } from "../lib/telemetry";
 import { recordAdminAuditEvent } from "../lib/admin-users";
 import {
   SOURCES_ADMIN_LIST_SQL,
+  isoUtcSql,
   parsePermissionRequest,
   planEnabledChange,
   planPermissionChange,
@@ -23,7 +24,7 @@ import {
  *
  * GET /api/sources-admin                    — every data source with derived permission and counts
  * GET /api/sources-admin/{id}               — one source + notes + permission/on-off history
- * PUT /api/sources-admin/{id}/permission    — record asked / granted / declined / images (audited)
+ * PUT /api/sources-admin/{id}/permission    — record asked / granted / declined / not_needed / images (audited)
  * PUT /api/sources-admin/{id}/enabled       — turn on/off (audited; on without an OK needs override)
  */
 
@@ -56,7 +57,7 @@ async function loadDetail(id: number): Promise<AdminSourceDetailResponse | null>
             e.action,
             e.changes,
             e.note,
-            e.created_at::text AS "createdAt"
+            ${isoUtcSql("e.created_at")} AS "createdAt"
      FROM admin_audit_event e
      LEFT JOIN app_user a ON a.user_id = e.actor_user_id
      WHERE e.action LIKE 'data_source.%'
@@ -166,6 +167,8 @@ async function writeSource(
         throw new PlanRejected(planned.status, { error: planned.error, code: planned.code });
       }
 
+      if (planned.noop) return "noop" as const;
+
       await client.query(
         `UPDATE data_source
          SET enabled = $2, metadata = $3::jsonb
@@ -182,7 +185,9 @@ async function writeSource(
     });
 
     if (action === "not_found") return { status: 404, jsonBody: { error: "Source not found" } };
-    trackEvent("admin.source_permission", { action, dataSourceId: id, actorUserId: adminUserId });
+    if (action !== "noop") {
+      trackEvent("admin.source_permission", { action, dataSourceId: id, actorUserId: adminUserId });
+    }
 
     const detail = await loadDetail(id);
     if (!detail) return { status: 404, jsonBody: { error: "Source not found" } };

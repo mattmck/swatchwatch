@@ -13,7 +13,7 @@ import type {
   AdminSourceListItem,
   IngestionJobStatus,
 } from "swatchwatch-shared";
-import { isRunnableProtocol, protocolOfName } from "./connectors/registry";
+import { isRunnableProtocol, materializesShadeProductsByName, protocolOfName } from "./connectors/registry";
 import { sourceKindFromMetadata } from "./source-settings";
 
 export interface SourceState {
@@ -29,6 +29,8 @@ export type PlanResult =
       enabled: boolean;
       action: AdminAuditAction;
       changes: Record<string, unknown>;
+      /** The request changes nothing: the handler skips the UPDATE and the audit row. */
+      noop?: boolean;
     }
   | { ok: false; status: 400 | 409; code: string; error: string };
 
@@ -38,6 +40,25 @@ const TRACKED_KEYS = ["permission", "enabled", "imagesPermitted", "pendingApprov
 
 export function isFetchableSource(name: string): boolean {
   return isRunnableProtocol(protocolOfName(name));
+}
+
+/**
+ * Whether a store's OK applies: open-data sources (MakeupAPI, OpenBeautyFacts) are fetchable but are not
+ * a store's catalog, so they need none.
+ */
+export function needsStoreOk(name: string): boolean {
+  return isFetchableSource(name) && materializesShadeProductsByName(name);
+}
+
+/** The name shown for a source: a non-empty `metadata.brand`, else the connector name without its suffix. */
+export function sourceListName(name: string, metadata: Record<string, unknown> | null): string {
+  const brand = metadata?.brand;
+  return typeof brand === "string" && brand.trim() !== "" ? brand.trim() : sourceDisplayName(name);
+}
+
+/** ISO-8601 UTC text of a timestamptz column, for the Sources/Brands API responses. */
+export function isoUtcSql(column: string): string {
+  return `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 }
 
 export function grantNoteSentence(p: {
@@ -139,6 +160,15 @@ export function parsePermissionRequest(
       if (summary.value !== undefined) value.summary = summary.value;
       return { ok: true, value };
     }
+    case "not_needed": {
+      const checkedAt = dateField(body.checkedAt, "checkedAt");
+      if (!checkedAt.ok) return checkedAt;
+      const summary = textField(body.summary, "summary", false);
+      if (!summary.ok) return summary;
+      const value: AdminSourcePermissionRequest = { action: "not_needed", checkedAt: checkedAt.value };
+      if (summary.value !== undefined) value.summary = summary.value;
+      return { ok: true, value };
+    }
     case "images": {
       if (typeof body.imagesGranted !== "boolean") {
         return { ok: false, error: "imagesGranted must be a boolean" };
@@ -146,7 +176,7 @@ export function parsePermissionRequest(
       return { ok: true, value: { action: "images", imagesGranted: body.imagesGranted } };
     }
     default:
-      return { ok: false, error: "action must be one of asked, granted, declined, images" };
+      return { ok: false, error: "action must be one of asked, granted, declined, not_needed, images" };
   }
 }
 
@@ -182,6 +212,7 @@ function currentStatus(state: SourceState) {
     metadata: state.metadata,
     enabled: state.enabled,
     fetchable: true,
+    kind: sourceKindFromMetadata(state.metadata),
   });
 }
 
@@ -213,8 +244,16 @@ export function planPermissionChange(
       };
       if (req.summary !== undefined) permission.summary = req.summary;
       if (current.permission.askedAt !== undefined) permission.askedAt = current.permission.askedAt;
+      permission.imagesGranted = false;
       metadata.permission = permission;
+      metadata.imagesPermitted = false;
       enabled = false;
+      break;
+    }
+    case "not_needed": {
+      const permission: SourcePermission = { status: "not_needed", decidedAt: req.checkedAt, ...recorded };
+      if (req.summary !== undefined) permission.summary = req.summary;
+      metadata.permission = permission;
       break;
     }
     case "granted": {
@@ -274,6 +313,17 @@ export function planPermissionChange(
 export function planEnabledChange(state: SourceState, req: AdminSourceEnabledRequest): PlanResult {
   if (!isFetchableSource(state.name)) return notFetchable();
 
+  if (state.enabled === req.enabled) {
+    return {
+      ok: true,
+      metadata: { ...state.metadata },
+      enabled: state.enabled,
+      action: req.enabled ? "data_source.enable" : "data_source.disable",
+      changes: {},
+      noop: true,
+    };
+  }
+
   if (!req.enabled) {
     return {
       ok: true,
@@ -329,8 +379,8 @@ export function sourcesAdminSql(byId: boolean): string {
        ds.metadata,
        lj.ingestion_job_id AS "lastJobId",
        lj.status AS "lastJobStatus",
-       lj.started_at::text AS "lastJobStartedAt",
-       lj.finished_at::text AS "lastJobFinishedAt",
+       ${isoUtcSql("lj.started_at")} AS "lastJobStartedAt",
+       ${isoUtcSql("lj.finished_at")} AS "lastJobFinishedAt",
        (lj.metrics_json->>'processed')::int AS "lastJobProcessed",
        (SELECT count(*) FROM external_product ep
          WHERE ep.data_source_id = ds.data_source_id AND ep.missing_since IS NULL) AS "liveListings",
@@ -357,13 +407,18 @@ export function toAdminSourceListItem(row: SourceAdminRow): AdminSourceListItem 
   const metadata = row.metadata ?? {};
   const kind = sourceKindFromMetadata(metadata);
   const fetchable = isFetchableSource(row.name);
-  const derived = deriveSourcePermission({ metadata, enabled: row.enabled, fetchable });
+  const derived = deriveSourcePermission({
+    metadata,
+    enabled: row.enabled,
+    fetchable: needsStoreOk(row.name),
+    kind,
+  });
   const verification = isRecord(metadata.verification) ? metadata.verification : {};
   const processed = row.lastJobProcessed;
   return {
     dataSourceId: Number(row.dataSourceId),
     name: row.name,
-    displayName: sourceDisplayName(row.name),
+    displayName: sourceListName(row.name, metadata),
     baseUrl: row.baseUrl,
     kind,
     connector: protocolOfName(row.name),
@@ -371,7 +426,7 @@ export function toAdminSourceListItem(row: SourceAdminRow): AdminSourceListItem 
     enabled: row.enabled,
     permission: derived.permission,
     permissionStored: derived.stored,
-    onWithoutOk: row.enabled && fetchable && !isPermissionOk(derived.permission.status),
+    onWithoutOk: row.enabled && needsStoreOk(row.name) && !isPermissionOk(derived.permission.status),
     imagesPermitted:
       typeof metadata.imagesPermitted === "boolean" ? metadata.imagesPermitted : kind === "brand",
     currency: typeof metadata.currency === "string" ? metadata.currency : null,

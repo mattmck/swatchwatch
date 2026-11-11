@@ -93,3 +93,25 @@ export function sortBrands(items: AdminBrandListItem[], sort: BrandSortKey, dir:
     return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   });
 }
+
+function permissionStatusOf(value: unknown): string {
+  if (typeof value === "object" && value !== null && "status" in value) {
+    const status = (value as { status?: unknown }).status;
+    if (typeof status === "string") return status;
+  }
+  return "none";
+}
+
+/** History detail from an audit event's `changes`: the override and a permission status change. */
+export function historyDetail(changes: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (changes.override === true) parts.push("turned on without an OK");
+  const permission = changes.permission;
+  if (typeof permission === "object" && permission !== null && "from" in permission && "to" in permission) {
+    const { from, to } = permission as { from: unknown; to: unknown };
+    const before = permissionStatusOf(from);
+    const after = permissionStatusOf(to);
+    if (before !== after) parts.push(`permission ${before} → ${after}`);
+  }
+  return parts.length > 0 ? `: ${parts.join(", ")}` : "";
+}

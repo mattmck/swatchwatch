@@ -182,7 +182,7 @@ is allowed and audited.
 **Own store** (my call): the union of (a) the explicit link `brand_ingest_profile.own_data_source_id`,
 (b) a brand-kind source whose `metadata.brand` names this brand (case-insensitive, same match as
 below; how the WooCommerce and Big Cartel rows already say whose store they are), and (c) a
-brand-kind source with live listings on this brand's shades. All are shown, each with its on and
+brand-kind source whose display name equals the brand name or an alias (letters and digits only; listings never link one). All are shown, each with its on and
 permission chips; the explicit one first. A store counts as "own" whatever its state (pending,
 off), so Dazzle Dry with a pending store and zero shades shows as **Own store**, and the
 filter answers "who has a store we could run", not "who is being ingested today".
