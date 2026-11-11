@@ -255,6 +255,19 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `sumListPrices(rows)` | `{ byCurrency: [{ currency, total, count }], unpricedCount, latestSeenAt }` over rows carrying `buyPrice` / `buyCurrency` / `buyPriceSeenAt`: decimal-safe (whole minor units per `Intl` currency digits), never converted or summed across currencies, rows without a usable price are counted in `unpricedCount`, never guessed. Used by the web Looks shopping list, the wishlist value lines and the mobile wishlist views |
 | `listPriceOf`, `formatListAmount`, `formatListPriceAsOf`, `formatListPriceTotals`, `formatListPriceSummary`, `formatWishlistValueLine(count, totals)` | Price validation and text: "12 polishes · $148.00 (9 priced) + €20.00 (2) · 1 without a price" |
 
+### `matching/` (bottle text matcher: text printed on a bottle → a shade of one brand)
+
+Pure TypeScript (Hermes-safe, no dependencies) for the apps' on-device text recognition, the web and the server resolver. Measured against Apple Vision output on the bottle eval; numbers live in `NAME_MATCH_RULES`.
+
+| Export | Meaning |
+|---|---|
+| `normalizeMatchText(text)`, `levenshteinDistance(a, b)`, `editSimilarity(a, b)` | Comparison key (NFKD, lower-case, `&` → and, marks and apostrophes dropped, `a-z0-9` only) and `1 − distance / max length` (0 when either side is empty) |
+| `RecognizedTextLine` (`{ text, confidence, x, y }`, centre of the box in 0–1), `TextRegion`, `DEFAULT_TEXT_REGION` (0.18–0.82), `TextPhraseOptions` (`minConfidence` 0.3, `region`, `maxJoin` 1–3), `buildTextPhrases(recognitions, options?)` | Lines of one or more recognitions → `{ phrases, tokens }`: singles, adjacent pairs (both orders) and triples (forward and reversed), joined per recognition after the confidence and centre filters |
+| `MatchListEntry` (`{ shadeId, name, aliases? }`), `NameRank`, `rankNames(phrases, entries, options?)` | One row per distinct normalised name with its best phrase similarity, best first; non-code aliases count as extra names of the shade |
+| `NAME_MATCH_RULES` (`minSimilarity` 0.8, `minLead` 0.25, `exactSimilarity` 0.999, `minChars` 3), `GENERIC_LABEL_NAMES`, `NameDecision`, `NameDecisionOptions` (`exactBeatsLead`, `minChars`, thresholds), `decideName(ranked, options?)`, `matchName(phrases, entries, options?)` | The decision: an exact name wins without a lead when the runner-up (another shade) is below it, else the top name needs 0.8 and a 0.25 lead. Generic label names (`Nail Polish`, `Top Coat`, …) can never match from text |
+| `isVendorCodeAlias(alias)`, `buildVendorCodeIndex(entries)`, `findVendorCodeShades(tokens, index)`, `findPrintedGtins(tokens)` | Vendor codes (no space, a digit, 4+ characters) match by equality after normalisation; printed 12/13-digit GTINs with a valid check digit |
+| `matchBottleText({ recognitions, entries, options? })` → `{ result, gtins, codeShadeIds }`, `BottleTextResult` (`matched` via `code` or `name` / `candidates` / `none`), `BottleTextCandidate`, `BottleTextOptions` | One call: a vendor code naming exactly one shade wins, else the name decision; a code and a confident name on different shades give `candidates`, never a match |
+
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families, harmonies, Pair it)
 
 | Export | Description |
