@@ -4,7 +4,7 @@ Status: design agreed with the owner in brainstorming on 2026-11-10/11 (mockup:
 `.superpowers/brainstorm/…/content/sources-tab.html`, not committed). Calls marked **(builder's
 call)** or **(my call)** were not discussed with the owner and can be revisited.
 
-Owner decisions on 2026-11-11: **Turn on is never blocked** (the owner turns stores on at will;
+Owner approved the design on 2026-11-11, including the builder's-check calls. Owner decisions on 2026-11-11: **Turn on is never blocked** (the owner turns stores on at will;
 without an OK on record it asks for a confirmation and the audit row says so), and **Mooncat and
 Cupcake Polish have an OK on record** (the migration records them as granted).
 
@@ -146,14 +146,12 @@ Actions and what each writes, each in one transaction with one audit event:
 | **Turn on** | `enabled = true`, removes `pendingApproval`. Always allowed (owner decision). When the status is not `granted`/`not_needed` the panel asks first ("No OK on record for X. Turn on anyway?", or "X declined on <date>. Turn on anyway?") and the request must carry `override: true`, else 409 `permission_required`; the audit row stores `override: true` and the status at that moment. Permission is not changed |
 | **Turn off** | `enabled = false`. The confirmation says that the store's listings stop counting for buy links and prices (a disabled source is skipped by `selectBuyFromBrandLink`) until it is turned on again; shades and images stay |
 | **Images allowed** toggle (granted only) | `imagesPermitted` and `permission.imagesGranted` together |
-| **Run ingestion** (on and not blocked) | `POST /api/ingestion/jobs` for this source with the Admin Jobs form defaults for its connector (**builder's call**: read them from the Admin Jobs page and share one constant, per connector where Admin Jobs differs); the row's Last job polls until the job leaves `queued`/`running` |
+| **Run ingestion** (on only) | `POST /api/ingestion/jobs` for this source with the Admin Jobs form defaults for its connector (**builder's call**: read them from the Admin Jobs page and share one constant, per connector where Admin Jobs differs); the row's Last job polls until the job leaves `queued`/`running` |
 
-**Blocked sources** (`metadata.blocked`, today ILNP `robots` and KBShimmer `cloudflare`): a
-"Blocked: robots.txt" / "Blocked: Cloudflare" chip in the Permission column and panel, Run disabled
-with that reason (the run guard answers 409 `source_blocked` anyway, even when enabled). Recording
-an OK never clears the block; a separate **Clear block** action (confirmed, audited as
-`data_source.unblock`) removes `metadata.blocked` (my call). A blocked row can still be turned on or
-off and have permission recorded.
+**Blocked sources** (owner decision 2026-11-11): the tab has no blocked state, chip or Clear
+block action. `metadata.blocked` (ILNP, KBShimmer) is left alone and will be revisited once
+anti-bot options are explored. If Run is pressed on such a row, the existing run guard answers
+409 `source_blocked` and the panel shows that message like any other run error.
 
 **Status transitions** (my call): any status can be recorded from any other. Recording a decline
 turns the store off; re-asking after a decline is just **Mark asked** again; a grant can be revoked
@@ -186,7 +184,7 @@ is allowed and audited.
 below; how the WooCommerce and Big Cartel rows already say whose store they are), and (c) a
 brand-kind source with live listings on this brand's shades. All are shown, each with its on and
 permission chips; the explicit one first. A store counts as "own" whatever its state (pending,
-off, blocked), so Dazzle Dry with a pending store and zero shades shows as **Own store**, and the
+off), so Dazzle Dry with a pending store and zero shades shows as **Own store**, and the
 filter answers "who has a store we could run", not "who is being ingested today".
 
 **Supplied by** filter (`supply=`): `own` (has an own store), `retailer` (retailers only, no own
@@ -231,7 +229,6 @@ lists `brand` rows without shades.)
 | GET | `/api/sources-admin/{id}` | one source with notes and audit history |
 | PUT | `/api/sources-admin/{id}/permission` | body = the action (`asked` / `granted` / `declined` / edit) and its fields; applies the writes above |
 | PUT | `/api/sources-admin/{id}/enabled` | `{ enabled, override? }`; 409 `permission_required` when turning on a source whose status is not `granted`/`not_needed` without `override: true`; 409 `not_fetchable` for a non-store source |
-| DELETE | `/api/sources-admin/{id}/block` | clear `metadata.blocked` (audited) |
 | GET | `/api/brands-admin` | every brand with counts, own store, retailers, profile, latest ingest |
 | POST | `/api/brands-admin` | create a brand (+ profile) |
 | PUT | `/api/brands-admin/{id}/profile` | upsert the profile |
@@ -241,7 +238,7 @@ hundred brands); filtering and sorting happen client-side from the URL state (my
 request/response types go in `packages/shared/src/types/sources-admin.ts`, re-exported. New audit
 actions extend the `admin_audit_event_action_check` constraint in the migration:
 `data_source.permission`, `data_source.enable`, `data_source.disable`, `data_source.images`,
-`data_source.unblock`, `brand.create`, `brand.profile_update` (`target_user_id` NULL, ids and before/after in `changes`).
+`brand.create`, `brand.profile_update` (`target_user_id` NULL, ids and before/after in `changes`).
 
 ## Web
 
@@ -266,7 +263,7 @@ types); `docs/schema.sql` (table + CHECK).
 
 - Unit: `deriveSourcePermission` cases (written permission, clause false, pending, enabled with
   clause, internal source, stored permission wins); permission action planning (which metadata keys
-  change, enable guard with and without `override`, blocked untouched by a grant);
+  change, enable guard with and without `override`);
   brand supply classification; URL parse/serialize round trip.
 - Functions unit tests for the handlers with the fake-client pattern the repo uses (admin only,
   409s, audit row in the same transaction, `imagesPermitted` kept in step with `imagesGranted`).
