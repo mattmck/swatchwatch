@@ -2941,7 +2941,7 @@ async function findMakeupApiShade(
   return { kind: "match", shadeId: Number(eligible.rows[0].shadeId) };
 }
 
-/** Materializes MakeupAPI records into catalog shades (see the MakeupAPI rules in CLAUDE.md). */
+/** Materializes MakeupAPI records into catalog shades (see the MakeupAPI rules in docs/agents/ingestion-sources.md). */
 export async function materializeMakeupApiRecords(
   records: ConnectorProductRecord[],
   /** MakeupAPI data_source id; when set, each shade is linked to its product (buy links, #267). */
@@ -3297,8 +3297,8 @@ async function findExistingShadeForRecord(
 
 /**
  * Whether a same-name shade's finishes fit a record's (the adoption check). A shared canonical
- * finish name always fits. A finish without a family (`finish_type.family`, CLAUDE.md finish
- * families rule) carries no information and is ignored, so it never makes a candidate unfit; a
+ * finish name always fits. A finish without a family (`finish_type.family`, finish families rule in
+ * docs/agents/catalog-finishes-and-categories.md) carries no information and is ignored, so it never makes a candidate unfit; a
  * side left with no family-bearing finish (or no finishes at all) fits anything. Otherwise the
  * two must share a family.
  */

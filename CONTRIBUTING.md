@@ -99,13 +99,13 @@ The devtools duplicate-permissions check skips when the optional, ignored
 
 If your change adds/removes/modifies any of the following, update the corresponding doc:
 
-- **Routes or pages** → `apps/web/README.md` + `CLAUDE.md` route table
+- **Routes or pages** → `apps/web/README.md` + `docs/agents/web-routes.md` + the compact `CLAUDE.md` route table
 - **API endpoints** → `packages/functions/README.md`
 - **Shared types** → `packages/shared/README.md`
 - **Components** → `apps/web/README.md`
-- **Env variables** → `CLAUDE.md` + `packages/functions/README.md`
+- **Env variables** → `docs/agents/environment-variables.md` + `packages/functions/README.md`
 - **Infrastructure** → `infrastructure/README.md`
-- **Dev commands** → root `README.md` + `CLAUDE.md`
+- **Dev commands** → root `README.md` + `docs/agents/dev-commands.md` (and `CLAUDE.md` for everyday commands)
 
 The PR template checklist includes a docs checkbox — reviewers should verify it.
 

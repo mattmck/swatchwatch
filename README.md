@@ -247,6 +247,7 @@ This project is in early development. The web UI is now fully API-driven. See [K
 |----------|----------|---------|
 | [This README](README.md) | All developers | Setup, architecture, quick start |
 | [CLAUDE.md](CLAUDE.md) | AI coding agents | Conventions, patterns, decision rationale (canonical; other agent files are symlinks) |
+| [docs/agents/README.md](docs/agents/README.md) | AI coding agents | Topic files CLAUDE.md points to: architecture by area, web routes, env vars, all dev commands, completed work |
 | [apps/web/README.md](apps/web/README.md) | Web developers | Web app architecture, components, routing |
 | [docs/issue-42-ui-findings-tracker.md](docs/issue-42-ui-findings-tracker.md) | Web + product | Live tracker for Issue #42 UI findings and implementation status |
 | [packages/functions/README.md](packages/functions/README.md) | Backend developers | API routes, handler patterns, local dev |

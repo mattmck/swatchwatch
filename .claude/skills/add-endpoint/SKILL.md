@@ -34,7 +34,7 @@ Arguments: `$ARGUMENTS` — HTTP method, route (e.g. `GET polishes/{id}/notes`),
 1. Add/extend shared request/response types in `packages/shared` (rebuild with `npm run build:shared`).
 2. Write the handler and registration.
 3. Add a unit test in `packages/functions/tests/` (`<area>.unit.test.cjs`, `node:test`; copy the require-interception mocking style from `handlers.unit.test.cjs`). Cover: registered methods (`expectMethods`), 401 without auth, validation 400, the happy path, and **cross-user isolation** (another user's data → 404/empty).
-4. Update docs in the same change: `packages/functions/README.md` route table, `packages/shared/README.md` for new types, and CLAUDE.md if a new env var or architectural rule appears.
+4. Update docs in the same change: `packages/functions/README.md` route table, `packages/shared/README.md` for new types, and `docs/agents/environment-variables.md` / the matching `docs/agents/` topic file if a new env var or architectural rule appears (CLAUDE.md's rules list only for a cross-cutting invariant).
 5. Verify:
    ```bash
    npm run build:functions      # builds shared + tsc for functions (no separate typecheck/lint script there)
