@@ -13,7 +13,8 @@
 --   aliases and ingest profile move to the vendor row, the empty row is deleted, and the vendor
 --   row takes the canonical name. Shades keep their brand_id, so nothing else is rewritten.
 -- * only the vendor row exists: it takes the canonical name.
--- * the canonical row holds data too: nothing is changed (NOTICE); an admin has to merge by hand.
+-- * the canonical row holds data too, or both rows have an ingest profile: nothing is changed
+--   (NOTICE); an admin has to merge by hand.
 -- In every handled case the vendor spelling ends up as a brand_alias of the canonical row, which
 -- is all a database that never had the split needs. Idempotent.
 
@@ -44,7 +45,10 @@ BEGIN
     IF canonical_id IS NOT NULL THEN
       IF EXISTS (SELECT 1 FROM shade WHERE brand_id = canonical_id)
          OR EXISTS (SELECT 1 FROM sku WHERE brand_id = canonical_id)
-         OR EXISTS (SELECT 1 FROM product_line WHERE brand_id = canonical_id) THEN
+         OR EXISTS (SELECT 1 FROM product_line WHERE brand_id = canonical_id)
+         -- Two ingest profiles cannot be merged by rule, and deleting the row would cascade one away.
+         OR (EXISTS (SELECT 1 FROM brand_ingest_profile WHERE brand_id = canonical_id)
+             AND EXISTS (SELECT 1 FROM brand_ingest_profile WHERE brand_id = vendor_id)) THEN
         RAISE NOTICE 'brand rows "%" and "%" both hold data; not merged', pair.vendor_name, pair.canonical_name;
         CONTINUE;
       END IF;
@@ -54,12 +58,9 @@ BEGIN
       ON CONFLICT (brand_id, alias) DO NOTHING;
       DELETE FROM brand_alias WHERE brand_id = canonical_id;
 
-      UPDATE brand_ingest_profile
-      SET brand_id = vendor_id
-      WHERE brand_id = canonical_id
-        AND NOT EXISTS (SELECT 1 FROM brand_ingest_profile WHERE brand_id = vendor_id);
+      -- At most one of the two rows has a profile here (checked above), so this never collides.
+      UPDATE brand_ingest_profile SET brand_id = vendor_id WHERE brand_id = canonical_id;
 
-      -- Any profile left on the empty row goes with it (ON DELETE CASCADE).
       DELETE FROM brand WHERE brand_id = canonical_id;
     END IF;
 
