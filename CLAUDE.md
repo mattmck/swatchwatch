@@ -72,7 +72,7 @@ npm run test --workspace=apps/mobile                 # Mobile unit tests
 npm run test:e2e --workspace=swatchwatch-functions  # E2E API tests against a running local host
 ```
 
-Every other script (`build:*`, `migrate:down`, `sync:design-tokens`, `generate:*`, `eval:*`, `backfill:*`, `dedupe:*`, `remove:source-images`, `roster:*`) is in `docs/agents/dev-commands.md`.
+Every other script (`build:*`, `migrate:down`, `migrate:create`, `sync:design-tokens`, `generate:*`, `eval:*`, `backfill:*`, `dedupe:*`, `remove:source-images`, `roster:*`, the web and devtools tests, lifecycle hooks) is in `docs/agents/dev-commands.md`.
 
 **Important:** `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and
 print `npm run setup` if workspace dependencies are missing.

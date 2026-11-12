@@ -1,6 +1,6 @@
 # Dev Commands
 
-Covers every npm script in the repo (dev, build, test, migrations, evals, backfills, dedupes), with the dependency preflight and debugging notes. CLAUDE.md keeps only the everyday commands.
+Covers the npm scripts an agent runs by hand (dev, build, test, migrations, evals, backfills, dedupes), with the dependency preflight and debugging notes, and lists the remaining manifest scripts under "Other scripts in the manifests" at the end. CLAUDE.md keeps only the everyday commands.
 
 ```bash
 # From repo root — all use npm workspaces
@@ -53,3 +53,23 @@ npm run build:shared
 ```
 
 **Azure Functions debugging:** Use the VS Code launch config "Attach to Node Functions" which runs the `func: host start` task (builds, watches, starts func on port 9229).
+
+## Other scripts in the manifests
+
+Scripts that exist in a `package.json` but are not in the list above, mostly because another script or a tool calls them:
+
+```bash
+npm test                                             # Root: every workspace's test script (the husky pre-commit hook runs the suites)
+npm run test --workspace=apps/web                    # Web unit tests (node:test via tsx)
+npm run test --workspace=swatchwatch-devtools        # Repo checks, incl. the documentation tests (CLAUDE.md size, docs/agents paths)
+npm run typecheck --workspace=swatchwatch-shared     # Per-workspace typecheck (also mobile); the root typecheck runs them all
+npm run start --workspace=apps/web                   # next start (the app deploys as a static export, so rarely needed)
+npm run android|ios|web --workspace=apps/mobile      # expo run:android / expo run:ios / expo start --web
+npm run migrate:create --workspace=swatchwatch-functions -- <name>   # New migration file; prefer the /create-migration skill, which also updates docs/schema.sql
+npm run start --workspace=swatchwatch-functions      # func start (dev:functions runs it together with the watcher)
+npm run watch --workspace=swatchwatch-functions      # tsc -w (also packages/shared, via dev:shared)
+npm run build:deploy --workspace=swatchwatch-functions   # esbuild bundle used by the deploy workflow
+npm run pack --workspace=swatchwatch-functions       # func pack → dist/functions.zip (manual packaging; the deploy workflow uses build:deploy)
+```
+
+Lifecycle hooks, never run by hand: root `prepare` (installs husky), `predev:check` (the dependency preflight), Functions `pretest` (builds shared and Functions before the tests), web `predev` / `prebuild` (copy the MSAL redirect bridge).

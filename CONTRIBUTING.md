@@ -111,7 +111,7 @@ The PR template checklist includes a docs checkbox — reviewers should verify i
 
 ### AI Agent Instructions
 
-The canonical agent instruction file is `CLAUDE.md`. All other agent files are symlinks:
+The canonical agent instruction file is `CLAUDE.md`, a short entry point. The other per-tool agent files are symlinks to it:
 
 | Agent | File |
 |---|---|
@@ -121,7 +121,9 @@ The canonical agent instruction file is `CLAUDE.md`. All other agent files are s
 | Windsurf | `.windsurfrules` → `CLAUDE.md` |
 | Aider / others | `AGENTS.md` → `CLAUDE.md` |
 
-Only edit `CLAUDE.md` — the symlinks keep everything in sync automatically.
+Never edit a symlink; edit `CLAUDE.md` and the symlinks stay in sync automatically.
+
+The detail `CLAUDE.md` points to lives in the topic files under `docs/agents/` (index: `docs/agents/README.md`). Those are regular files and the authoritative text for their area: put new or changed detail in the matching topic file, and touch `CLAUDE.md` only for its rules list, tables and pointers (it must stay under 20,000 characters).
 
 ## Future: GitFlow Migration
 
