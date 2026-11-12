@@ -99,19 +99,19 @@ The devtools duplicate-permissions check skips when the optional, ignored
 
 If your change adds/removes/modifies any of the following, update the corresponding doc:
 
-- **Routes or pages** → `apps/web/README.md` + `CLAUDE.md` route table
+- **Routes or pages** → `apps/web/README.md` + `docs/agents/web-routes.md` + the compact `CLAUDE.md` route table
 - **API endpoints** → `packages/functions/README.md`
 - **Shared types** → `packages/shared/README.md`
 - **Components** → `apps/web/README.md`
-- **Env variables** → `CLAUDE.md` + `packages/functions/README.md`
+- **Env variables** → `docs/agents/environment-variables.md` + `packages/functions/README.md`
 - **Infrastructure** → `infrastructure/README.md`
-- **Dev commands** → root `README.md` + `CLAUDE.md`
+- **Dev commands** → root `README.md` + `docs/agents/dev-commands.md` (and `CLAUDE.md` for everyday commands)
 
 The PR template checklist includes a docs checkbox — reviewers should verify it.
 
 ### AI Agent Instructions
 
-The canonical agent instruction file is `CLAUDE.md`. All other agent files are symlinks:
+The canonical agent instruction file is `CLAUDE.md`, a short entry point. The other per-tool agent files are symlinks to it:
 
 | Agent | File |
 |---|---|
@@ -121,7 +121,9 @@ The canonical agent instruction file is `CLAUDE.md`. All other agent files are s
 | Windsurf | `.windsurfrules` → `CLAUDE.md` |
 | Aider / others | `AGENTS.md` → `CLAUDE.md` |
 
-Only edit `CLAUDE.md` — the symlinks keep everything in sync automatically.
+Never edit a symlink; edit `CLAUDE.md` and the symlinks stay in sync automatically.
+
+The detail `CLAUDE.md` points to lives in the topic files under `docs/agents/` (index: `docs/agents/README.md`). Those are regular files and the authoritative text for their area: put new or changed detail in the matching topic file, and touch `CLAUDE.md` only for its rules list, tables and pointers (it must stay under 20,000 characters).
 
 ## Future: GitFlow Migration
 

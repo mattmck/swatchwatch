@@ -18,7 +18,7 @@ interface BackfillDefinition {
   id: string;
   title: string;
   description: string;
-  /** The equivalent shell command (README / CLAUDE.md). */
+  /** The equivalent shell command (README / docs/agents/dev-commands.md). */
   command: string;
   /** API path after `/api/`. */
   path: string;

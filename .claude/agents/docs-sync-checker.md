@@ -15,15 +15,17 @@ Default to `git diff main...HEAD` plus uncommitted changes (`git diff HEAD`, `gi
 
 | Code change | Docs that must change |
 |---|---|
-| New/removed web route or page | "Web App Routes" table in `CLAUDE.md` + `apps/web/README.md` |
+| New/removed web route or page | `docs/agents/web-routes.md` + the compact "Web App Routes" table in `CLAUDE.md` + `apps/web/README.md` |
 | New/changed API endpoint (`app.http`) | route table in `packages/functions/README.md` |
 | New shared type (`packages/shared/src`) | type catalog in `packages/shared/README.md` |
 | New web component | components section of `apps/web/README.md` |
-| New/changed env var (`process.env.X` in functions) | env section in `CLAUDE.md`, `packages/functions/README.md`, and `packages/functions/local.settings.json.example` |
+| New/changed env var (`process.env.X` in functions) | matching group in `docs/agents/environment-variables.md`, `packages/functions/README.md`, and `packages/functions/local.settings.json.example` |
 | Terraform change (`infrastructure/`) | resource/variable tables in `infrastructure/README.md` (and `docs/azure-iac-bom.md` for new resources) |
-| New dev command / package.json script | "Dev Commands" in `CLAUDE.md` + root `README.md` |
+| New dev command / package.json script | `docs/agents/dev-commands.md` (everyday commands also "Dev Commands" in `CLAUDE.md`) + root `README.md` |
 | New migration or schema change | `docs/schema.sql` matches the post-migration schema |
-| Architectural decision | "Architecture Overview" in `CLAUDE.md` |
+| Architectural decision | the matching `docs/agents/*.md` topic file (plus a line in "Rules that are easy to break" in `CLAUDE.md` only for a cross-cutting invariant) |
+| Shipped feature | a line in `docs/agents/completed-work.md` |
+| Any change to `CLAUDE.md` | it stays under 20,000 characters |
 
 Also check: `.github/copilot-instructions.md`, `.cursorrules`, `.windsurfrules` and `AGENTS.md` are symlinks to `CLAUDE.md` (do not report them as stale), and PR-facing conventions (Conventional Commit title) if a PR title is provided.
 
