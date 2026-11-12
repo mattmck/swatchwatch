@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { classifyRequest, navigationFallback, normalizeRoutePath } from "../../scripts/sw-core.mjs";
-import { buildPrecache, extractStaticAssetUrls } from "../../scripts/sw-precache.mjs";
+import { buildPrecache, extractStaticAssetUrls, findBuildIds } from "../../scripts/sw-precache.mjs";
 import { shouldRegisterServiceWorker } from "./service-worker";
 
 const ORIGIN = "https://swatchwatch.app";
@@ -65,7 +65,7 @@ describe("navigationFallback", () => {
   });
 });
 
-function fixture(): string {
+function fixture(buildId?: string): string {
   const out = mkdtempSync(join(tmpdir(), "sw-out-"));
   const write = (rel: string, body: string | Buffer) => {
     const full = join(out, rel);
@@ -74,7 +74,9 @@ function fixture(): string {
   };
   const page = (chunks: string[]) =>
     `<html><script src="${chunks[0]}"></script><link href="${chunks[1]}" rel="stylesheet"/>` +
-    `<script>self.__next_f.push(["${chunks[2]}"])</script></html>`;
+    `<script>self.__next_f.push(["${chunks[2]}"])</script>` +
+    (buildId ? `<script>self.__next_f.push([1,"0:{\\"b\\":\\"${buildId}\\"}"])</script>` : "") +
+    `</html>`;
   write("index.html", page(["/_next/static/chunks/main.js", "/_next/static/css/app.css", "/_next/static/chunks/lazy.js?x=1"]));
   write("polishes/index.html", page(["/_next/static/chunks/main.js", "/_next/static/css/app.css", "/_next/static/chunks/p.js"]));
   write("polishes/detail/index.html", "<html></html>");
@@ -89,6 +91,7 @@ function fixture(): string {
   write("_next/static/chunks/p.js", Buffer.alloc(1_600_000));
   write("_next/static/chunks/lazy.js", "lazy");
   write("_next/static/css/app.css", "css");
+  if (buildId) write(`_next/static/${buildId}/_buildManifest.js`, "self.__BUILD_MANIFEST={}");
   return out;
 }
 
@@ -117,6 +120,20 @@ describe("buildPrecache", () => {
     assert.equal(buildPrecache(out).version, a);
     writeFileSync(join(out, "blank.html"), "<html>changed</html>");
     assert.notEqual(buildPrecache(out).version, a);
+  });
+
+  it("keeps the version when only the Next.js build id differs (it is random per build)", () => {
+    const first = fixture("asdz9NM44whM-O9e-mMRY");
+    const second = fixture("MSuCPFw2Av8ZsXsZS8PN-");
+    assert.deepEqual(findBuildIds(first), ["asdz9NM44whM-O9e-mMRY"]);
+    assert.deepEqual(findBuildIds(fixture()), []);
+    const a = buildPrecache(first);
+    const b = buildPrecache(second);
+    assert.deepEqual(a.urls, b.urls);
+    assert.equal(a.version, b.version);
+    // A real change in a rebuilt page still gives a new version.
+    writeFileSync(join(second, "dashboard/index.html"), "<html>new dashboard</html>");
+    assert.notEqual(buildPrecache(second).version, a.version);
   });
 
   it("extracts only static asset URLs from HTML", () => {
