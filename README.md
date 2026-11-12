@@ -83,6 +83,7 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | Command | What it does |
 |---------|-------------|
 | `npm run setup` | Install workspace dependencies (`npm ci`) |
+| `npm run setup:worktree` | Ready a new worktree: copy `.env` + `local.settings.json` from the primary checkout, `npm ci` if needed, build shared types |
 | `npm run dev:infra` | Start local Postgres + Azurite containers in Docker |
 | `npm run dev` | Run shared type watcher, Functions host, and web dev server together (CTRL+C stops all) |
 | `npm run dev:web` | Next.js dev server (port 3000) |
@@ -203,7 +204,7 @@ npm run dev:infra
 
 The compose project is pinned to `swatchwatch`, so running this from any worktree manages the same containers. Postgres data lives in the `swatchwatch_pgdata` volume and Azurite data in `swatchwatch_azuritedata`, so both survive container recreates. If Azurite exits at startup with `is not valid JSON` (its metadata files were corrupted, e.g. when Docker Desktop was killed mid-write), reset it to empty storage with `docker compose rm -sf azurite && docker volume rm swatchwatch_azuritedata && npm run dev:infra`. That drops local blobs, so re-run ingestion to repopulate catalog images.
 
-Then set the following in `packages/functions/local.settings.json` (the `agent-worktree.sh` script already uses these defaults for new worktrees):
+Then set the following in `packages/functions/local.settings.json` (`npm run setup:worktree` copies this file from the primary checkout into new worktrees):
 
 ```jsonc
 {

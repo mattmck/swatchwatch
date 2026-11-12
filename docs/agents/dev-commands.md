@@ -5,6 +5,7 @@ Covers the npm scripts an agent runs by hand (dev, build, test, migrations, eval
 ```bash
 # From repo root — all use npm workspaces
 npm run setup            # Install workspace dependencies (npm ci)
+npm run setup:worktree   # Ready a new worktree: copy .env + local.settings.json from the primary checkout, npm ci if needed, build shared types (scripts/worktree-setup.sh)
 npm run dev              # Shared types + Functions + web (parallel)
 npm run dev:infra        # Start local Postgres + Azurite containers
 npm run dev:web          # Next.js dev server (port 3000)

@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "setup": "npm ci",
+    "setup:worktree": "bash scripts/worktree-setup.sh",
     "predev:check": "node scripts/dev-preflight.mjs",
     "dev": "npm run predev:check && concurrently -k -n shared,functions,web \"npm run dev:shared\" \"npm run dev:functions\" \"npm run dev:web\"",
     "dev:infra": "docker compose up -d postgres azurite",

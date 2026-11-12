@@ -9,9 +9,10 @@
 #   scripts/agent-worktree.sh feat/42-new-feature        # branch from dev
 #   scripts/agent-worktree.sh fix/99-hotfix main          # branch from main
 #
-# Creates a worktree at ../<repo>-worktrees/<branch-name> so agents can work
-# without touching the primary checkout. Copies local ignored config files
-# when present, installs deps, and builds shared types.
+# Prefer Claude's own worktrees (the desktop app's session worktree, or
+# `claude -w <name>` in a terminal) plus `npm run setup:worktree`: the app
+# tracks and cleans those up. This script is for a hand-made worktree at
+# ../<repo>-worktrees/<branch-name>; it then runs scripts/worktree-setup.sh.
 #
 # To clean up:
 #   git worktree remove ../<repo>-worktrees/<branch-name>
@@ -46,59 +47,9 @@ fi
 
 git worktree add "$WORKTREE_DIR" "$BRANCH"
 
-copy_if_present() {
-  local source_path="$1"
-  local target_path="$2"
-  local label="$3"
-
-  if [ -f "$source_path" ] && [ ! -f "$target_path" ]; then
-    mkdir -p "$(dirname "$target_path")"
-    cp "$source_path" "$target_path"
-    echo "Copied $label into new worktree."
-  fi
-}
-
-first_existing_path() {
-  local current_candidate="$1"
-  local primary_candidate="$2"
-  if [ -f "$current_candidate" ]; then
-    printf "%s" "$current_candidate"
-  elif [ -f "$primary_candidate" ]; then
-    printf "%s" "$primary_candidate"
-  fi
-}
-
-# Bring over local ignored dev settings from the source checkout.
-SOURCE_ENV="$(first_existing_path "$CURRENT_ROOT/.env" "$PRIMARY_ROOT/.env")"
-SOURCE_LOCAL_SETTINGS="$(first_existing_path "$CURRENT_ROOT/packages/functions/local.settings.json" "$PRIMARY_ROOT/packages/functions/local.settings.json")"
-
-if [ -n "${SOURCE_ENV:-}" ]; then
-  copy_if_present "$SOURCE_ENV" "$WORKTREE_DIR/.env" ".env"
-elif [ ! -f "$WORKTREE_DIR/.env" ] && [ -f "$WORKTREE_DIR/.env.example" ]; then
-  cp "$WORKTREE_DIR/.env.example" "$WORKTREE_DIR/.env"
-  echo "Created .env from .env.example (no existing .env found to copy)."
-fi
-
-if [ -n "${SOURCE_LOCAL_SETTINGS:-}" ]; then
-  copy_if_present "$SOURCE_LOCAL_SETTINGS" "$WORKTREE_DIR/packages/functions/local.settings.json" "packages/functions/local.settings.json"
-elif [ ! -f "$WORKTREE_DIR/packages/functions/local.settings.json" ]; then
-  mkdir -p "$WORKTREE_DIR/packages/functions"
-  # Fall back to the committed example file — it is the canonical reference for all settings.
-  EXAMPLE_FILE="$WORKTREE_DIR/packages/functions/local.settings.json.example"
-  if [ -f "$EXAMPLE_FILE" ]; then
-    cp "$EXAMPLE_FILE" "$WORKTREE_DIR/packages/functions/local.settings.json"
-    echo "Created packages/functions/local.settings.json from local.settings.json.example."
-    echo "  → Fill in <YOUR_*> placeholders before starting the Functions host."
-  else
-    echo "⚠ No local.settings.json or local.settings.json.example found. Create packages/functions/local.settings.json manually."
-  fi
-fi
-
-echo "Installing dependencies..."
-(cd "$WORKTREE_DIR" && npm ci)
-
-echo "Building shared types..."
-(cd "$WORKTREE_DIR" && npm run build --workspace=packages/shared)
+# Copy local config, install deps and build shared types (same steps as
+# `npm run setup:worktree` inside a worktree Claude made).
+SOURCE_ROOT="$CURRENT_ROOT" bash "$(dirname "${BASH_SOURCE[0]}")/worktree-setup.sh" "$WORKTREE_DIR"
 
 echo ""
 echo "Worktree ready at: $WORKTREE_DIR"
