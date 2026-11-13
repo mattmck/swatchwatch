@@ -22,6 +22,7 @@ import { isPolishPickupPolish } from "./polish-pickup.js";
 import { isPotionPolishPolish } from "./potion-polish.js";
 import { isStellaChromaPolish } from "./stella-chroma.js";
 import { isSweetAndSourPolish } from "./sweet-and-sour.js";
+import { isSwampGlossPolish } from "./swamp-gloss.js";
 import { isWetNWildPolish } from "./wet-n-wild.js";
 import type { SourceSettings } from "../../source-settings.js";
 import type { StoreFilterProduct, StoreProductFilter } from "./types.js";
@@ -66,6 +67,8 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   PicturePolishWooCommerce: isPicturePolishPolish,
   PaintedPolishBigCartel: isPaintedPolishPolish,
   PotionPolishBigCartel: isPotionPolishPolish,
+  // Brand store enabled 2026-11-13: polish next to body care and merch, most shades untyped.
+  SwampGlossShopify: isSwampGlossPolish,
 };
 
 /** The store filter's verdict for `product`, or null when `source` has none. */

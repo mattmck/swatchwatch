@@ -169,6 +169,15 @@ VALUES
     '{"priority":"medium","mvp":"no","notes":"Rogue Lacquer Shopify store. Color names only."}'::jsonb
   ),
   (
+    'SwampGlossShopify',
+    'api',
+    'https://swampgloss.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://swampgloss.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "vendorAliases": {"swampgloss.com": "Swamp Gloss"}, "priority": "medium", "mvp": "no", "notes": "Swamp Gloss Shopify store (US indie, USD). Verified 2026-11-13: /products.json returns 200 with Shopify products (178 on one page: product_type empty 98, Cosmetics 27, Nail Polish 25, Nail Polishes 8, the rest body care, wax melts, perfume, stickers, tumblers and a gift card; vendor ''Swamp Gloss'' or ''swampgloss.com''). Store filter connectors/store-filters/swamp-gloss.ts keeps 139 (single shades and coats) and drops mystery and overpour listings, oops batches, trios, quads, refills, magnets, stickers and the non-polish types; the title parser drops a trailing charity note. robots.txt does not disallow products.json. The terms of service (Shopify template) forbid using the site to ''spider, crawl, or scrape''. Registered as a brand store (no metadata.kind). Enabled on 2026-11-13 by the owner''s decision without a store OK; ask the maker for the record.", "verification": {"checkedAt": "2026-11-13", "productsJson": true, "products": 178, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
     'RedEyedLacquerShopify',
     'api',
     'https://redeyedlacquer.com',

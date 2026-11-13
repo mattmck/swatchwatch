@@ -435,7 +435,7 @@ holds the brands in the photos, and one admin tab shows every site and brand wit
 | 2.4 | **Admin Sources & Brands tab.** Finish the drafted design, then build: Sites table (URL, brand store vs retailer, on/off, permission state, last run, products and shades supplied) and Brands table (shade count, supplying sources, brands we know but cannot ingest and why), with filters, a Turn on/off control and run history. | `/admin?tab=sources` |
 | 2.5 | **Deployed dev.** Deploy `dev`, run migrations, repeat 2.1 there. This is the release gate the brand-sources work never passed. | Dev environment catalog matches local |
 | 2.6 | **Pending sources (owner).** Permission emails and terms reading from the brand-sources owner checklist, in the order the coverage report gives: Picture Polish, Painted Polish, Hypnotic Polish, OPI, then the 20 clause stores. Each OK is recorded in the admin tab, which is what turns the source on. | Pending list shrinking |
-| 2.7 | **Brands with no source.** Register sources for the photographed brands that have none (Maniology, Moth & Moon, Swamp Gloss, the Polish Pickup makers), each through the same terms check. | New sources registered |
+| 2.7 | **Brands with no source.** Register sources for the photographed brands that have none (Maniology, Moth & Moon, Swamp Gloss, the Polish Pickup makers), each through the same terms check. Swamp Gloss done 2026-11-13 (`SwampGlossShopify`, enabled by the owner's decision; its photographed Lock, Shock & Barrel is no longer listed). | New sources registered |
 
 ## Order of work
 
