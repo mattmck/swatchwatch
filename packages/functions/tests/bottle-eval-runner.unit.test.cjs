@@ -8,7 +8,7 @@ const path = require("node:path");
 
 const { runSample, parseArgs, main } = require("../dist/eval/bottle/cli");
 const { createCaptureApi, assertApiReachable, assertAdminToken, EvalConfigError } = require("../dist/eval/bottle/api-client");
-const { toEvalSamples } = require("../dist/eval/bottle/samples");
+const { toEvalSamples, resolveTextLabels } = require("../dist/eval/bottle/samples");
 const { formatSummary } = require("../dist/eval/bottle/report");
 const { summarize } = require("../dist/eval/bottle/scoring");
 
@@ -324,6 +324,51 @@ describe("toEvalSamples", () => {
       []
     );
     assert.deepEqual(samples.map((s) => s.finishFamily), ["glow", "holo", "unknown", "unknown", "unknown"]);
+  });
+});
+
+describe("resolveTextLabels", () => {
+  const textRow = (sampleId, brand, shadeName) => ({ sampleId, shadeId: null, brand, shadeName, finishFamily: null, primaryFinish: null, notes: null, createdByUserId: "2", createdAt: new Date() });
+  const shade = (shadeId, brand, shadeName, brandKeys, extra = {}) => ({ shadeId, brandId: "7", brand, shadeName, brandKeys, status: "active", category: "color", primaryFinish: "creme", finishFamily: "solid", ...extra });
+  const rogue = ["rogue lacquer"];
+
+  it("scores a text label as the one catalog shade with the same brand and name (case, apostrophes and punctuation ignored)", () => {
+    const { rows, relabelled, ambiguous } = resolveTextLabels(
+      [textRow("1", "Rogue Lacquer", "I'm a Haunt Mess"), textRow("2", "rogue  lacquer", "Fangtastic")],
+      [shade("7820", "Rogue Lacquer", "I’m a haunt mess", rogue), shade("7774", "Rogue Lacquer", "Fangtastic", rogue)]
+    );
+    assert.equal(relabelled, 2);
+    assert.equal(ambiguous, 0);
+    assert.deepEqual(rows.map((r) => [r.shadeId, r.brand, r.shadeName]), [["7820", "Rogue Lacquer", "I’m a haunt mess"], ["7774", "Rogue Lacquer", "Fangtastic"]]);
+    assert.equal(rows[0].labelStatus, "active");
+    assert.equal(rows[0].labelCategory, "color");
+    assert.equal(rows[0].labelBrandId, "7");
+    const [sample] = toEvalSamples([rows[0]], []);
+    assert.equal(sample.shadeId, 7820);
+    assert.equal(sample.labelPoolEligible, true);
+    assert.equal(sample.finishFamily, "solid");
+  });
+
+  it("matches the brand by alias", () => {
+    const { rows } = resolveTextLabels([textRow("1", "Bee's Knees", "Degeneration")], [shade("5837", "Bee's Knees Lacquer", "Degeneration", ["bee's knees", "bee's knees lacquer"])]);
+    assert.equal(rows[0].shadeId, "5837");
+  });
+
+  it("keeps the text label when no shade, another brand's shade or several shades match", () => {
+    const { rows, relabelled, ambiguous } = resolveTextLabels(
+      [textRow("1", "Rogue Lacquer", "Let's Get Dangerous"), textRow("2", "Swamp Gloss", "Fangtastic"), textRow("3", "Rogue Lacquer", "Twin")],
+      [shade("1", "Rogue Lacquer", "Fangtastic", rogue), shade("2", "Rogue Lacquer", "Twin", rogue), shade("3", "Rogue Lacquer", "TWIN!", rogue)]
+    );
+    assert.deepEqual(rows.map((r) => r.shadeId), [null, null, null]);
+    assert.equal(relabelled, 0);
+    assert.equal(ambiguous, 1);
+  });
+
+  it("never changes a catalog label", () => {
+    const row = { ...textRow("1", "Rogue Lacquer", "Fangtastic"), shadeId: "99" };
+    const { rows, relabelled } = resolveTextLabels([row], [shade("7774", "Rogue Lacquer", "Fangtastic", rogue)]);
+    assert.equal(rows[0], row);
+    assert.equal(relabelled, 0);
   });
 });
 
