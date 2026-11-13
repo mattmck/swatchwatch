@@ -27,6 +27,7 @@ import {
   type BottleSurface,
 } from "swatchwatch-shared";
 import { query, transaction } from "../lib/db";
+import { loadFinishCatalog } from "../lib/finishes";
 import { withAuth } from "../lib/auth";
 import {
   checkStorageImageUrl,
@@ -85,6 +86,7 @@ import {
 } from "../lib/capture-questions";
 import {
   hintBrandFromMetadata,
+  loadBottleGlobalCandidates,
   loadColorDistances,
   resolveBottle,
   sumFrameModelCalls,
@@ -1325,8 +1327,12 @@ async function resolveFromEvidence(
       {
         query,
         resolveBrand: resolveBrandFromText,
-        globalCandidates: (frameEvidence) => resolveShadeCandidates(frameEvidence),
+        globalCandidates: (frameEvidence) => loadBottleGlobalCandidates(frameEvidence, userId, { query }),
         colorDistances: (shadeIds, glassHex) => loadColorDistances(shadeIds, glassHex, userId, { query }),
+        finishWords: async () => {
+          const catalog = await loadFinishCatalog();
+          return [...catalog.validNames, ...catalog.aliases.keys()];
+        },
       }
     );
   }

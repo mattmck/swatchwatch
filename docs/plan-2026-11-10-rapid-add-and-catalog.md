@@ -320,6 +320,59 @@ the ingestion to-do list. Goal 2 feeds goal 1; goal 1 tells goal 2 what to inges
   Bee's Knees, China Glaze, Le Mini Macaron, Starrily and Lights Lacquer in the local database, and
   the local host runs with `SOURCE_IMAGE_MAX_PER_PRODUCT=1`. Neither is in any migration.
 
+**2026-11-11, matching (shared text matcher, resolver `bottle-v2`, full-size photos):**
+
+- **Shared matcher** (`packages/shared/src/matching/`): normalisation, edit similarity, name ranking
+  with a required lead, vendor-code and printed-GTIN helpers, `matchBottleText`. It reproduces the
+  Apple Vision spike exactly on the 176 takes (85 of 96 right, 0 wrong, 0 false; 80 of the 85 are
+  exact names). `brandNames` keeps brand text ("Stary" on a Starrily bottle) out of the ranking.
+- **Resolver `bottle-v2`, the rule after two independent reviews:** only an exact printed bottom/box
+  name (or alias) owned by one shade matches on its own. A close name with a lead, an exact front
+  name, a vendor code and a near-exact name without a brand are weak signals: each needs the
+  measured glass colour within `colorHigh`, otherwise the user is asked with that shade first;
+  competing weak signals always ask. A first version let a close name match alone and scored 60 / 66;
+  a leave-one-out over the live catalog showed 63 near-twin pairs (Zoya Polly/Lolly, Bee's Knees
+  Demon/Lemon) it would have added silently, so it was not kept. With the final rule the same
+  leave-one-out adds no wrong shade through any new rule.
+- **Eval, final rules** (0 wrong and 0 false-confident in every cell; 96 in catalog, 80 not):
+
+  | Reader | 480 px takes (samples 1–193) | 1920 px takes (samples 194–369) |
+  |---|---|---|
+  | `gpt-4o-mini` matched | 49 (was 48) | 53 |
+  | `gpt-4o-mini` asked with the right shade | 26 | 30 |
+  | `gpt-5-mini` matched | 58 (was 55) | 67 |
+  | `gpt-5-mini` asked with the right shade | 24 | 24 |
+  | `gpt-5-mini` unmatched | 10 | 4 |
+
+- **Why the model path gained little:** the eleven takes the looser version matched are now questions
+  with the right shade first, and none can be confirmed by colour because the local catalog has 68
+  measured colours (KBShimmer, Cracked, Bee's Knees, Picture Polish: none). Step 1.8 is now what
+  turns those questions into matches.
+- **Text reader on the full-size export** (576 of 579 staged photos paired by capture time; brand
+  known, brand text excluded):
+
+  | Long edge | Right of 96 (exact + close) | Wrong | False of 80 | Barcodes decoded |
+  |---|---|---|---|---|
+  | 480 upscaled 2.5× | 87 (80 + 7) | 0 | 0 | 15 |
+  | 640 | 75 (73 + 2) | 0 | 0 | 10 |
+  | 960 | 86 (83 + 3) | 0 | 0 | 22 |
+  | 1280 | 84 (81 + 3) | 0 | 0 | 34 |
+  | 1920 | 83 (81 + 2) | 0 | 0 | 36 |
+  | 4032 | 84 (82 + 2) | 0 | 0 | 34 |
+
+  Resolution is not the limit for the reader; about 1280 px on the long edge is enough and makes
+  barcodes readable. Every brand but Starrily is at or near 100%; Starrily's names are on the box and
+  get clipped at the box edge. Vendor codes named the right shade in 5 takes.
+- **Open, found on the way:** (1) the model's verified closed-set pick counts as verified at
+  `nameAgreement` 0.75, which lets near-twins through; requiring an exact name costs no current match
+  on either model (owner decision). (2) KBShimmer passed the 400-name closed-list cap (533 shades),
+  so the model reads those bottles without a list. (3) Vendor codes never arrive from the model's
+  reads; they need a reader that returns every printed line. (4) Three labelled photos have no
+  full-size partner and 103 full-size photos were never labelled.
+- **Local state to remember:** full-size copies in `~/Pictures/swatchwatch-bottle-eval/2026-11-full`
+  (2.7 GB) and a 1920 px copy in `2026-11-1920` (the source of samples 194–369). PR #508 was merged
+  before this work was pushed, so these commits sit on the old branch and need their own PR.
+
 ## Goal 1 — Rapid Add and inventory mode
 
 **Done means:** on the labelled photo set, every bottle that is in the catalog is matched or offered

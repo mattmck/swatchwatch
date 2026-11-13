@@ -198,6 +198,12 @@ async function fakeQuery(via, sql, params = []) {
     return { rows, rowCount: rows.length };
   }
 
+  if (/LEFT JOIN shade_alias/i.test(norm)) {
+    // The pool's names and aliases for the bottle resolver's name rules.
+    const rows = state.poolNames ?? [];
+    return { rows, rowCount: rows.length };
+  }
+
   if (/s\.brand_id = ANY\(\$1::bigint\[\]\)/i.test(norm) && /FROM shade s/i.test(norm)) {
     return { rows: state.bottleCandidates, rowCount: state.bottleCandidates.length };
   }
@@ -1411,7 +1417,7 @@ describe("functions/capture — brand-first resolver", () => {
     quality: { extracted: { hex, hexConfidence: 0.9, source: "glass" }, ai: { glass: { modelCalls: 1 } } },
   });
   const resolvedEvents = () => events.filter((e) => e.name === "capture.resolved");
-  const poolQueries = () => handlerCalls().filter((c) => /s\.brand_id = ANY/i.test(c.sql));
+  const poolQueries = () => handlerCalls().filter((c) => /s\.brand_id = ANY/i.test(c.sql) && !/shade_alias/i.test(c.sql));
 
   beforeEach(() => {
     events = [];
@@ -1551,7 +1557,7 @@ describe("functions/capture — brand-first resolver", () => {
     assert.ok(update, "finalize stores the unmatched session");
     const resolver = update.params[2].resolver;
     assert.equal(resolver.step, "create_card");
-    assert.equal(resolver.version, "bottle-v1");
+    assert.equal(resolver.version, "bottle-v2");
     assert.equal(resolver.suggestedShade.shadeName, "Moonlit");
     assert.equal(resolver.modelCalls, 1);
   });

@@ -4,9 +4,16 @@ import {
   CaptureSuggestedShade,
   HIGH_CONFIDENCE_MAX_DISTANCE,
   MEDIUM_CONFIDENCE_MAX_DISTANCE,
+  buildVendorCodeIndex,
+  decideName,
+  findVendorCodeShades,
   hexToOklab,
+  isVendorCodeAlias,
+  normalizeMatchText,
   parseBottleSurface,
+  rankNames,
 } from "swatchwatch-shared";
+import type { MatchListEntry, NameDecision } from "swatchwatch-shared";
 import type { resolveBrandFromText } from "./brand-resolve";
 import { BOTTLE_POOL_CATEGORY_SQL, toBrandRef } from "./brand-resolve";
 import type {
@@ -25,7 +32,10 @@ import { buildMeasuredHexDistanceSql } from "./near-hex";
  * shade name ranks it, and the lacquer color from the glass photo confirms or breaks ties but
  * never overrules a name read; color alone only ever produces a list to pick from.
  */
-export const BOTTLE_RESOLVER_VERSION = "bottle-v1";
+export const BOTTLE_RESOLVER_VERSION = "bottle-v2";
+
+/** Resolver versions whose stored audit has the brand-first shape (`top5`, `brand`, `audit.evidence`). */
+export const BRAND_FIRST_RESOLVER_VERSIONS: readonly string[] = ["bottle-v1", BOTTLE_RESOLVER_VERSION];
 
 /** Every band and limit of the resolver lives here and nowhere else. */
 export const BOTTLE_RESOLVER_THRESHOLDS = {
@@ -59,7 +69,73 @@ export const BOTTLE_RESOLVER_THRESHOLDS = {
    */
   brandlessMinWords: 2,
   brandlessMinChars: 8,
+  /**
+   * Name rules inside a brand pool: a complete printed name of at least this many letters/digits
+   * (normalised, `normalizeMatchText`) is ranked by edit similarity against every name and
+   * non-code alias of the pool. Shorter names stay with the trigram score. Equal to exactly one
+   * shade's name (`exact`) it matches on its own; otherwise it is at most a weak signal.
+   */
+  editMinChars: 5,
+  /** Weak signal `edit_lead`: the closest name has at least this edit similarity (one wrong letter in 5+)... */
+  editMinSimilarity: 0.8,
+  /** ...and leads the best other shade by at least this. */
+  editMinLead: 0.25,
+  /** Weak signal `front_exact`: the front's read must have at least this many normalised characters. */
+  frontMinChars: 5,
+  /**
+   * Name score a single weak signal (`edit_lead`, `front_exact`, `code`) lifts its shade to: the
+   * question band, so a measured glass color within `colorHigh` confirms it (`name+color`) and
+   * otherwise the user is asked with that shade first. A lead cannot tell a misread from a real
+   * shade the catalog lacks (leave-one-out 2026-11-11: 63 same-brand near-twins such as Zoya
+   * Polly/Lolly), a front read can be the collection or finish word, and codes are dense (a
+   * misread code is a sibling's code). Weak signals never match without the measured color, however
+   * many agree: a front read off another bottle or a sibling's code can agree with a near-twin's
+   * lead (round-3 review: bottom "Polly" + front "Lolly" matched Lolly).
+   */
+  weakSignal: 0.75,
+  /**
+   * Without a brand pool, weak signal `brandless_edit`: edit similarity the printed name needs
+   * to one catalog shade name (a misread letter in a long name, a trailing mark, a spacing
+   * variant). Across brands a near name is as likely another brand's real shade ("High
+   * Mintenance" vs "High Maintenance", "Blue Bird" vs "Bluebird"), so it lifts only to
+   * `weakSignal`...
+   */
+  brandlessEditMinSimilarity: 0.93,
+  /** ...and its lead over the next distinct catalog name (any brand). */
+  brandlessEditMinLead: 0.2,
+  /**
+   * Global candidates read without a brand pool (trigram order). The `brandless_edit` rule and
+   * the shared-name veto only see these, so near-identical names of other brands must fit.
+   */
+  globalLimit: 10,
 } as const;
+
+/**
+ * Which evidence put a candidate's name score in the match band (`nameRule` in the audit):
+ * `trigram` / `listed` as in v1, `exact` / `alias` a printed name equal to one shade's name or
+ * non-code alias. Weak signals never reach the match band (see `weakSignal`).
+ */
+export type BottleNameRule = "trigram" | "listed" | "exact" | "alias";
+
+/** Evidence that names one shade but is not enough on its own (see `weakSignal`). */
+export type BottleWeakSignal = "edit_lead" | "front_exact" | "code" | "brandless_edit";
+
+/** A name rule's lift of one shade's name score. */
+export interface BottleNameLift {
+  /** The rule when the lift reaches `match`; null for a single weak signal (question band). */
+  rule: BottleNameRule | null;
+  /** The name score the shade is lifted to (at least this). */
+  to: number;
+  /** The weak signals that named this shade. */
+  signals: BottleWeakSignal[];
+  /** Edit similarity of the printed read to the shade's best name (exact, edit_lead, brandless_edit). */
+  editSimilarity?: number;
+  /** Lead of that similarity over the best other shade. */
+  editLead?: number;
+}
+
+/** How a match was reached (`matchBasis` in the audit). */
+export type BottleMatchBasis = BottleNameRule | "signal_and_color" | "name_and_color";
 
 /** Piecewise linear OKLAB distance → 0–1 color score. */
 export const COLOR_SCORE_BREAKPOINTS: readonly (readonly [number, number])[] = [
@@ -106,8 +182,14 @@ export interface ScoredBottleCandidate {
   colorScore: number | null;
   score: number;
   fromConflictBrand: boolean;
-  /** True when the name read off the front spells this shade (`frontScore` >= `match`). */
+  /** True when the name read off the front spells this shade (`frontScore` >= `match`, or R2). */
   frontNamed?: boolean;
+  /** The rule that put the name score in the match band; null when it is not there. */
+  nameRule?: BottleNameRule | null;
+  /** The weak signals that named this shade (`edit_lead`, `front_exact`, `code`). */
+  signals?: BottleWeakSignal[];
+  editSimilarity?: number | null;
+  editLead?: number | null;
 }
 
 function finiteOrNull(value: unknown): number | null {
@@ -155,6 +237,10 @@ export function scoreBottleCandidates(
     shadeNamePick?: string | null;
     visionConfidence: number | null;
     hintBrandId: number | null;
+    /** Name-rule lifts by shade id; a lift to `match` or above sets `nameRule`. */
+    lifts?: ReadonlyMap<number, BottleNameLift>;
+    /** Shades named exactly by the front read (R2): marked `frontNamed` like a trigram front hit. */
+    frontNamedIds?: ReadonlySet<number>;
   }
 ): ScoredBottleCandidate[] {
   const T = BOTTLE_RESOLVER_THRESHOLDS;
@@ -162,24 +248,36 @@ export function scoreBottleCandidates(
   const pick = input.shadeNamePick?.trim().toLowerCase() || null;
   const lift = (score: number | null, to: number) => (score === null ? to : Math.max(score, to));
   const scored = rows.map((row) => {
+    const shadeId = Number(row.shadeId);
     let nameScore = finiteOrNull(row.nameScore);
+    let nameRule: BottleNameRule | null = nameScore !== null && nameScore >= T.match ? "trigram" : null;
     const name = row.shadeName.trim().toLowerCase();
     const isListed = listed !== null && name === listed;
     if (isListed && input.visionConfidence !== null) {
       nameScore = lift(nameScore, input.visionConfidence);
+      if (nameRule === null && nameScore >= T.match) nameRule = "listed";
     }
     if (!isListed && pick !== null && name === pick) nameScore = lift(nameScore, T.candidateOnly);
-    const frontNamed = (finiteOrNull(row.frontScore) ?? 0) >= T.match;
+    const frontNamed = (finiteOrNull(row.frontScore) ?? 0) >= T.match || (input.frontNamedIds?.has(shadeId) ?? false);
     if (frontNamed) nameScore = lift(nameScore, T.candidateOnly);
+    const ruleLift = input.lifts?.get(shadeId);
+    if (ruleLift) {
+      nameScore = lift(nameScore, ruleLift.to);
+      if (nameRule === null && nameScore >= T.match && ruleLift.rule !== null) nameRule = ruleLift.rule;
+    }
     const brandId = Number(row.brandId);
     return withColor({
-      shadeId: Number(row.shadeId),
+      shadeId,
       brandId,
       display: `${row.brand} — ${row.shadeName}`,
       nameScore,
       colorDistance: finiteOrNull(row.colorDistance),
       fromConflictBrand: input.hintBrandId !== null && brandId !== input.hintBrandId,
       frontNamed,
+      nameRule,
+      signals: ruleLift?.signals ?? [],
+      editSimilarity: ruleLift?.editSimilarity ?? null,
+      editLead: ruleLift?.editLead ?? null,
     });
   });
   return scored.sort(compareScored);
@@ -201,6 +299,25 @@ export interface BottleDecisionContext {
    * must be distinctive (`brandlessMinWords`, `brandlessMinChars`) for a match.
    */
   brandlessName?: string | null;
+  /**
+   * Without a brand pool: true when the top candidate's name is not unique among the global
+   * candidates (another shade has the same normalised name, or a match-band score too). A
+   * name-only match is then a question: a name that two brands share does not say which.
+   */
+  brandlessShared?: boolean;
+  /**
+   * Without a brand pool: true when the pipeline read brand text (any confidence, unscored
+   * included) that did not resolve to a catalog brand. The bottle may come from a brand the
+   * catalog lacks, so a shade of another brand matches only when the measured glass color
+   * confirms it within `colorHigh`; otherwise it is a candidate (bottle eval 2026-11-11: such
+   * reads are mostly not-in-catalog makers; once a collection name read as the brand).
+   */
+  brandlessReadConflict?: boolean;
+  /**
+   * The one pool shade a vendor code printed on the bottle names (R4). A match on another shade
+   * contradicts it: the user is asked, with both among the candidates.
+   */
+  codeShadeId?: number | null;
 }
 
 /** Whether a printed name is distinctive enough to match without a brand (see `brandlessMinWords`). */
@@ -226,13 +343,28 @@ export function decideBottleResolution(
   if (decision.kind !== "matched") return decision;
   const top = decision.candidate;
   const frontOther = scored.find((candidate) => candidate.frontNamed && candidate.shadeId !== top.shadeId);
+  const codeOther =
+    ctx.codeShadeId !== undefined && ctx.codeShadeId !== null && ctx.codeShadeId !== top.shadeId
+      ? scored.find((candidate) => candidate.shadeId === ctx.codeShadeId)
+      : undefined;
   // A measured glass color within `colorHigh` is independent evidence (`name+color`); a name alone is not.
   const brandlessVeto =
-    ctx.brandlessName !== undefined && decision.method === "name" && !isDistinctiveBrandlessName(ctx.brandlessName);
-  if (!ctx.nameIncomplete && !brandlessVeto && (!frontOther || top.frontNamed)) return decision;
+    ctx.brandlessName !== undefined &&
+    decision.method === "name" &&
+    (!isDistinctiveBrandlessName(ctx.brandlessName) || ctx.brandlessShared === true);
+  const colorConfirmed = top.colorDistance !== null && top.colorDistance <= BOTTLE_RESOLVER_THRESHOLDS.colorHigh;
+  const readConflictVeto = ctx.brandlessName !== undefined && ctx.brandlessReadConflict === true && !colorConfirmed;
+  // Competing weak signals: when another candidate carries one, the color must not pick between them.
+  const signalOther = scored.find((candidate) => candidate.shadeId !== top.shadeId && (candidate.signals?.length ?? 0) > 0);
+  if (!ctx.nameIncomplete && !brandlessVeto && !readConflictVeto && (!frontOther || top.frontNamed) && !codeOther && !signalOther) {
+    return decision;
+  }
   const T = BOTTLE_RESOLVER_THRESHOLDS;
-  let cut = scored.slice(0, T.maxCandidates);
-  if (frontOther && !cut.includes(frontOther)) cut = [...cut.slice(0, T.maxCandidates - 1), frontOther];
+  const first = scored.slice(0, T.maxCandidates);
+  const extras = [codeOther, frontOther, signalOther].filter(
+    (other, i, all): other is ScoredBottleCandidate => other !== undefined && !first.includes(other) && all.indexOf(other) === i
+  );
+  const cut = [...first.slice(0, T.maxCandidates - extras.length), ...extras];
   return { kind: "candidates", candidates: cut, confidence: top.nameScore ?? decision.confidence, tie: false, method: "name" };
 }
 
@@ -308,7 +440,9 @@ const CANDIDATE_COLOR_DISTANCE_SQL = `CASE WHEN s.product_category <> 'color' TH
  * or null (its row sorts first, so a pick is never cut by the pool limit), $8 the name read off
  * the front or null (`frontScore`; a row it spells, similarity >= `match`, sorts right after the
  * pick row, so the front-named shade, and with it the front/bottom contradiction veto, is never
- * cut by the pool limit either; a missing front name spells none). Shades of those brands only: live shades of every bottle
+ * cut by the pool limit either; a missing front name spells none), $9 shade ids a name rule
+ * decided (R1–R4, `planPoolNameLifts`) or null: they sort first, so a shade the edit rule found
+ * outside the trigram top 50 is still scored with its color distance. Shades of those brands only: live shades of every bottle
  * category (`BOTTLE_POOL_CATEGORY_SQL`: colors, toppers, coats, treatments; never accessories),
  * plus the caller's own private `user_submitted` ones (never another user's). `nameScore` is NULL
  * without a name, and `colorDistance` is NULL without a glass color, for a shade that is not a
@@ -329,10 +463,304 @@ WHERE s.brand_id = ANY($1::bigint[])
   AND s.merged_into_shade_id IS NULL
   AND ${BOTTLE_POOL_CATEGORY_SQL}
   AND (s.status = 'active' OR (s.status = 'user_submitted' AND s.created_by_user_id = $2))
-ORDER BY COALESCE(lower(s.shade_name_canonical) = lower($7::text), false) DESC,
+ORDER BY COALESCE(s.shade_id = ANY($9::bigint[]), false) DESC,
+         COALESCE(lower(s.shade_name_canonical) = lower($7::text), false) DESC,
          COALESCE(similarity(s.shade_name_canonical, $8::text) >= ${BOTTLE_RESOLVER_THRESHOLDS.match}, false) DESC,
          "nameScore" DESC NULLS LAST, "colorDistance" ASC NULLS LAST, s.shade_id ASC
 LIMIT ${BOTTLE_RESOLVER_THRESHOLDS.poolLimit}`;
+
+/**
+ * Every name, alias and collection of the pool for the name rules: $1 brand_id[], $2 user_id.
+ * Same visibility as `BOTTLE_CANDIDATES_SQL` (unmerged, bottle-pool categories, `active` or the
+ * caller's own `user_submitted`), so an alias never reaches another user's private shade or a
+ * merged or excluded one. No pool limit: the edit rule must see every competitor.
+ */
+export const BOTTLE_POOL_NAMES_SQL = `SELECT s.shade_id::text AS "shadeId",
+       s.shade_name_canonical AS "shadeName",
+       s.collection AS collection,
+       COALESCE(array_agg(a.alias ORDER BY a.alias) FILTER (WHERE a.alias IS NOT NULL), ARRAY[]::text[]) AS aliases
+FROM shade s
+LEFT JOIN shade_alias a ON a.shade_id = s.shade_id
+WHERE s.brand_id = ANY($1::bigint[])
+  AND s.merged_into_shade_id IS NULL
+  AND ${BOTTLE_POOL_CATEGORY_SQL}
+  AND (s.status = 'active' OR (s.status = 'user_submitted' AND s.created_by_user_id = $2))
+GROUP BY s.shade_id, s.shade_name_canonical, s.collection
+ORDER BY s.shade_id ASC`;
+
+export interface BottlePoolNameRow {
+  shadeId: string;
+  shadeName: string;
+  collection?: string | null;
+  aliases?: string[] | null;
+}
+
+/**
+ * Global candidates for the brand-less path: $1 printed shade name, $2 user_id, $3 a typed brand
+ * text that did not resolve to a catalog brand, or null. A brand the pipeline read but could not
+ * resolve is not a filter (bottle eval 2026-11-11: a read of "(logo)" or of the collection name
+ * "The Foxglove King" hid exact names of the right shade). Same visibility as the pool.
+ */
+export const BOTTLE_GLOBAL_CANDIDATES_SQL = `SELECT s.shade_id::text AS "shadeId",
+       s.brand_id::text AS "brandId",
+       b.name_canonical AS brand,
+       s.shade_name_canonical AS "shadeName",
+       similarity(s.shade_name_canonical, $1::text) AS score
+FROM shade s
+JOIN brand b ON b.brand_id = s.brand_id
+WHERE s.merged_into_shade_id IS NULL
+  AND ${BOTTLE_POOL_CATEGORY_SQL}
+  AND (s.status = 'active' OR (s.status = 'user_submitted' AND s.created_by_user_id = $2))
+  AND ($3::text IS NULL OR b.name_canonical ILIKE $3::text)
+  AND (s.shade_name_canonical % $1::text OR similarity(s.shade_name_canonical, $1::text) >= 0.2)
+ORDER BY score DESC, s.shade_id ASC
+LIMIT ${BOTTLE_RESOLVER_THRESHOLDS.globalLimit}`;
+
+/** A global candidate with the shade name the brand-less edit rule compares. */
+export type BottleGlobalCandidate = CaptureMatchCandidate & { shadeName?: string };
+
+/** The brand-less candidates (`BOTTLE_GLOBAL_CANDIDATES_SQL`); none without a printed name. */
+export async function loadBottleGlobalCandidates(
+  evidence: CaptureEvidence,
+  userId: number,
+  db: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> }
+): Promise<BottleGlobalCandidate[]> {
+  if (!evidence.shadeName) return [];
+  const result = await db.query(BOTTLE_GLOBAL_CANDIDATES_SQL, [evidence.shadeName, userId, evidence.brand ?? null]);
+  return result.rows.map((row) => {
+    const shadeId = Number(row.shadeId);
+    const shadeName = String(row.shadeName ?? "");
+    return {
+      entityType: "shade" as const,
+      entityId: shadeId,
+      shadeId,
+      display: `${String(row.brand ?? "")} — ${shadeName}`,
+      confidence: Math.max(0, Math.min(1, finiteOrNull(row.score) ?? 0)),
+      shadeName,
+    };
+  });
+}
+
+/** The pool's match list (`MatchListEntry`) from `BOTTLE_POOL_NAMES_SQL` rows. */
+export function toMatchListEntries(rows: readonly BottlePoolNameRow[]): MatchListEntry[] {
+  return rows
+    .map((row) => ({
+      shadeId: Number(row.shadeId),
+      name: String(row.shadeName ?? ""),
+      aliases: Array.isArray(row.aliases) ? row.aliases.filter((alias): alias is string => typeof alias === "string") : [],
+    }))
+    .filter((entry) => Number.isSafeInteger(entry.shadeId) && entry.name.length > 0);
+}
+
+/** Tokens of the read text a vendor code could be: each text whole and split on spaces and punctuation. */
+export function vendorCodeTokens(texts: readonly (string | null | undefined)[]): string[] {
+  const tokens = new Set<string>();
+  for (const text of texts) {
+    if (!text) continue;
+    for (const token of [text, ...text.split(/[\s,;:/|()[\]]+/)]) {
+      const trimmed = token.trim();
+      if (trimmed && isVendorCodeAlias(trimmed)) tokens.add(trimmed);
+    }
+  }
+  return [...tokens];
+}
+
+/** Normalised words a front read can show that are not a shade name: the pool's collections and the finish catalog. */
+export function frontNonNameWords(
+  rows: readonly BottlePoolNameRow[],
+  finishWords: Iterable<string> = []
+): Set<string> {
+  const words = new Set<string>();
+  const add = (text: string | null | undefined) => {
+    const key = text ? normalizeMatchText(text) : "";
+    if (key.length > 0) words.add(key);
+  };
+  for (const row of rows) add(row.collection);
+  for (const word of finishWords) add(word);
+  return words;
+}
+
+export interface PoolNamePlan {
+  lifts: Map<number, BottleNameLift>;
+  /** Shades the front read names exactly and validly (R2), marked `frontNamed` (the front/bottom veto). */
+  frontNamedIds: Set<number>;
+  /** The one shade a printed vendor code names; null for none or several. */
+  codeShadeId: number | null;
+  audit: {
+    printed: (NameDecision & { shadeIds: number[] }) | null;
+    front: { shadeId: number; name: string; contradictedBy: number | null; blocked: "collection_or_finish" | null } | null;
+    codes: { tokens: string[]; shadeIds: number[] };
+    signals: { shadeId: number; signals: BottleWeakSignal[] }[];
+  };
+}
+
+/**
+ * The name rules over the whole pool (pure; every lift is a proposal that `resolveBottle` may
+ * drop when another shade's own name evidence contradicts it, and the bands, the color check
+ * and the vetoes still decide).
+ *
+ * - `exact` / `alias`: the complete printed (bottom/box) name, 5+ characters, equal after
+ *   normalisation to a name or non-code alias owned by exactly one pool shade: `match`.
+ * - Weak signals (each names one shade): `edit_lead` (the printed name's closest name by edit
+ *   similarity and lead), `front_exact` (the front's read equal to one shade's name, not a
+ *   collection or finish word, unless the bottom's best name is another shade), `code` (a
+ *   printed vendor code naming exactly one pool shade). Each lifts its shade to `weakSignal` (the
+ *   question band) once, however many agree: only the measured color confirms a weak signal.
+ *
+ * A read phrase that is generic label text is not ranked (`rankNames`), and a name two shades
+ * carry decides nothing (`decideName`).
+ */
+export function planPoolNameLifts(
+  evidence: CaptureEvidence,
+  entries: readonly MatchListEntry[],
+  nonNameFrontWords: ReadonlySet<string> = new Set()
+): PoolNamePlan {
+  const T = BOTTLE_RESOLVER_THRESHOLDS;
+  const signals = new Map<number, Set<BottleWeakSignal>>();
+  const addSignal = (shadeId: number, signal: BottleWeakSignal) => {
+    const set = signals.get(shadeId);
+    if (set) set.add(signal);
+    else signals.set(shadeId, new Set([signal]));
+  };
+  const frontNamedIds = new Set<number>();
+  const audit: PoolNamePlan["audit"] = { printed: null, front: null, codes: { tokens: [], shadeIds: [] }, signals: [] };
+  const isOwnName = (shadeId: number, name: string) => {
+    const entry = entries.find((candidate) => candidate.shadeId === shadeId);
+    return entry !== undefined && normalizeMatchText(entry.name) === normalizeMatchText(name);
+  };
+
+  // The printed (bottom/box) name, complete and 5+ characters: exact on its own, else a lead signal.
+  const printed = evidence.shadeName?.trim() || null;
+  let exact: { shadeId: number; rule: "exact" | "alias"; similarity: number; lead: number } | null = null;
+  let leadDecision: NameDecision | null = null;
+  const printedRanked = printed ? rankNames([printed], entries) : [];
+  if (printed && !evidence.shadeNameIncomplete && normalizeMatchText(printed).length >= T.editMinChars) {
+    const decision = decideName(printedRanked, { minSimilarity: T.editMinSimilarity, minLead: T.editMinLead });
+    if (decision) {
+      const top = printedRanked.find((row) => row.shadeId === decision.shadeId && row.name === decision.name);
+      audit.printed = { ...decision, shadeIds: top?.shadeIds ?? [decision.shadeId] };
+      if (decision.rule === "exact") {
+        exact = {
+          shadeId: decision.shadeId,
+          rule: isOwnName(decision.shadeId, decision.name) ? "exact" : "alias",
+          similarity: decision.similarity,
+          lead: decision.lead,
+        };
+      } else {
+        leadDecision = decision;
+        addSignal(decision.shadeId, "edit_lead");
+      }
+    }
+  }
+
+  // The front's name equal (normalised) to exactly one shade's name.
+  const front = evidence.frontShadeName?.trim() || null;
+  const frontKey = front ? normalizeMatchText(front) : "";
+  if (front && frontKey.length >= T.frontMinChars) {
+    const decision = decideName(rankNames([front], entries), { minSimilarity: 1, minLead: 1 });
+    if (decision && decision.rule === "exact") {
+      const blocked = nonNameFrontWords.has(frontKey) ? ("collection_or_finish" as const) : null;
+      let contradictedBy: number | null = null;
+      const bottomTop = printedRanked[0];
+      if (bottomTop && bottomTop.similarity >= T.editMinSimilarity && !bottomTop.shadeIds.includes(decision.shadeId)) {
+        contradictedBy = bottomTop.shadeId;
+      }
+      audit.front = { shadeId: decision.shadeId, name: decision.name, contradictedBy, blocked };
+      // A collection or finish word on the front is no shade name: no lift and no contradiction (v1's trigram still applies).
+      if (blocked === null) {
+        frontNamedIds.add(decision.shadeId);
+        if (contradictedBy === null) addSignal(decision.shadeId, "front_exact");
+      }
+    }
+  }
+
+  // A printed vendor code that names one pool shade (any length: a misread code is a sibling's code).
+  const tokens = vendorCodeTokens([evidence.shadeName, evidence.frontShadeName]);
+  const codeIds = tokens.length > 0 ? findVendorCodeShades(tokens, buildVendorCodeIndex(entries)) : [];
+  audit.codes = { tokens, shadeIds: codeIds };
+  const codeShadeId = codeIds.length === 1 ? codeIds[0] : null;
+  if (codeShadeId !== null) addSignal(codeShadeId, "code");
+
+  const lifts = new Map<number, BottleNameLift>();
+  if (codeIds.length > 1) {
+    for (const id of codeIds) lifts.set(id, { rule: null, to: T.candidateOnly, signals: [] });
+  }
+  for (const [shadeId, kinds] of signals) {
+    const list = [...kinds].sort();
+    const edit = leadDecision && leadDecision.shadeId === shadeId ? leadDecision : null;
+    lifts.set(shadeId, {
+      rule: null,
+      to: T.weakSignal,
+      signals: list,
+      ...(edit ? { editSimilarity: edit.similarity, editLead: edit.lead } : {}),
+    });
+  }
+  if (exact) {
+    const existing = lifts.get(exact.shadeId);
+    lifts.set(exact.shadeId, {
+      rule: exact.rule,
+      to: T.match,
+      signals: existing?.signals ?? [],
+      editSimilarity: exact.similarity,
+      editLead: exact.lead,
+    });
+  }
+  audit.signals = [...signals].map(([shadeId, kinds]) => ({ shadeId, signals: [...kinds].sort() }));
+  return { lifts, frontNamedIds, codeShadeId, audit };
+}
+
+/**
+ * Drops a lift into the question band or above when another shade already has name evidence of
+ * its own in the question band (`question`) or above: the name rules decide only when exactly
+ * one shade is close, so they never outvote a trigram or verified-pick name of another shade.
+ */
+export function dropContradictedLifts(
+  base: readonly ScoredBottleCandidate[],
+  lifts: ReadonlyMap<number, BottleNameLift>
+): Map<number, BottleNameLift> {
+  const T = BOTTLE_RESOLVER_THRESHOLDS;
+  const kept = new Map<number, BottleNameLift>();
+  for (const [shadeId, lift] of lifts) {
+    const contradicted =
+      lift.to >= T.question &&
+      base.some((candidate) => candidate.shadeId !== shadeId && (candidate.nameScore ?? 0) >= T.question);
+    if (!contradicted) kept.set(shadeId, lift);
+  }
+  return kept;
+}
+
+/**
+ * R3: without a brand pool, a complete, distinctive printed name (`isDistinctiveBrandlessName`)
+ * whose edit similarity to exactly one distinct catalog name among the global candidates is at
+ * least `brandlessEditMinSimilarity`, leading the next name by `brandlessEditMinLead`. A name two
+ * shades carry (two brands) is no decision.
+ */
+export function planBrandlessLift(
+  evidence: CaptureEvidence,
+  candidates: readonly { shadeId: number; shadeName: string }[]
+): { shadeId: number; lift: BottleNameLift } | null {
+  const T = BOTTLE_RESOLVER_THRESHOLDS;
+  const printed = evidence.shadeName?.trim() || null;
+  if (!printed || evidence.shadeNameIncomplete || !isDistinctiveBrandlessName(printed)) return null;
+  const entries = candidates.map((candidate) => ({ shadeId: candidate.shadeId, name: candidate.shadeName }));
+  const ranked = rankNames([printed], entries);
+  const top = ranked[0];
+  if (!top || top.similarity < T.brandlessEditMinSimilarity) return null;
+  if (top.shadeIds.length !== 1) return null;
+  const lead = top.similarity - (ranked[1]?.similarity ?? 0);
+  if (lead < T.brandlessEditMinLead) return null;
+  return {
+    shadeId: top.shadeId,
+    lift: { rule: null, to: T.weakSignal, signals: ["brandless_edit"], editSimilarity: top.similarity, editLead: lead },
+  };
+}
+
+/** Shade name of a global candidate (`Brand — Name` display when the loader gave none). */
+function globalShadeName(candidate: BottleGlobalCandidate): string {
+  if (candidate.shadeName) return candidate.shadeName;
+  const parts = candidate.display.split(" — ");
+  return parts.length > 1 ? parts.slice(1).join(" — ") : candidate.display;
+}
 
 const HEX_PATTERN = /^#?[0-9a-f]{6}$/i;
 
@@ -361,8 +789,17 @@ export async function loadColorDistances(
 export interface ResolveBottleDeps {
   query: typeof query;
   resolveBrand: typeof resolveBrandFromText;
-  globalCandidates: (evidence: CaptureEvidence) => Promise<CaptureMatchCandidate[]>;
+  /**
+   * Brand-less candidates (`loadBottleGlobalCandidates`). Called with the evidence's brand only
+   * when it was typed (a hint or answer); a brand read off the bottle that did not resolve is dropped.
+   */
+  globalCandidates: (evidence: CaptureEvidence) => Promise<BottleGlobalCandidate[]>;
   colorDistances: (shadeIds: number[], glassHex: string) => Promise<Map<number, number | null>>;
+  /**
+   * Finish names and aliases (the cached finish catalog, `loadFinishCatalog`): a front read that
+   * equals one is not a shade name. Optional; without it only the pool's collections are checked.
+   */
+  finishWords?: () => Promise<Iterable<string>>;
 }
 
 export interface ResolveBottleContext {
@@ -486,6 +923,13 @@ async function planBrand(evidence: CaptureEvidence, ctx: ResolveBottleContext, d
   return { brand: null, poolIds: [] };
 }
 
+/** How a match was reached, for the audit. */
+function matchBasis(decision: Extract<BottleDecision, { kind: "matched" }>): BottleMatchBasis {
+  const top = decision.candidate;
+  if (decision.method === "name+color") return (top.signals?.length ?? 0) > 0 ? "signal_and_color" : "name_and_color";
+  return top.nameRule ?? "trigram";
+}
+
 function toMatchCandidate(candidate: ScoredBottleCandidate, confidence = candidate.score): CaptureMatchCandidate {
   return {
     entityType: "shade",
@@ -509,6 +953,10 @@ function scoreComponents(candidate: ScoredBottleCandidate) {
     score: candidate.score,
     fromConflictBrand: candidate.fromConflictBrand,
     frontNamed: candidate.frontNamed ?? false,
+    nameRule: candidate.nameRule ?? null,
+    signals: candidate.signals ?? [],
+    editSimilarity: candidate.editSimilarity ?? null,
+    editLead: candidate.editLead ?? null,
   };
 }
 
@@ -526,9 +974,27 @@ export async function resolveBottle(
   const brandKnown = plan.brand !== null;
   const glassHex = evidence.glassHex && HEX_PATTERN.test(evidence.glassHex) ? evidence.glassHex : null;
 
+  const T = BOTTLE_RESOLVER_THRESHOLDS;
   let scored: ScoredBottleCandidate[];
   let nameRead: boolean;
+  let codeShadeId: number | null = null;
+  let brandlessShared: boolean | undefined;
+  let nameRules: Record<string, unknown> = {};
   if (plan.poolIds.length > 0) {
+    const names = await deps.query<BottlePoolNameRow>(BOTTLE_POOL_NAMES_SQL, [plan.poolIds, ctx.userId]);
+    let finishWords: Iterable<string> = [];
+    if (evidence.frontShadeName && deps.finishWords) {
+      try {
+        finishWords = await deps.finishWords();
+      } catch {
+        finishWords = [];
+      }
+    }
+    const namePlan = planPoolNameLifts(evidence, toMatchListEntries(names.rows), frontNonNameWords(names.rows, finishWords));
+    codeShadeId = namePlan.codeShadeId;
+    const forcedIds = [
+      ...new Set([...namePlan.lifts.keys(), ...namePlan.frontNamedIds, ...(codeShadeId !== null ? [codeShadeId] : [])]),
+    ];
     const oklab = glassHex ? hexToOklab(glassHex) : null;
     const result = await deps.query<BottleCandidateRow>(BOTTLE_CANDIDATES_SQL, [
       plan.poolIds,
@@ -539,42 +1005,90 @@ export async function resolveBottle(
       oklab ? oklab.b : null,
       evidence.shadeNameListed ?? evidence.shadeNamePick ?? null,
       evidence.frontShadeName ?? null,
+      forcedIds.length > 0 ? forcedIds : null,
     ]);
-    scored = scoreBottleCandidates(result.rows, {
+    const scoreInput = {
       shadeNameListed: evidence.shadeNameListed ?? null,
       shadeNamePick: evidence.shadeNamePick ?? null,
       visionConfidence: ctx.visionConfidence ?? null,
       hintBrandId: numericBrandId(ctx.hintBrand),
-    });
+      frontNamedIds: namePlan.frontNamedIds,
+    };
+    const lifts = dropContradictedLifts(scoreBottleCandidates(result.rows, scoreInput), namePlan.lifts);
+    scored = scoreBottleCandidates(result.rows, { ...scoreInput, lifts });
     nameRead = Boolean(evidence.shadeName || evidence.shadeNameListed || evidence.shadeNamePick)
       || scored.some((candidate) => candidate.frontNamed);
+    nameRules = {
+      ...namePlan.audit,
+      lifted: [...lifts].map(([shadeId, lift]) => ({ shadeId, ...lift })),
+      dropped: [...namePlan.lifts.keys()].filter((shadeId) => !lifts.has(shadeId)),
+    };
   } else {
-    const global = (await deps.globalCandidates(evidence)).filter(
-      (candidate): candidate is CaptureMatchCandidate & { shadeId: number } => candidate.shadeId !== null
+    // Only a typed brand (hint, answer) filters the global candidates; an unresolved read is no evidence.
+    const typedBrand = plan.brand?.source === "hint";
+    const global = (await deps.globalCandidates(typedBrand ? evidence : { ...evidence, brand: undefined })).filter(
+      (candidate): candidate is BottleGlobalCandidate & { shadeId: number } => candidate.shadeId !== null
     );
     const distances = glassHex && global.length > 0
       ? await deps.colorDistances(global.map((candidate) => candidate.shadeId), glassHex)
       : new Map<number, number | null>();
+    const brandless = planBrandlessLift(
+      evidence,
+      global.map((candidate) => ({ shadeId: candidate.shadeId, shadeName: globalShadeName(candidate) }))
+    );
     scored = global
-      .map((candidate) =>
-        withColor({
+      .map((candidate) => {
+        const trigram = candidate.confidence;
+        const lift = brandless && brandless.shadeId === candidate.shadeId ? brandless.lift : null;
+        const nameScore = lift ? Math.max(trigram, lift.to) : trigram;
+        const nameRule: BottleNameRule | null = trigram >= T.match ? "trigram" : null;
+        return withColor({
           shadeId: candidate.shadeId,
           brandId: 0,
           display: candidate.display,
-          nameScore: candidate.confidence,
+          nameScore,
           colorDistance: distances.get(candidate.shadeId) ?? null,
           fromConflictBrand: false,
-        })
-      )
+          nameRule,
+          signals: lift?.signals ?? [],
+          editSimilarity: lift?.editSimilarity ?? null,
+          editLead: lift?.editLead ?? null,
+        });
+      })
       .sort(compareScored);
     nameRead = Boolean(evidence.shadeName);
+    const top = scored[0];
+    if (top) {
+      const nameOf = (shadeId: number) => {
+        const candidate = global.find((row) => row.shadeId === shadeId);
+        return candidate ? normalizeMatchText(globalShadeName(candidate)) : "";
+      };
+      const topKey = nameOf(top.shadeId);
+      brandlessShared = scored.some(
+        (candidate) =>
+          candidate.shadeId !== top.shadeId &&
+          ((topKey !== "" && nameOf(candidate.shadeId) === topKey) || (candidate.nameScore ?? 0) >= T.match)
+      );
+    }
+    nameRules = {
+      brandless: brandless ? { shadeId: brandless.shadeId, ...brandless.lift } : null,
+      brandlessShared: brandlessShared ?? false,
+    };
   }
 
   const decision = decideBottleResolution(scored, {
     nameRead,
     brandKnown,
     nameIncomplete: Boolean(evidence.shadeNameIncomplete && !evidence.shadeNameListed),
-    ...(plan.poolIds.length === 0 ? { brandlessName: evidence.shadeName ?? null } : {}),
+    ...(plan.poolIds.length === 0
+      ? {
+          brandlessName: evidence.shadeName ?? null,
+          brandlessShared,
+          brandlessReadConflict:
+            plan.brand === null && evidence.brandRead?.source === "pipeline" && evidence.brandRead.text.trim().length > 0,
+        }
+      : {}),
+    codeShadeId,
   });
   const suggestedShade = brandKnown && decision.kind !== "matched" ? buildSuggestedShade(evidence, plan.brand) : undefined;
   const audit = {
@@ -597,6 +1111,7 @@ export async function resolveBottle(
       surfaces: evidence.surfaces,
     },
     thresholds: BOTTLE_RESOLVER_THRESHOLDS,
+    nameRules,
   };
   const resolverBase = {
     version: BOTTLE_RESOLVER_VERSION,
@@ -630,6 +1145,9 @@ export async function resolveBottle(
             ...resolverBase,
             step: decision.method === "name" ? "matched_by_name" : "matched_by_name_and_color",
             method: decision.method,
+            nameRule: decision.candidate.nameRule ?? null,
+            matchBasis: matchBasis(decision),
+            signals: decision.candidate.signals ?? [],
             topCandidate: decision.candidate.display,
           },
         },
