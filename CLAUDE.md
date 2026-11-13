@@ -57,6 +57,7 @@ You MUST read the matching topic file before working in its area; this file only
 ```bash
 # From repo root — all use npm workspaces
 npm run setup            # Install workspace dependencies (npm ci)
+npm run setup:worktree   # Ready a new worktree: copy .env + local.settings.json from the primary checkout, npm ci if needed, build shared types
 npm run dev              # Shared types + Functions + web (parallel)
 npm run dev:infra        # Start local Postgres + Azurite containers
 npm run dev:web          # Next.js dev server (port 3000)
@@ -200,7 +201,7 @@ Documentation files in this project:
 
 **GitHub Flow** with **Conventional Commits**. See `CONTRIBUTING.md` for full details.
 
-- **Branches:** `<type>/<issue#>-<description>` off `dev` (e.g., `feat/12-catalog-search`, `fix/34-color-wheel-safari`); `scripts/agent-worktree.sh` branches from `dev` by default
+- **Branches:** `<type>/<issue#>-<description>` off `origin/dev` (e.g., `feat/12-catalog-search`, `fix/34-color-wheel-safari`); see Agent Worktrees for where to create them
 - **Commits:** `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:` prefixes
 - **PRs:** Squash merge into `dev`. PR title = conventional commit message. Reference issues with `Closes #N`.
 - **Integration branch (`dev`, decision D24):** feature PRs target `dev`. An unattended (overnight) session may squash-merge its own PR into `dev` once CI is green and every review thread is fixed or answered; only the owner merges `dev → main` (a release PR with a merge commit). Closing keywords fire only on `main`, so issues shipped to `dev` are closed by hand after the release (see the overnight runbooks in `docs/`).
@@ -208,23 +209,24 @@ Documentation files in this project:
 
 ## Agent Worktrees
 
-When working on a branch that isn't the current checkout, use **git worktrees** instead of switching branches. This avoids dirty-file conflicts (e.g., `.claude/settings.local.json`) and lets multiple agents work in parallel.
+Work on a branch in a **git worktree**, never by switching branches in the primary checkout. Let Claude create the worktree, so the desktop app tracks it and removes it when the session is archived:
+
+- **Desktop app:** every Code session already runs in its own worktree under `.claude/worktrees/<name>`. Work there.
+- **Terminal:** start with `claude -w <name>` (from the primary checkout), which creates `.claude/worktrees/<name>`.
+
+These worktrees start on a temporary `claude/*` branch with no `node_modules` and no ignored local config. Before the first commit, put the work on a properly named branch off `dev`, and set the worktree up before building, testing or running anything:
 
 ```bash
-# Create a worktree for a new branch (defaults to branching from dev)
-scripts/agent-worktree.sh feat/42-new-feature
-
-# Branch from main instead
-scripts/agent-worktree.sh fix/99-hotfix main
-
-# Clean up when done
-git worktree remove ../swatchwatch-worktrees/feat/42-new-feature
+git fetch origin dev && git switch -c feat/42-new-feature origin/dev
+npm run setup:worktree   # copies .env + local.settings.json from the primary checkout, npm ci, builds shared types
 ```
 
-Worktrees live in `../swatchwatch-worktrees/<branch-name>` (sibling to the primary repo root). The script copies local `.env` and `packages/functions/local.settings.json` when present, then runs `npm ci` and builds shared types so the worktree is ready to use immediately.
+Skip the setup for work that only reads or edits docs: it costs about 3 GB of `node_modules` per worktree.
+
+`scripts/agent-worktree.sh <branch> [base]` (base defaults to `dev`) still creates a hand-made worktree at `../swatchwatch-worktrees/<branch>` and runs the same setup, but the app does not know about those worktrees (not in its sidebar or storage cleanup), so use it only when no Claude session owns the work.
 
 **Rules:**
 - Never switch branches in the primary checkout during agent work — use a worktree.
 - Each worktree is independent: changes in one don't affect the other.
 - Run `git worktree list` to see active worktrees.
-- Remove worktrees after the branch is merged.
+- Remove worktrees after the branch is merged: archive the app session (its worktree goes with it), or `git worktree remove <path>` for a hand-made one.
