@@ -1,0 +1,6269 @@
+{
+ "products": [
+  {
+   "id": 15386005242169,
+   "title": "Lanterns Mystery #4",
+   "handle": "lanterns-mystery-4",
+   "body_html": "<p>A mystery polish inspired by Lanterns. This mystery polish will require exposure to uv rays and dark room to be able to see the special effect. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "Lanterns"
+   ],
+   "variants": [
+    {
+     "id": 67596905644345,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 15385987973433,
+   "title": "Lanterns Mystery #3",
+   "handle": "lanterns-mystery-3",
+   "body_html": "<p>A mystery polish inspired by Lanterns. This mystery polish will require exposure to uv rays and dark room to be able to see the special effect. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "Lanterns"
+   ],
+   "variants": [
+    {
+     "id": 67596845646137,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 15385987711289,
+   "title": "Lanterns Mystery #2",
+   "handle": "lanterns-mystery-2",
+   "body_html": "<p>A mystery polish inspired by Lanterns. This mystery polish is thirsty and may require more than one top coat to provide the smoothest finish</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "Lanterns"
+   ],
+   "variants": [
+    {
+     "id": 67596844958009,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 15385986498873,
+   "title": "Lanterns Mystery #1",
+   "handle": "lanterns-mystery-1",
+   "body_html": "<p>A magnetic mystery polish inspired by Lanterns. You will need a neodymium magnet to achieve the magnetic effect. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "Lanterns"
+   ],
+   "variants": [
+    {
+     "id": 67596842533177,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 10291750306105,
+   "title": "Marjory The Trash Heap - PBE SWAG BAG OVERPOURS",
+   "handle": "marjory-the-trash-heap-pbe-swag-bag-overpours",
+   "body_html": "<p>No swatches. PBE Overpour - Neon glitter topper that glows in the dark. Dries matte. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "pbe overpour",
+    "Project Hail Mary"
+   ],
+   "variants": [
+    {
+     "id": 54214439567673,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 10291737002297,
+   "title": "Leaky Space Blob",
+   "handle": "leaky-space-blob",
+   "body_html": "<p><span>Leaky Space Blob is a white to dusty purple solar filled with iridescent shifting flakes. Solar polishes require uv rays to change color. You can not charge it to hold the color (like a glow in the dark. ) it only changes while in the sun and will revert to its resting color when not exposed to direct sunlight/uv rays. Most car and home windows and some nail polish top coats  have UV bloc",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakey polish",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "Project Hail Mary",
+    "solar"
+   ],
+   "variants": [
+    {
+     "id": 54214389956921,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 10291736543545,
+   "title": "You’re Face Opening Is Sad",
+   "handle": "you-re-face-hole-is-sad",
+   "body_html": "<p><span>Your face opening is in sad mode is an apple green to Kelly green solar polish packed with iridescent and candy colored shifting flakes. Solar polishes require uv rays to change color. This particular color combination is subtle. You can not charge it to hold the color (like a glow in the dark. ) it only changes while in the sun and will revert to its resting color when not exposed to dir",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakey polish",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "Project Hail Mary",
+    "solar"
+   ],
+   "variants": [
+    {
+     "id": 54214389137721,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 10291733528889,
+   "title": "A Scientific Poke With A Very Scientific Stick",
+   "handle": "a-scientific-poke-with-a-scientific-stick",
+   "body_html": "<p><span>A scientific poke with a very scientific stick is packed with bright shifting shimmer, color shifting flakes, clear micro holo and reflective glitter</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakey polish",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "Project Hail Mary"
+   ],
+   "variants": [
+    {
+     "id": 54214344704313,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 4621999767617,
+   "title": "All That Splendor",
+   "handle": "all-that-splendor",
+   "body_html": "<p><span>A blue (cold) thermal that transition to a griege when warm. Filled with iridescent flakes that shift orange, gold, green</span></p>\n<p> </p>\n<p>TAT 2-3 WEEKS</p>\n<p> </p>\n<p>Swatches by</p>\n<p><a href=\"https://www.instagram.com/cosmicgrlnails/\">cosmicgrlnails </a>/ <a href=\"https://www.planetlacquer.com/\">planet lacquer</a></p>\n<p><a href=\"https://www.planetlacquer.com/\">hbh_nails</a></p",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "crelly",
+    "flakies",
+    "glow in the dark",
+    "holo",
+    "jelly",
+    "westworld"
+   ],
+   "variants": [
+    {
+     "id": 32301324730433,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 10201468895545,
+   "title": "Uranium Fever",
+   "handle": "uranium-fever",
+   "body_html": "<p>A glow in the dark crelly with matte hexes! A<span> muted lavender crelly base with green neon hexes and green glow in the dark pigment</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Fallout",
+    "Right now",
+    "Super duper"
+   ],
+   "variants": [
+    {
+     "id": 53280339001657,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 10201468797241,
+   "title": "Brain Bombs!",
+   "handle": "brain-bombs",
+   "body_html": "<p>A glow in the dark crelly with neon hexes and black flakes!</p>\n<p>- white crelly base with neon blue and green hexes, black flakes and green glow in the dark pigment</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Fallout",
+    "Right now",
+    "Super duper"
+   ],
+   "variants": [
+    {
+     "id": 53280338837817,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 10201468567865,
+   "title": "You’re Good To Go!",
+   "handle": "you-re-good-to-go",
+   "body_html": "<p>A glow in the dark crelly with neon hexes and iridescent flakes!</p>\n<p>- <span>a white jelly/crelly with neon pink and aqua hexes, iridescent shifting flakes and blue glow in the dark pigment </span></p>\n<p> </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Fallout",
+    "Right now",
+    "Super duper"
+   ],
+   "variants": [
+    {
+     "id": 53280337363257,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 10201467683129,
+   "title": "Slocum Joe’s Donuts",
+   "handle": "slocum-joe-s-donuts",
+   "body_html": "<p>A glow in the dark crelly with neon hexes. <br><br></p>\n<p>- <span>a white crelly with neon pink, coral and yellow hexes and pink glow in the dark pigment </span></p>\n<p> </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Fallout",
+    "Right now",
+    "Super duper"
+   ],
+   "variants": [
+    {
+     "id": 53280334709049,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 10028233031993,
+   "title": "Charity Mystery Polish",
+   "handle": "detention-network-charity-mystery",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p>This is a mystery polish. All proceeds will be donated to the <a href=\"https://www.detentionwatchnetwork.org\" target=\"_blank\" rel=\"noopener noreferrer\">Detention Watch Network</a>. </p>\n<p><span>TAT 3-4 weeks after end of sale</span></p>\n<p>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "fan",
+    "fandom",
+    "Fandom all",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "indiana",
+    "indy jones",
+    "out of town",
+    "polish",
+    "thermal"
+   ],
+   "variants": [
+    {
+     "id": 51310598947129,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6882456469569,
+   "title": "Wax Melt Snap Bars",
+   "handle": "traditional-snap-bars",
+   "body_html": "<p>Traditional rectangle snap bars made from parasoy wax blend</p>\n<p> </p>\n<p>I’m Too Sexy For This Cave - Boujee Marshmallow Type</p>\n<p>You - Yum Pistacho Type</p>\n<p>Boujee Notes - Pink Lady Apple, Lemon, Freesia, Nectarine, Marshmallow, Strawberry, <br>Orange Blossom Water, Whipped Vanilla, Raspberry Sugar, Pink Musk, Amber</p>\n<p>Pistachio Notes - Pistachio Ice Cream, Sweet Rum, Hazelnut, Pe",
+   "vendor": "Swamp Gloss",
+   "product_type": "Wax Melts",
+   "tags": [
+    "Restock 8/30",
+    "snap bar",
+    "wax melt"
+   ],
+   "variants": [
+    {
+     "id": 51122704318777,
+     "title": "I’m Too Sexy For This Cave",
+     "sku": null,
+     "barcode": null,
+     "price": "4.50",
+     "available": true
+    },
+    {
+     "id": 51122704351545,
+     "title": "You",
+     "sku": null,
+     "barcode": null,
+     "price": "4.50",
+     "available": true
+    },
+    {
+     "id": 51310617755961,
+     "title": "Are You Thor",
+     "sku": null,
+     "barcode": null,
+     "price": "4.50",
+     "available": true
+    },
+    {
+     "id": 51310617788729,
+     "title": "Avasarala",
+     "sku": null,
+     "barcode": null,
+     "price": "4.50",
+     "available": true
+    },
+    {
+     "id": 51310617821497,
+     "title": "Eat Dirt & Die Trash",
+     "sku": null,
+     "barcode": null,
+     "price": "4.50",
+     "available": true
+    },
+    {
+     "id": 51310617854265,
+     "title": "Glorious Purpose",
+     "sku": null,
+     "barcode": null,
+     "price": "4.50",
+     "available": true
+    },
+    {
+     "id": 51310617887033,
+     "title": "Knives Out",
+     "sku": null,
+     "barcode": null,
+     "price": "4.50",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934752809273,
+   "title": "The Chronic",
+   "handle": "the-chronic",
+   "body_html": "<p>A spring green base with iridescent shifting flakes and metallic flakes. PBE swag bag polish. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "Pbe 2025",
+    "Yellowjackets"
+   ],
+   "variants": [
+    {
+     "id": 51019142234425,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934750515513,
+   "title": "Cabin Daddy",
+   "handle": "cabin-daddy",
+   "body_html": "<p>A sheer periwinkle base, packed with candy Aurora shifting shimmer and metallic multichrome and iridescent shifting flakes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Pbe 2025",
+    "Right now",
+    "Yellowjackets"
+   ],
+   "variants": [
+    {
+     "id": 51019131322681,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934750220601,
+   "title": "There’s No Book Club?!",
+   "handle": "there-s-no-book-club",
+   "body_html": "<p>A lavender leaning grey crelly with large iridescent shifting flakes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "Pbe 2025",
+    "Right now",
+    "Yellowjackets"
+   ],
+   "variants": [
+    {
+     "id": 51019130798393,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934750122297,
+   "title": "You Crazy B-tch",
+   "handle": "you-crazy-b-tch",
+   "body_html": "<p>A darkened base packed with multichrome magnetic pigment and blue iridescent shifting flakes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Pbe 2025",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "Yellowjackets"
+   ],
+   "variants": [
+    {
+     "id": 51019130667321,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934750023993,
+   "title": "Hungry",
+   "handle": "hungry",
+   "body_html": "<p>A darkened base packed with aurora shimmer and blue magnetic pigment</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Pbe 2025",
+    "Right now",
+    "Yellowjackets"
+   ],
+   "variants": [
+    {
+     "id": 51019130437945,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9934749958457,
+   "title": "Seccy",
+   "handle": "seccy",
+   "body_html": "<p>A clear base packed with Aurora shimmer, micro matte hexes, multichrome flakes, metallic flakes and blue glow in the dark pigment </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "Murderbot",
+    "Pbe 2025",
+    "Restock 8/30",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 51019130372409,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934749729081,
+   "title": "Low to Very Low",
+   "handle": "low-to-very-low",
+   "body_html": "<p>A clear base packed with Aurora shimmer, micro matte hexes, metallic flakes and green glow in the dark pigment </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "Murderbot",
+    "Pbe 2025",
+    "Restock 8/30",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 51019129422137,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9934749630777,
+   "title": "Sanctuary Moon",
+   "handle": "sanctuary-moon",
+   "body_html": "<p>A clear base packed with Aurora shimmer, micro matte hexes, multichrome flakes and pink glow in the dark pigment </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "Murderbot",
+    "Pbe 2025",
+    "Restock 8/30",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 51019129159993,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934749565241,
+   "title": "Calibrate Your Enthusiasm",
+   "handle": "calibrate-your-enthusiasm",
+   "body_html": "<p>A multichrome base with metallic flakies throughout </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "andor",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "Pbe 2025",
+    "Restock 8/30",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 51019128602937,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934749466937,
+   "title": "How Nice For You",
+   "handle": "how-nice-for-you",
+   "body_html": "<p>A violet base with large blue iridescent shifting flakes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "andor",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "Pbe 2025",
+    "Restock 8/30",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 51019128340793,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934749237561,
+   "title": "I Have Friends Everywhere",
+   "handle": "i-have-friends-everywhere",
+   "body_html": "<p>A lightened turquoise with matte hexes and iridescent flakies</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "andor",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "Pbe 2025",
+    "Restock 8/30",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 51019128111417,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9934615183673,
+   "title": "Welcome to the Rebellion",
+   "handle": "welcome-to-the-rebellion",
+   "body_html": "<p>A vibrant red shifting magnetic in a blue base with aqua matte hexes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "andor",
+    "glitter",
+    "glitter polish",
+    "Pbe 2025",
+    "Restock 8/30"
+   ],
+   "variants": [
+    {
+     "id": 51018777919801,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9912524079417,
+   "title": "Lennyyyyy!",
+   "handle": "lennyyyyy",
+   "body_html": "<p><span><strong>Automatic discount applied to ease shipping for Rewind shoppers.</strong> This solar polish is stacked with Aurora shimmer, aquamarine matte hexes and shifts from a lemon orange to a raspberry when exposed to UV rays. The blue hexes in the lemon orange state can give the base a greenish looking tint especially when looking at it in the bottle.</span></p>\n<p><span>Solar polishes re",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "glitter",
+    "glitter polish",
+    "Ppu",
+    "Rewind",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "solar"
+   ],
+   "variants": [
+    {
+     "id": 50958522483001,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9878695772473,
+   "title": "You Matte About It Refill",
+   "handle": "copy-you-matte-about-it-refill",
+   "body_html": "<div><strong></strong></div>\n<p>Top coat that leaves a matte finish</p>\n<div class=\"o9v6fnle cxmmr5t8 oygrvhab hcukyx3x c1et5uql ii04i59q\">\n<div dir=\"auto\"><span></span></div>\n<div dir=\"auto\">Ingredients: Ethyl Acetate, Butyl Acetate, SD Alcohol 40-B, Cellulose Acetate Butyrate, Acrylates Copolymer, Silica Silylate, Hydrated Silica &amp; Polyethylene, Trimethyl Pentanyl Diisobutyrate, Acetyl Tribu",
+   "vendor": "swampgloss.com",
+   "product_type": "Cosmetics",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All",
+    "All the colors",
+    "April-may",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "nail care",
+    "out of town",
+    "polish",
+    "spider top"
+   ],
+   "variants": [
+    {
+     "id": 50781660217657,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "35.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9878667886905,
+   "title": "Milkshake - Milky Base Refill",
+   "handle": "milkshake-milky-base-refill",
+   "body_html": "<p>swatch by hbh_nails <a href=\"https://instagram.com/hbh_nails?igshid=8uj7vf3wygol\" target=\"_blank\" rel=\"noopener noreferrer\">insta</a> </p>\n<p>A four ounce refill (equal to 8 polish bottles) of our Milky basecoat to protect your nails and manicure.</p>\n<meta charset=\"UTF-8\">\n<p> </p>",
+   "vendor": "swampgloss.com",
+   "product_type": "Nail Polish",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All",
+    "All the colors",
+    "April-may",
+    "Break",
+    "critters",
+    "Crittershop",
+    "nail care",
+    "out of town",
+    "polish",
+    "spider top",
+    "Spidey top"
+   ],
+   "variants": [
+    {
+     "id": 50781542547769,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "32.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9878625026361,
+   "title": "Born to Lurk",
+   "handle": "born-to-lurk",
+   "body_html": "<p>A red base packed with pink, red, orange large particle shifting shimmer. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 50781363077433,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9878623879481,
+   "title": "Not On Rex Manning Day",
+   "handle": "not-on-rex-manning-day",
+   "body_html": "<p>Neon jelly with matte hexes in shades of blue</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "glitter",
+    "glitter polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 50781358195001,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9878610051385,
+   "title": "Needed (GATE charity polish)",
+   "handle": "needed-gate",
+   "body_html": "<p>A vibrant green jelly with large iridescent shifting flakes and violet metallic flakes. $5 from every bottle will go to <a href=\"https://gate.ngo\" target=\"_blank\" title=\"GATE\" rel=\"noopener noreferrer\">Global Action for Trans Equality</a>. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "Gate charity"
+   ],
+   "variants": [
+    {
+     "id": 50781304422713,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9878604874041,
+   "title": "Oops I Wear Regular Women Panties (GATE charity polish)",
+   "handle": "oops-judy-gemston",
+   "body_html": "<p>An oops version of <a href=\"https://swampgloss.com/products/i-have-regular-women-panties\" target=\"_blank\" title=\"I wear regular women panties\" rel=\"noopener noreferrer\">I Wear Regular Women Panties</a>. $5 from every bottle will be donated to <a href=\"https://gate.ngo\" target=\"_blank\" title=\"GATE\" rel=\"noopener noreferrer\">Global Action for Trans Equality</a>. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "Gate charity",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 50781282992441,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9832770601273,
+   "title": "Music Dance Experience",
+   "handle": "music-dance-experience",
+   "body_html": "<p>A muted turquoise to purple solar polish with pale blue hexes, iridescent shifting flakes and a dusting of shifting shimmer. <br><br></p>\n<p><span>Solar polishes require uv rays to change color. You can not charge it to hold the color (like a glow in the dark. ) it only changes while in the sun and will revert to its resting color when not exposed to direct sunlight/uv rays. Most car and home w",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All the colors",
+    "flakey polish",
+    "flakie",
+    "flakie crelly",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "Right now",
+    "Severance",
+    "solar"
+   ],
+   "variants": [
+    {
+     "id": 50615219061049,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9832769159481,
+   "title": "Melon Party",
+   "handle": "melon-party",
+   "body_html": "<p>A neon coral-orange to dusty purple solar polish packed with iridescent shifting shimmer. <br><br></p>\n<p><span>Solar polishes require uv rays to change color. You can not charge it to hold the color (like a glow in the dark. ) it only changes while in the sun and will revert to its resting color when not exposed to direct sunlight/uv rays. Most car and home windows and some nail polish top coa",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All the colors",
+    "Right now",
+    "Severance",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 50615213556025,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9832764473657,
+   "title": "Time Honored Grieving Technologies",
+   "handle": "time-honored-grieving-technologies",
+   "body_html": "<p>A bright neon green to darker teal spring green solar polish with red hexes in various sizes and iridescent shifting flakes.  This polish is very UV Sensitive and will revert to its resting color, neon green, when exposure to UV rays is removed. <br><br></p>\n<p><span>Solar polishes require uv rays to change color. You can not charge it to hold the color (like a glow in the dark. ) it only chang",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "flakie",
+    "flakie polish",
+    "Right now",
+    "Severance",
+    "solar"
+   ],
+   "variants": [
+    {
+     "id": 50615187243321,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9832761753913,
+   "title": "Marshmallows Are For Team Players",
+   "handle": "marshmallows-are-for-team-players",
+   "body_html": "<p>A soft sheer white to indigo solar polish with iridescent glitters that flash red/gold/green. The glitters in this polish are <em>thirsty</em>, in most cases two layers of top coat or a glitter top coat will be necessary to ensure a smooth finish  </p>\n<p><span>solar polishes require uv rays to change color. You can not charge it to hold the color (like a glow in the dark. ) it only changes whi",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "chameleon glitter",
+    "color shifting glitter",
+    "glitter",
+    "glitter polish",
+    "Restock 8/30",
+    "Right now",
+    "Severance",
+    "solar"
+   ],
+   "variants": [
+    {
+     "id": 50615173873977,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9778517803321,
+   "title": "Nuka-Shine",
+   "handle": "nuka-shine-polish-gwp",
+   "body_html": "<p>A sparkly, shifting shimmer of green gold blue purple in a grape jelly base. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Fallout",
+    "Feb restock",
+    "Restock 8/30",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 50431553405241,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9768113996089,
+   "title": "David Duchovny, Why Won’t You Love Me",
+   "handle": "david-duchovny-why-won-t-you-love-me",
+   "body_html": "<p>Large particle candy aurora shimmer packed into a sheer blue base</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Feb restock",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 50392773394745,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9768113373497,
+   "title": "Thou  Shalt Get Sidetracked By Bullshit Every God Damn Time",
+   "handle": "thou-shalt-get-sidetracked-by-bullshit-every-god-damn-time",
+   "body_html": "<p>Thou  Shalt Get Sidetracked By Bullshit Every God Damn Time - lightened jelly packed with shifting shimmer and reflective glitters</p>\n<p><br>Okie Dokey - sheer blue candy shimmer shifting blue/purple/pink with matte yellow and blue hexes</p>\n<p>It’s a blast - multichrome shifting blue/purple/pink  and red galaxy glitter<br><br></p>\n<p><span>Gucy - lightly tinted milky base with neon yellow hex",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "Fallout",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 50392771002681,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9768112619833,
+   "title": "Okie Dokie",
+   "handle": "okie-dokie",
+   "body_html": "<p>Okie Dokey - sheer blue candy shimmer shifting blue/purple/pink with matte yellow and blue hexes</p>\n<p>It’s a blast - multichrome shifting blue/purple/pink  and red galaxy glitter<br><br></p>\n<p><span>Gucy - lightly tinted milky base with neon yellow hexes and hearts and blue glow in the dark pigment </span></p>\n<p> </p>\n<p><span>For the Tomatahs - maroon jelly base packed with iridesnt shifti",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "Fallout",
+    "Feb restock",
+    "glitter",
+    "glitter polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 50392766972217,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9768112030009,
+   "title": "It’s A Blast!",
+   "handle": "it-s-a-blast",
+   "body_html": "<p> It’s a blast - multichrome shifting blue/purple/pink  and red galaxy glitter<br><br></p>\n<p><span>Gucy - lightly tinted milky base with neon yellow hexes and hearts and blue glow in the dark pigment </span></p>\n<p> </p>\n<p><span>For the Tomatahs - maroon jelly base packed with iridesnt shifting flakes and fuschia and red micro holo dust</span></p>\n<p> </p>\n<p><span>Golden Rule Mother Fucker - ",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "Fallout",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 50392764907833,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9768111833401,
+   "title": "Gucy 🪿",
+   "handle": "gucy",
+   "body_html": "<p> </p>\n<p><span>Gucy - lightly tinted milky base with neon yellow hexes and hearts and blue glow in the dark pigment </span></p>\n<p> </p>\n<p><span>For the Tomatahs - maroon jelly base packed with iridesnt shifting flakes and fuschia and red micro holo dust</span></p>\n<p> </p>\n<p><span>Golden Rule Mother Fucker - very pale grey blue base with golden shifting iridescent flakes, holo flakes and hol",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "Fallout",
+    "glitter",
+    "glitter polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 50392764383545,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9768111636793,
+   "title": "Golden Rule, Mother F☢︎︎cker",
+   "handle": "golden-rule-mother-f☢︎︎cker",
+   "body_html": "<p> Golden Rule Mother Fucker - very pale grey blue base with golden shifting iridescent flakes, holo flakes and holo pigment </p>\n<p> </p>\n<p><span>For the Tomatahs - maroon jelly base packed with iridesnt shifting flakes and fuschia and red micro holo dust</span></p>\n<p> </p>\n<p><span>Gucy - lightly tinted milky base with neon yellow hexes and hearts and blue glow in the dark pigment </span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "Fallout",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 50392763171129,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9768111374649,
+   "title": "For the Tomatahs",
+   "handle": "for-the-tomatahs",
+   "body_html": "<p> </p>\n<p><span>For the Tomatahs - maroon jelly base packed with iridesnt shifting flakes and fuschia and red micro holo dust</span></p>\n<p> </p>\n<p><span>Golden Rule Mother Fucker - very pale grey blue base with golden shifting iridescent flakes, holo flakes and holo pigment </span></p>\n<p> </p>\n<p><span>Gucy - lightly tinted milky base with neon yellow hexes and hearts and blue glow in the dar",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "Fallout",
+    "Restock 8/30",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 50392763105593,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 4500353941569,
+   "title": "Mystery Prototype",
+   "handle": "mystery-single",
+   "body_html": "<p>Anything goes when you take a chance on a mystery bottle!</p>\n<p> </p>\n<p>Every bottle is 15ml and comes 1-2 stainless steel balls for easy mixing and a flat brush for easy application.</p>\n<p>If you choose to get a scent please note this will now be a 9-free. In addition, wait until polish is dry before you go sniffing it. The fragrance will come through once all is dry.</p>\n<p><span>Ingredien",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "july",
+    "mysteries",
+    "mystery",
+    "polish"
+   ],
+   "variants": [
+    {
+     "id": 31944632926273,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "10.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9723745567033,
+   "title": "Needful Things",
+   "handle": "needful-things",
+   "body_html": "<p>A dusty blue base, packed with shifting shimmer and sprinkled with metallic flakes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "stardust"
+   ],
+   "variants": [
+    {
+     "id": 50227806175545,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6739733217345,
+   "title": "Gwenom",
+   "handle": "gwenom",
+   "body_html": "<p>One of six piece spiderverse collection.</p>\n<meta charset=\"UTF-8\">\n<p>15ml bottles, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30, Red 28, Red 34 , Red 7, Orange 5, Yellow 5, Yellow 11, Yellow 6, Yellow 1",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "Gwenom",
+    "out of town",
+    "overpour",
+    "Right now",
+    "Spider-Man release",
+    "spiderman",
+    "thermal"
+   ],
+   "variants": [
+    {
+     "id": 39727260139585,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 4308911325249,
+   "title": "I’m Fine, Thank You",
+   "handle": "i-m-fine-thank-you",
+   "body_html": "<p>Like Margot Tenenbaum would let anybody know she wasn’t fine. Inspired by The Royal Tenenbaums, Margot in particular, this is a buttery minty, aqua-y crelly filled with various hex and shred matte glitters in pink, black, white yellow and blue. Shown in two coats and a glossy top. <br><br></p>\n<p>Inspiration: Margot Tenenbaum of the Royal Tenenbaums</p>\n<p>Base: pastel green blue crelly</p>\n<p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All",
+    "All the colors",
+    "Color",
+    "crelly",
+    "Crelly polish",
+    "glitter",
+    "glitter polish",
+    "green",
+    "indie polish",
+    "margot Tenenbaums",
+    "mint",
+    "movie",
+    "out of town",
+    "overpour",
+    "pink",
+    "the Royal Tenenbaums",
+    "wes anderson",
+    "white",
+    "yellow"
+   ],
+   "variants": [
+    {
+     "id": 30983089455169,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "10.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6635782864961,
+   "title": "Fizzy Milk Bath",
+   "handle": "milk-bath",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p><span>Soothing bath soak in a 4 ounce jar</span></p>\n<meta charset=\"UTF-8\">\n<p><span>Fizzing, foaming milk bath<br>Ingredients: sodium bicarbonate, citric acid, SLSa, buttermilk powder epsom salt, sea salt, goat milk powder, fragrance oil, polysorbate 80, body safe color</span></p>\n<div class=\"o9v6fnle cxmmr5t8 oygrvhab hcukyx3x c1et5uql ii04i59q\">\n<",
+   "vendor": "Swamp Gloss",
+   "product_type": "Body Care",
+   "tags": [
+    "argan",
+    "bath",
+    "black friday",
+    "Black Friday body",
+    "body care",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "Indieversary 5",
+    "milk bath",
+    "oil",
+    "out of town",
+    "spider body"
+   ],
+   "variants": [
+    {
+     "id": 45242761085241,
+     "title": "Glorious Purpose",
+     "sku": null,
+     "barcode": null,
+     "price": "8.00",
+     "available": true
+    },
+    {
+     "id": 45242761150777,
+     "title": "Two to Mango",
+     "sku": null,
+     "barcode": null,
+     "price": "8.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8013652951353,
+   "title": "TWD Lip Balm",
+   "handle": "twd-lip-balm-duo-mystery",
+   "body_html": "<p> </p>\n<p><span>Ingredients - coconut oil, shea butter, cocoa butter, beeswax, argan oil, rosehip seed oil, flavor oil, sweetner, vitamin e, lip safe color</span> </p>\n<p>Coral’s pudding - rich chocolate pudding from a bulk sized can. Probably the last can yoI’ll ever find</p>\n<p>Terminus - raspberry sorbet</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Body Care",
+   "tags": [
+    "black friday",
+    "body",
+    "body care",
+    "lip balm"
+   ],
+   "variants": [
+    {
+     "id": 44130618081593,
+     "title": "Coral’s Puddin",
+     "sku": "",
+     "barcode": null,
+     "price": "6.00",
+     "available": false
+    },
+    {
+     "id": 44130618114361,
+     "title": "Terminus",
+     "sku": "",
+     "barcode": null,
+     "price": "6.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8013895074105,
+   "title": "Little Creatures",
+   "handle": "little-creatures",
+   "body_html": "<p>Fresh batch of Lucifer’s most popular polish, Little Creatures</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Black Friday",
+    "critters",
+    "Crittershop",
+    "feature",
+    "Indieversary 5",
+    "Lucifer",
+    "polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 43951535882553,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8013888815417,
+   "title": "Don’t talk to me or my son ever again",
+   "handle": "don-t-talk-to-me-or-my-son-ever-again",
+   "body_html": "",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "Indieversary 5",
+    "overpour",
+    "polish",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "stardust"
+   ],
+   "variants": [
+    {
+     "id": 43951523266873,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 4658558926913,
+   "title": "Capitol Culture",
+   "handle": "capitol-culture",
+   "body_html": "<p><span>Pre order ends 2/21</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "hunger games",
+    "Indieversary 5",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 32367318827073,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 4122402160686,
+   "title": "Pumpkin King",
+   "handle": "pumpkin-king",
+   "body_html": "<p><span>Deep gray jelly with orange glow. Inspired by The Nighmare Before Christmas, this polish is filled with red to gold to green glitters in various sizes. Shown with three coats. Glossy and matte top</span></p>\n<p><span>Jelly: dark, dark grey with orange UV glow<br></span><span>Additives: iridescent, color shifting glitters<br>Finish: Slight texture<br>Opaque: 3 coats</span></p>\n<p> </p>\n<p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All the colors",
+    "black",
+    "chameleon glitter",
+    "color shifting glitter",
+    "glow",
+    "Halloween",
+    "Holiday",
+    "indie polish",
+    "Indieversary 5",
+    "iridescent glitter",
+    "jack skellington",
+    "jelly",
+    "jelly polish",
+    "nightmare before christmas",
+    "orange glow",
+    "pumpkin king",
+    "red-gold-green",
+    "Restock 8/30",
+    "Right now",
+    "swamp gloss"
+   ],
+   "variants": [
+    {
+     "id": 30256810033198,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8357520539961,
+   "title": "Crusty Jugglers",
+   "handle": "crusty-jugglers",
+   "body_html": "<p>A mystery polish </p>\n<p>OVERPOUR</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "hot fuzz",
+    "out of town"
+   ],
+   "variants": [
+    {
+     "id": 45387804180793,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9501510598969,
+   "title": "Manners Maketh Man",
+   "handle": "manners-maketh-man",
+   "body_html": "<p><a href=\"https://polishpickup.com\" target=\"_blank\" title=\"Polish pickup \" rel=\"noopener noreferrer\">Polish Pickup</a> Rewind from December 2023 - an indigo jelly with glow in the dark pigment and aqua and red-orange matte hexes. Shipping for this polish is free/domestic, $5/Canada ❤️</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "everything",
+    "glitter",
+    "glitter polish"
+   ],
+   "variants": [
+    {
+     "id": 49521359061305,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.50",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9303235756345,
+   "title": "Flying Kites In The Swamp - Magnets",
+   "handle": "flying-kites-in-the-swamp-magnets",
+   "body_html": "3x2 magnet featuring swamp critters near and dear while they fly the kite",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All sammie",
+    "AllSammie",
+    "Break",
+    "everything",
+    "magnet",
+    "magnets",
+    "Stuff n thangs"
+   ],
+   "variants": [
+    {
+     "id": 48786946326841,
+     "title": "Alligator Chill",
+     "sku": "",
+     "barcode": null,
+     "price": "4.00",
+     "available": false
+    },
+    {
+     "id": 48786946294073,
+     "title": "Alligator Daze",
+     "sku": "",
+     "barcode": null,
+     "price": "4.00",
+     "available": false
+    },
+    {
+     "id": 48786946392377,
+     "title": "Possum",
+     "sku": "",
+     "barcode": null,
+     "price": "4.00",
+     "available": false
+    },
+    {
+     "id": 48786946359609,
+     "title": "Raccoon",
+     "sku": "",
+     "barcode": null,
+     "price": "4.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9137873617209,
+   "title": "Good Shit Lollipop",
+   "handle": "good-shit-lollipop",
+   "body_html": "<p>A very much lightened neon yellow with matte hexes and iridescent shifting flakes and glow pigment </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Right now",
+    "solar",
+    "Weeds",
+    "Weeds tv"
+   ],
+   "variants": [
+    {
+     "id": 48243899695417,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.50",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9137872109881,
+   "title": "Fucked Up On Cornbread",
+   "handle": "fucked-up-on-cornbread",
+   "body_html": "<p>A very much lightened neon yellow with matte hexes and iridescent shifting flakes and glow pigment </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "Feb restock",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "Right now",
+    "solar",
+    "Weeds",
+    "Weeds tv"
+   ],
+   "variants": [
+    {
+     "id": 48243889078585,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9137860641081,
+   "title": "You Made Your Bed. Now Fuck In It",
+   "handle": "you-made-your-bed-now-fuck-in-it",
+   "body_html": "<p>A clear to charcoal solar polish with iridescent shifting flakes and matte hexes. Solar polishes change with uv rays. It does not charge like a glow and will go back to its clear state when out of the sun. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "glitter",
+    "glitter polish",
+    "Restock 8/30",
+    "Right now",
+    "solar",
+    "Weeds",
+    "Weeds tv"
+   ],
+   "variants": [
+    {
+     "id": 48243839172921,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9137857921337,
+   "title": "Variant",
+   "handle": "variant",
+   "body_html": "<p>Neon orange base with baby BABY green hexes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Loki"
+   ],
+   "variants": [
+    {
+     "id": 48243829178681,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.50",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9137856446777,
+   "title": "I’ve Done Terrible, Awful Things",
+   "handle": "i-ve-done-terrible-awful-things",
+   "body_html": "<p>Neon base with aqua hexes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Loki"
+   ],
+   "variants": [
+    {
+     "id": 48243821216057,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "12.50",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9137246830905,
+   "title": "Let’s Have A Little Pie",
+   "handle": "let-s-get-a-slice-of-pie",
+   "body_html": "<p>Neon yellow base with matte hexes and iridescent shifting flakes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "Feb restock",
+    "flakie",
+    "flakie polish",
+    "glitter",
+    "glitter polish",
+    "Loki",
+    "Restock 8/30",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 48241286775097,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9137243160889,
+   "title": "Glorious Purpose",
+   "handle": "glorious-purpose",
+   "body_html": "<p>A violet jelly with green hexes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Loki"
+   ],
+   "variants": [
+    {
+     "id": 48241282908473,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9135716467001,
+   "title": "Black Hole Spaghetti",
+   "handle": "black-hole-spaghetti",
+   "body_html": "<p style=\"font-weight: 400;\"><span style=\"font-weight: 400;\">A lightened taupe base, neon hexes and black flakes</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Loki",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 48238869119289,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.50",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9135716270393,
+   "title": "Ouroboros",
+   "handle": "ouroboros",
+   "body_html": "<p style=\"font-weight: 400;\"><span style=\"font-weight: 400;\">Clover green base with aquamarine and neon hexes</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Loki",
+    "Restock 8/30",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 48238865219897,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "12.50",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9135708471609,
+   "title": "Jetskis Are Awesome!",
+   "handle": "jetskis-are-awesome-1",
+   "body_html": "<p>15ml bottle, 10 free</p>\n<p><span>Thermal polishes should be stored in a cool, dark place. Never expose your thermal to prolonged high or low temps. </span></p>\n<p><span>Jetskis Are Awesome! - a thermal jelly loaded with large iridescent shifting flakes and matte hexes. </span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "glitter",
+    "glitter polish",
+    "Loki",
+    "Right now",
+    "thermal"
+   ],
+   "variants": [
+    {
+     "id": 48238831108409,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9084292268345,
+   "title": "Oxfords Not Brogues",
+   "handle": "oxfords-not-brogues",
+   "body_html": "<p>A dusty purple base packed with metallic shifting shimmer</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "Fandom",
+    "Fandom all",
+    "Kingsman",
+    "Polish",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 48062861902137,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9084291547449,
+   "title": "Prince of Sweden",
+   "handle": "prince-of-sweden",
+   "body_html": "<p>A white crelly with neon hexes and glow pigment</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "Fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Kingsman",
+    "Polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 48062860755257,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.50",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9084290859321,
+   "title": "Lancelot",
+   "handle": "lancelot",
+   "body_html": "<p>a mellow yellow jelly with shifting shimmer and glow pigment</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "Fandom",
+    "Fandom all",
+    "Kingsman",
+    "Polish",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 48062858953017,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8933352243513,
+   "title": "Thirst Trap Doors",
+   "handle": "thirst-trap-doors",
+   "body_html": "<p style=\"font-weight: 400;\"><span style=\"font-weight: 400;\">Thirst Trap Doors - a violet to clear thermal with large particle shifting candy aurora (technically a bonus as this is from two towers and not fellowship. His door opening skills are that good)</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "Fandom",
+    "Fandom all",
+    "Flakies",
+    "Lotr",
+    "Polish",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 47501252428089,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8933351686457,
+   "title": "Second Breakfast Club",
+   "handle": "second-breakfast-club",
+   "body_html": "<p style=\"font-weight: 400;\"><span style=\"font-weight: 400;\">Second Breakfast Club - a subtle magnetic with shimmer and white to aqua flakes</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "Fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "Flakies",
+    "holo flakes",
+    "Lotr",
+    "micro flakies",
+    "Polish",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 47501250494777,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8933351293241,
+   "title": "It’s BOROmir Not STEALmir",
+   "handle": "it-s-boromir-not-stealmir",
+   "body_html": "<p style=\"font-weight: 400;\"><span style=\"font-weight: 400;\">It’s BOROmir not STEALmir  - a metallic multichrome of green, teal, blue, purple and red with violet and blue metallic flakes</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "Fandom",
+    "Fandom all",
+    "Feb restock",
+    "Flakies",
+    "Lotr",
+    "Polish",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 47501248856377,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8933350211897,
+   "title": "But Elijah Wood",
+   "handle": "but-elijah-wood",
+   "body_html": "<p style=\"font-weight: 400;\"><span style=\"font-weight: 400;\">But Elijah Wood - a sheer base stacked with metallic shifting shimmer and violet metallic flakes</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "Fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "Flakies",
+    "Lotr",
+    "Polish",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 47501242990905,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8839620723001,
+   "title": "Thanks, Babe",
+   "handle": "thanks-babe",
+   "body_html": "",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "micro flakies",
+    "Right now",
+    "shaun"
+   ],
+   "variants": [
+    {
+     "id": 47217535320377,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8839620624697,
+   "title": "You're a Twat",
+   "handle": "youre-a-twat",
+   "body_html": "<p>A dusty purple base with vibrant shifting shimmer and reflective glitters</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Right now",
+    "shaun",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 47217535222073,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8839620297017,
+   "title": "Yeah, Boyeee!",
+   "handle": "yeah-boyeee",
+   "body_html": "",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "Restock 8/30",
+    "Right now",
+    "shaun",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 47217534533945,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8839620067641,
+   "title": "Dogs Can Look Up",
+   "handle": "dogs-can-look-up",
+   "body_html": "",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Restock 8/30",
+    "Right now",
+    "shaun",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 47217534304569,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8591119483193,
+   "title": "That’s The Sound Of A Reckoning",
+   "handle": "that-s-the-sound-of-a-reckoning",
+   "body_html": "<meta charset=\"UTF-8\">\n<p><em><strong><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">That’s the Sound of a Reckoning</span></strong></em><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\"> - packed with flakes that shift violet, purple, orange, green and black metallic flakes</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "all",
+    "All the colors",
+    "andor",
+    "Break",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "polish",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 46378652401977,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8495778529593,
+   "title": "Hand Lotion",
+   "handle": "aloe-jojoba-hand-lotion",
+   "body_html": "<p><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">A super lightweight and fast absorbing hand lotion in .5 oz and 1 oz pump jars. </span></p>\n<p><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">Pump once and dab on fingernails and cuticles before rubbing into hands. A little will go a long way. May require a few pumps initially to get started.</span></p>\n<p><spa",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/24 b&b",
+    "5/24 inventory",
+    "bath",
+    "body care",
+    "Break",
+    "lotion",
+    "nail care"
+   ],
+   "variants": [
+    {
+     "id": 45855623414073,
+     "title": ".5 ounce",
+     "sku": "",
+     "barcode": null,
+     "price": "10.00",
+     "available": false
+    },
+    {
+     "id": 45855903154489,
+     "title": "1 ounce",
+     "sku": "",
+     "barcode": null,
+     "price": "16.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8357433082169,
+   "title": "Judge Judy & Executioner",
+   "handle": "judge-judy-executioner",
+   "body_html": "<p>a multichrome jelly swimming with matte hexes</p>\n<p>- TAT 3-4 weeks</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "hot fuzz",
+    "out of town",
+    "pbe extras",
+    "Restock 8/30",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 45387499143481,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8357429805369,
+   "title": "He’s Fvck Ugly",
+   "handle": "he-s-fuck-ugly",
+   "body_html": "<p>an indigo base, packed with aurora shimmer and matte hexes and squares</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "hot fuzz",
+    "out of town",
+    "Restock 8/30",
+    "Right now",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 45387485249849,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8357426561337,
+   "title": "Hit Him With The Peace Lily",
+   "handle": "hit-him-with-the-peace-lily",
+   "body_html": "<p> A lightened turquoise base, packed with aurora shimmer and bright green reflective glitter</p>\n<p>PREORDER ITEM - TAT 3-4 weeks</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "hot fuzz",
+    "out of town",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 45387473748281,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8357423808825,
+   "title": "You Ain’t Seen Bad Boys II?",
+   "handle": "you-ain-t-seen-bad-boys-ii",
+   "body_html": "<p>a dark sea blue base with micro flake shifting shimmer</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "hot fuzz",
+    "out of town",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 45387461951801,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8357410832697,
+   "title": "A Little Midnight Gobble",
+   "handle": "a-little-midnight-gobble",
+   "body_html": "<p>A sheer jelly with bright red matte hexes, aurora shimmer and GITD pigment. Glow pigment may tint base over time. Always store in a cool, dark place. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "hot fuzz",
+    "out of town",
+    "Restock 8/30",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 45387418140985,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8357382488377,
+   "title": "Farmer’s Mums",
+   "handle": "farmer-s-mums",
+   "body_html": "<p>a sheer, tinted base with aurora shimmer and peachy reflective glitter and glow in the dark pigment </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "hot fuzz",
+    "out of town",
+    "Restock 8/30",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 45387307385145,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8053554741561,
+   "title": "We named the dog Indiana",
+   "handle": "kitchen-sink-indy",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p>PRESALE ITEM</p>\n<p><span>TAT 3-4 weeks after end of sale</span></p>\n<p>15ml bottle, 10 free</p>\n<p> We Named the Dog Indiana - a grey crelly with yellow and aquamarine hexes</p>\n<p> Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Fer",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "fan",
+    "fandom",
+    "Fandom all",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "indiana",
+    "indy jones",
+    "out of town",
+    "polish",
+    "Right now",
+    "thermal"
+   ],
+   "variants": [
+    {
+     "id": 44130571682105,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6882835529793,
+   "title": "Perfume Oil",
+   "handle": "perfume",
+   "body_html": "<p><span style=\"font-size: 1rem;\">Ingredients - jojoba oil, fragrance oil </span></p>\n<p> </p>\n<p><a rel=\"noopener noreferrer\" title=\"Swamp Gloss, scent guide, Kriston\" href=\"https://docs.google.com/spreadsheets/d/14RJMf5FkRawjjq9dYO57uL1X_OPcAzHZMTOwdlpKrQc/htmlview\" target=\"_blank\">Comprehensive Scent Guide</a><span> </span></p>\n<p> </p>\n<p class=\"p3\"> </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Perfume roller",
+   "tags": [
+    "All",
+    "body",
+    "body care",
+    "Body fragrance",
+    "Break",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "out of town",
+    "perfume",
+    "smell goods"
+   ],
+   "variants": [
+    {
+     "id": 54214387368249,
+     "title": "Are You Thor, God of Hammers",
+     "sku": null,
+     "barcode": null,
+     "price": "15.00",
+     "available": true
+    },
+    {
+     "id": 54214387401017,
+     "title": "Eat Dirt & Die Trash",
+     "sku": null,
+     "barcode": null,
+     "price": "15.00",
+     "available": true
+    },
+    {
+     "id": 54214387433785,
+     "title": "Get That Jelly Mold Out Of Here",
+     "sku": null,
+     "barcode": null,
+     "price": "15.00",
+     "available": true
+    },
+    {
+     "id": 54214387466553,
+     "title": "I Carried A Watermelon",
+     "sku": null,
+     "barcode": null,
+     "price": "15.00",
+     "available": true
+    },
+    {
+     "id": 54214387499321,
+     "title": "Mooncakes",
+     "sku": null,
+     "barcode": null,
+     "price": "15.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6853798887489,
+   "title": "I Wash My Hands to Keep Away From Satan",
+   "handle": "i-wash-my-hands-to-keep-away-from-satan",
+   "body_html": "<meta charset=\"UTF-8\">\n<p>A warm pinky/berry jelly with yellow and hot pink matte hexes and iridescent shifting flakes  </p>\n<p><br>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30, Red 28, Red 34 ,",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "holo flakes",
+    "micro flakies",
+    "out of town",
+    "polish",
+    "Restock 8/30",
+    "Right now",
+    "righteous gemstones"
+   ],
+   "variants": [
+    {
+     "id": 40077607632961,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6853798592577,
+   "title": "The Infants Shall Rule the World",
+   "handle": "the-infants-shall-rule-the-world",
+   "body_html": "<meta charset=\"UTF-8\">\n<p>A crunchy holo base with iridescent shifting flakes and sapphire metallic hexes</p>\n<p><br>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30, Red 28, Red 34 , Red 7, Orange ",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "out of town",
+    "polish",
+    "Right now",
+    "righteous gemstones"
+   ],
+   "variants": [
+    {
+     "id": 40077607043137,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6853797806145,
+   "title": "It Makes My Bird Twitch",
+   "handle": "it-makes-my-bird-twitch",
+   "body_html": "<meta charset=\"UTF-8\">\n<p>a large particle shifting shimmer in a deep violet jelly with aqua matte hexes and iridescent shifting flakes  </p>\n<p><br>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30,",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "holo flakes",
+    "micro flakies",
+    "out of town",
+    "polish",
+    "Right now",
+    "righteous gemstones"
+   ],
+   "variants": [
+    {
+     "id": 40077588234305,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6853797150785,
+   "title": "I’ve Got Great Methods",
+   "handle": "i-ve-got-great-methods",
+   "body_html": "<meta charset=\"UTF-8\">\n<p>a white crelly with neon green and blue matte hexes and sapphire metallic hexes</p>\n<p><br>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30, Red 28, Red 34 , Red 7, Orange ",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "out of town",
+    "polish",
+    "Right now",
+    "righteous gemstones"
+   ],
+   "variants": [
+    {
+     "id": 40077576798273,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "12.50",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6816206749761,
+   "title": "Cuticle Oil",
+   "handle": "cuticle-oil",
+   "body_html": "<p>jojoba oil, avocado oil, rosehip seed oil, argan oil, fragrance, tocopherol (vitamin e) in a 3ml click pen (actual oil volume 3.7ml) </p>\n<p>Save 20% when you buy one for each hand 🤗</p>\n<meta charset=\"UTF-8\">\n<p><a href=\"https://docs.google.com/spreadsheets/d/14RJMf5FkRawjjq9dYO57uL1X_OPcAzHZMTOwdlpKrQc/htmlview\" title=\"Swamp Gloss, scent guide, Kriston\" rel=\"noopener noreferrer\" target=\"_blan",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cuticle oil",
+   "tags": [
+    "5/24 b&b",
+    "5/24 inventory",
+    "All",
+    "argan",
+    "body care",
+    "Break",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "cuticle",
+    "Feb restock",
+    "nail care",
+    "out of town",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 54214386254137,
+     "title": "Are You Thor, God Of Hammers",
+     "sku": null,
+     "barcode": null,
+     "price": "7.50",
+     "available": true
+    },
+    {
+     "id": 46899587940665,
+     "title": "Eat Dirt & Die Trash",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": true
+    },
+    {
+     "id": 50517724987705,
+     "title": "Get That Jelly Roll Out Of Here",
+     "sku": null,
+     "barcode": null,
+     "price": "7.50",
+     "available": true
+    },
+    {
+     "id": 54214386286905,
+     "title": "I Carried A Watermelon",
+     "sku": null,
+     "barcode": null,
+     "price": "7.50",
+     "available": true
+    },
+    {
+     "id": 48786597806393,
+     "title": "Mooncake",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6816202031169,
+   "title": "Spray Lotion",
+   "handle": "spray-lotion",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p>A 4.6 ounces of sprayable lotion in a 4 ounce fine mist spray bottle. Shake well before use, just an easy spritz spritz and rub in to enjoy silky smooth hydrated skin without any grease factor. </p>\n<p>Glorious Purpose - sweet sugared peppermint, vanilla buttercream, hints of musk</p>\n<p>Knives Out - pumpkin butter, white chocolate, marshmallow, pret",
+   "vendor": "Swamp Gloss",
+   "product_type": "Hair milk",
+   "tags": [
+    "All",
+    "body",
+    "body care",
+    "Break",
+    "jojoba",
+    "lotion",
+    "lotions",
+    "out of town"
+   ],
+   "variants": [
+    {
+     "id": 45013091352889,
+     "title": "Glorious Purpose",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 44130638496057,
+     "title": "Knives Out",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 46382321991993,
+     "title": "Let’s call it war",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 45013091385657,
+     "title": "Mooncakes",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 45013091418425,
+     "title": "Only Murders In The Building",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 48786964578617,
+     "title": "Side Pieces",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 45013091451193,
+     "title": "Sweet Salvation",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 48069052956985,
+     "title": "Just A Formality",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 49607829422393,
+     "title": "Peetah",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6813382344769,
+   "title": "You’re not the hero of this story. I am.",
+   "handle": "you-re-not-the-hero-of-this-story-i-am",
+   "body_html": "<p>Expected shipping to begin June 20</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Hawkeye",
+    "macaroni",
+    "out of town",
+    "overpour",
+    "polish",
+    "reflective glitter",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "Yelena"
+   ],
+   "variants": [
+    {
+     "id": 39952293855297,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6739752943681,
+   "title": "Weapon of Choice",
+   "handle": "weapon-of-choice",
+   "body_html": "<p> Thermal polishes should be stored in a cool, dark place. Never expose your thermal to prolonged high or low temps. </p>\n<p>Weapon of choice - a purple/blue thermal jelly with shifting shimmer, iridescent flakes and matte hexes</p>\n<p data-mce-fragment=\"1\"> </p>\n<p> </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All the colors",
+    "April22",
+    "AprilPolish",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "holo flakes",
+    "micro flakies",
+    "pbe extras",
+    "Right now",
+    "Spider-Man release",
+    "spiderman",
+    "thermal"
+   ],
+   "variants": [
+    {
+     "id": 39727303032897,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6739735543873,
+   "title": "We’re Like a Little Team",
+   "handle": "we-re-like-a-little-team",
+   "body_html": "<p>One of six piece spiderverse collection.</p>\n<meta charset=\"UTF-8\">\n<p>15ml bottles, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30, Red 28, Red 34 , Red 7, Orange 5, Yellow 5, Yellow 11, Yellow 6, Yellow 1",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "micro flakies",
+    "out of town",
+    "overpour",
+    "overpours",
+    "polish",
+    "Spider-Man release",
+    "spiderman",
+    "we're like a little team"
+   ],
+   "variants": [
+    {
+     "id": 39727264956481,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6739732136001,
+   "title": "Midtown High",
+   "handle": "midtown-high",
+   "body_html": "<p>One of six piece spiderverse collection.</p>\n<meta charset=\"UTF-8\">\n<p>15ml bottles, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30, Red 28, Red 34 , Red 7, Orange 5, Yellow 5, Yellow 11, Yellow 6, Yellow 1",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo",
+    "holo flakes",
+    "holographic",
+    "micro flakies",
+    "midtown",
+    "overpours",
+    "Spider-Man release",
+    "spiderman"
+   ],
+   "variants": [
+    {
+     "id": 39727257681985,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6739730268225,
+   "title": "I Missed the Part Where That’s My Problem",
+   "handle": "i-missed-the-part-where-that-s-my-problem",
+   "body_html": "<p>One of six piece spiderverse collection.</p>\n<meta charset=\"UTF-8\">\n<p>15ml bottles, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30, Red 28, Red 34 , Red 7, Orange 5, Yellow 5, Yellow 11, Yellow 6, Yellow 1",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo",
+    "holo flakes",
+    "holographic",
+    "i missed the part",
+    "micro flakies",
+    "out of town",
+    "overpour",
+    "polish",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "Spider-Man release",
+    "spiderman"
+   ],
+   "variants": [
+    {
+     "id": 39727254896705,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6707402604609,
+   "title": "Hair Oil",
+   "handle": "hair-oil",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p><span>A spritz or two of this oil applied to the ends of your hair, reduces tangles, moisturizes and soothes dry and sensitive scalps. Lightweight and made with hair loving argan oil and botanical extracts. A little goes a long way! </span></p>\n<p><span>Comes in a 4 oz glass spray bottle.</span></p>\n<p><span>Ingredients: Medium Chain Triglycerides, M",
+   "vendor": "Swamp Gloss",
+   "product_type": "nail care",
+   "tags": [
+    "argan",
+    "black friday",
+    "Black Friday body",
+    "body",
+    "body care",
+    "Break",
+    "Hair care",
+    "hair milk",
+    "milk bath",
+    "oil",
+    "Spider body"
+   ],
+   "variants": [
+    {
+     "id": 39640553685057,
+     "title": "Mooncakes",
+     "sku": "",
+     "barcode": null,
+     "price": "18.00",
+     "available": false
+    },
+    {
+     "id": 39727175401537,
+     "title": "Sweet Salvation",
+     "sku": "",
+     "barcode": null,
+     "price": "18.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6707377832001,
+   "title": "Hair Milk",
+   "handle": "hair-milk",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p> 4.5oz trigger spray bottle of detangling, leave-in conditioning goodness! Spray on to damp hair and combo through starting at the bottom.  </p>\n<p class=\"p1\"><span class=\"s3\">FTWD</span></p>\n<ul class=\"ul1\">\n<li class=\"li1\">\n<span class=\"s1\"></span><span class=\"s2\">Abigail (Brazilian Crush Cheirosa 62 type) - pistachio, almond, toasted vanilla, salt",
+   "vendor": "Swamp Gloss",
+   "product_type": "Hair milk",
+   "tags": [
+    "5/24 b&b",
+    "5/24 inventory",
+    "All",
+    "bath",
+    "body",
+    "body care",
+    "Break",
+    "critters",
+    "Crittershop",
+    "Feb restock",
+    "hair milk",
+    "jojoba",
+    "out of town",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 50299004420409,
+     "title": "Avasarala",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    },
+    {
+     "id": 50392779260217,
+     "title": "Mooncake",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6635756224577,
+   "title": "Body Spray",
+   "handle": "body-spray",
+   "body_html": "<meta charset=\"UTF-8\">\n<p>A body/linen spray in a purple 2 ounce fine mist spray bottle. </p>\n<meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p><a rel=\"noopener noreferrer\" title=\"Swamp Gloss, scent guide, Kriston\" href=\"https://docs.google.com/spreadsheets/d/14RJMf5FkRawjjq9dYO57uL1X_OPcAzHZMTOwdlpKrQc/htmlview\" target=\"_blank\">Comprehensive Scent Guide</a><span> </span></p>\n<p><span>Available 4/20",
+   "vendor": "Swamp Gloss",
+   "product_type": "Body Spray",
+   "tags": [
+    "5/24 b&b",
+    "5/24 inventory",
+    "All",
+    "argan",
+    "body",
+    "body care",
+    "Body fragrance",
+    "Break",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "out of town",
+    "smell goods",
+    "spider body",
+    "spray"
+   ],
+   "variants": [
+    {
+     "id": 48786083643705,
+     "title": "Cry Baby Cry",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 49607808942393,
+     "title": "Four Elephants and a Noble Turle",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 49607808975161,
+     "title": "Get That Jelly Mold Out of Here",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 47217563599161,
+     "title": "Knives Out",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 45856408863033,
+     "title": "Let’s Call It War",
+     "sku": null,
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 48786083807545,
+     "title": "Mellark",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 45019466957113,
+     "title": "Mooncakes",
+     "sku": null,
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 47217563631929,
+     "title": "Only Murders In The Building",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 48786083676473,
+     "title": "Spilt Milk",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 45013016084793,
+     "title": "Stay Strong Bitch",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 48786084069689,
+     "title": "Strawberry Switchblade",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 45013016117561,
+     "title": "Time For My Shows",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": true
+    },
+    {
+     "id": 48786083938617,
+     "title": "Yellowjacket",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 48786083971385,
+     "title": "Bitter Peach Type",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": false
+    },
+    {
+     "id": 45013015986489,
+     "title": "I Carried A Watermelon",
+     "sku": "",
+     "barcode": null,
+     "price": "7.50",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6606633205825,
+   "title": "You Matte About It - Matte Top Coat",
+   "handle": "you-matte-about-it",
+   "body_html": "<div><strong></strong></div>\n<p>Top coat that leaves a matte finish</p>\n<div class=\"o9v6fnle cxmmr5t8 oygrvhab hcukyx3x c1et5uql ii04i59q\">\n<div dir=\"auto\"><span></span></div>\n<div dir=\"auto\">Ingredients: Ethyl Acetate, Butyl Acetate, SD Alcohol 40-B, Cellulose Acetate Butyrate, Acrylates Copolymer, Silica Silylate, Hydrated Silica &amp; Polyethylene, Trimethyl Pentanyl Diisobutyrate, Acetyl Tribu",
+   "vendor": "swampgloss.com",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "April-may",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "nail care",
+    "out of town",
+    "polish",
+    "Right now",
+    "spider top"
+   ],
+   "variants": [
+    {
+     "id": 47217675305273,
+     "title": "Unscented",
+     "sku": "",
+     "barcode": null,
+     "price": "9.00",
+     "available": true
+    },
+    {
+     "id": 48786934792505,
+     "title": "Strawberry Switchblade",
+     "sku": "",
+     "barcode": null,
+     "price": "9.00",
+     "available": false
+    },
+    {
+     "id": 48786934825273,
+     "title": "Ugly Mustard",
+     "sku": "",
+     "barcode": null,
+     "price": "9.00",
+     "available": false
+    },
+    {
+     "id": 47217675403577,
+     "title": "Let's Call It War",
+     "sku": "",
+     "barcode": null,
+     "price": "9.00",
+     "available": false
+    },
+    {
+     "id": 47217675501881,
+     "title": "Sweet Salvation",
+     "sku": "",
+     "barcode": null,
+     "price": "9.00",
+     "available": false
+    },
+    {
+     "id": 48786934858041,
+     "title": "Mooncake",
+     "sku": "",
+     "barcode": null,
+     "price": "9.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6606630944833,
+   "title": "Quick Dry Top Coat",
+   "handle": "quick-dry-top-coat",
+   "body_html": "<p>Quick Dry Top Coat</p>",
+   "vendor": "swampgloss.com",
+   "product_type": "Quick Dry Top Coat",
+   "tags": [
+    "All",
+    "base",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "nail care",
+    "out of town",
+    "polish",
+    "qdtc",
+    "spider top",
+    "top coat"
+   ],
+   "variants": [
+    {
+     "id": 47217672454457,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "9.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6606524809281,
+   "title": "I Only Ever Wanted To Be Your Equal",
+   "handle": "i-only-ever-wanted-to-be-your-equal",
+   "body_html": "<p>A rich forest green, stacked with metallic shifting flakes and green gloW</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All",
+    "All the colors",
+    "Bifrost",
+    "Break",
+    "chameleon",
+    "critters",
+    "Crittershop",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "Loki",
+    "out of town",
+    "Stockist",
+    "thor"
+   ],
+   "variants": [
+    {
+     "id": 39431774502977,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6606522777665,
+   "title": "you’re welcome",
+   "handle": "you-re-welcome",
+   "body_html": "<p>PRESALE ITEM<br></p>\n<p data-mce-fragment=\"1\">TAT 7-15 business days, after presale ends 4/7<br></p>\n<p data-mce-fragment=\"1\">15ml bottle, 10 free<br>“My fathers dead. As are the princes. You’re welcome.”</p>\n<p> </p>\n<p>A dark holo base, with magnetic chameleon pigment that shifts green, aqua, purple, pink with iridescent flakes that shift blue purple indigo </p>\n<p>15ml bottle, 10 free</p>\n<p",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All the colors",
+    "April22",
+    "AprilPolish",
+    "Bifrost",
+    "Break",
+    "chameleon",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "hela",
+    "magnetic",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 39431772700737,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6606515896385,
+   "title": "Mischievous Scamp",
+   "handle": "jetskis-are-awesome",
+   "body_html": "<p>a multichrome magnetic, shifts of gold green, emerald and blue with metallic micro flakes and iridescent colorshifting flake</p>\n<meta charset=\"UTF-8\">\n<p> </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glow",
+    "Loki",
+    "out of town",
+    "overpours",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "Stockist"
+   ],
+   "variants": [
+    {
+     "id": 39431768768577,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6606514946113,
+   "title": "For All Time",
+   "handle": "for-all-time",
+   "body_html": "<p> a charcoal brown leaning jelly with aqua hexes and bright red orange hexes and triangles with an orange glow</p>\n<p> </p>\n<meta charset=\"UTF-8\">\n<p>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red ",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "glow",
+    "Loki",
+    "out of town",
+    "Overpour",
+    "overpours",
+    "polish",
+    "Stockist"
+   ],
+   "variants": [
+    {
+     "id": 39431768473665,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6606514257985,
+   "title": "Broken Horn",
+   "handle": "broken-horn",
+   "body_html": "<p>a black jelly swimming with shifting shimmer and white matte hexes</p>\n<p>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30, Red 28, Red 34 , Red 7, Orange 5, Yellow 5, Yellow 11, Yellow 6, Yellow",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Break",
+    "colorshift",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Loki",
+    "overpours",
+    "Right now",
+    "Stockist"
+   ],
+   "variants": [
+    {
+     "id": 39431768047681,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6606513864769,
+   "title": "A Bit of Both",
+   "handle": "a-bit-of-both",
+   "body_html": "",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All the colors",
+    "AprilOverpour",
+    "AprilPolish",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "holo flakes",
+    "Loki",
+    "micro flakies",
+    "out of town",
+    "overpours",
+    "Right now",
+    "Stockist",
+    "thermal polish",
+    "thermals"
+   ],
+   "variants": [
+    {
+     "id": 39431767654465,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6571754455105,
+   "title": "Lip Balms",
+   "handle": "lip-balms",
+   "body_html": "<p><span class=\"s1\">coconut oil, shea butter, cocoa butter, beeswax, argan oil, rosehip seed oil, flavor oil, sweetner, vitamin e</span></p>\n<p>Eat Pie Kill Demons - Banana Pudding Pie</p>\n<p>Get That Jelly Mold Out Of Here - Rocket Pop</p>\n<p>Hope You Like You’re Freaking Apple Pie - Green Apples</p>\n<p>Nuka Shine - Mountain Dew</p>\n<p>Sucking Down Throat Juice Like It’s Grey Goose - Watermelon, ",
+   "vendor": "Swamp Gloss",
+   "product_type": "Body Care",
+   "tags": [
+    "5/24 b&b",
+    "5/24 inventory",
+    "All",
+    "body",
+    "body care",
+    "Break",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "Indieversary 5",
+    "july",
+    "lip balm",
+    "lip care",
+    "out of town"
+   ],
+   "variants": [
+    {
+     "id": 40079312158785,
+     "title": "Eat Pie. Kill Demons.",
+     "sku": "",
+     "barcode": null,
+     "price": "6.00",
+     "available": true
+    },
+    {
+     "id": 49858795405625,
+     "title": "Get That Jelly Mold Out Of Here",
+     "sku": "",
+     "barcode": null,
+     "price": "6.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6543931572289,
+   "title": "Maxwell",
+   "handle": "maxwell",
+   "body_html": "<meta charset=\"UTF-8\">\n<p>15ml bottle, 10 free</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "out of town",
+    "pedro pascal",
+    "polish",
+    "Right now",
+    "stockist"
+   ],
+   "variants": [
+    {
+     "id": 39276150554689,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6543931211841,
+   "title": "Mando",
+   "handle": "mando",
+   "body_html": "<meta charset=\"UTF-8\">\n<p> </p>\n<p>15 ml, 10 free </p>\n<p> Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanide, Ultramarines, Red 6, Red 22, Red 30, Red 28, Red 34 , Red 7, Orange 5, Yellow 5, Yellow 11, Yellow 6, Yellow 10, Blue 1, Black 2, Violet 2 Ext , Titanium ",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "Indieversary 5",
+    "out of town",
+    "pedro pascal",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "stockist"
+   ],
+   "variants": [
+    {
+     "id": 39276142002241,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6543930818625,
+   "title": "Javi",
+   "handle": "javi",
+   "body_html": "<meta charset=\"UTF-8\">\n<p><span><br>Javi: A tinted turquoise with bronze/green/teal aurora shimmer</span></p>\n<p> </p>\n<p> </p>\n<p><span>Ingredients:  Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can include micas, lakes, glitter, oxides, aluminum powder, and titanium dioxides. </span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "Indieversary 5",
+    "out of town",
+    "pedro pascal",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 39276139315265,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6543930261569,
+   "title": "Whiskey",
+   "handle": "whiskey",
+   "body_html": "<p> </p>\n<meta charset=\"UTF-8\">\n<p> </p>\n<p>15ml bottle, 10 free</p>\n<meta charset=\"UTF-8\">\n<p><span>Thermal polishes should be stored in a cool, dark place. Never expose your thermal to prolonged high temps. </span></p>\n<p><span><br>Whiskey: A violet to white thermal crelly with minty blue matte hexes and iridescent shifting flakes</span></p>\n<p> </p>\n<p>15ml bottle, 10 free</p>\n<p>Ingredients - ",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "Break",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "holo flakes",
+    "Holographic",
+    "micro flakies",
+    "out of town",
+    "pedro pascal",
+    "Right now",
+    "shimmer",
+    "stockist"
+   ],
+   "variants": [
+    {
+     "id": 39276136562753,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 4342151741505,
+   "title": "Y’all Stop Trying To Step To Me",
+   "handle": "y-all-stop-trying-to-step-to-me",
+   "body_html": "<p>swatches by ghostlynails <a href=\"https://instagram.com/ghostlynails\" target=\"_blank\" title=\"Ghostlynails indie Polish swatcher \" rel=\"noopener noreferrer\">insta</a></p>\n<p><br>Head son of the Gemstones deserves his own polish. DESERVED IT! Just ask Jessie Gemstone. An ultra chameleon that shifts green to blue to purple to gold at extreme angles, Y’all Stop Trying to Step to Me is loaded with l",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All the colors",
+    "Break",
+    "chameleon",
+    "color shift",
+    "critters",
+    "Crittershop",
+    "Danny McBride",
+    "fandom",
+    "Fandom all",
+    "Flakie",
+    "flakie polish",
+    "Holiday",
+    "Holidays",
+    "holo flakes",
+    "Holographic",
+    "multichrome",
+    "Right now",
+    "righteous gemstones",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "tv"
+   ],
+   "variants": [
+    {
+     "id": 31193038356545,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 2016951140398,
+   "title": "Acetone Additive",
+   "handle": "acetone-defense",
+   "body_html": "<meta charset=\"UTF-8\">\n<p><span>swatch by hbh_nails </span><a href=\"https://instagram.com/hbh_nails?igshid=8uj7vf3wygol\" target=\"_blank\" rel=\"noopener noreferrer\">insta</a><span>  / </span></p>\n<div class=\"o9v6fnle cxmmr5t8 oygrvhab hcukyx3x c1et5uql ii04i59q\">\n<div dir=\"auto\">\n<div class=\"o9v6fnle cxmmr5t8 oygrvhab hcukyx3x c1et5uql ii04i59q\"><span class=\"s1\">glycerin, argan oil, polysorbate 80, ",
+   "vendor": "Swamp Gloss",
+   "product_type": "nail care",
+   "tags": [
+    "5/24 b&b",
+    "5/24 inventory",
+    "acetone additive",
+    "All",
+    "argan",
+    "body care",
+    "Break",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "Feb restock",
+    "glycerin",
+    "nail care",
+    "out of town"
+   ],
+   "variants": [
+    {
+     "id": 51311383216441,
+     "title": "Eat Dirt & Die Trask",
+     "sku": null,
+     "barcode": null,
+     "price": "8.00",
+     "available": true
+    },
+    {
+     "id": 51311383183673,
+     "title": "Mooncake",
+     "sku": null,
+     "barcode": null,
+     "price": "8.00",
+     "available": true
+    },
+    {
+     "id": 53321165668665,
+     "title": "Cherry Margarita",
+     "sku": null,
+     "barcode": null,
+     "price": "8.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 1976490655790,
+   "title": "Milkshake - Milky Base Coat",
+   "handle": "nourishing-base",
+   "body_html": "<p>swatch by hbh_nails <a href=\"https://instagram.com/hbh_nails?igshid=8uj7vf3wygol\" target=\"_blank\" rel=\"noopener noreferrer\">insta</a> </p>\n<p>Milky basecoat to protect your nails and manicure.</p>\n<meta charset=\"UTF-8\">\n<p> </p>",
+   "vendor": "swampgloss.com",
+   "product_type": "Nail Polish",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All",
+    "All the colors",
+    "April-may",
+    "Break",
+    "critters",
+    "Crittershop",
+    "nail care",
+    "out of town",
+    "polish",
+    "Right now",
+    "spider top",
+    "Spidey top"
+   ],
+   "variants": [
+    {
+     "id": 47217538564409,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "8.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9445337039161,
+   "title": "Charity Mystery Polishes",
+   "handle": "charity-mystery-polishes",
+   "body_html": "<p><strong>Overpour (7/1)</strong><br>For the month of June there will be 3 mystery polishes available, with $4 from each bottle being split and donated to <a href=\"https://www.thetrevorproject.org/\" target=\"_blank\" title=\"The Trevor Project\" rel=\"noopener noreferrer\">The Trevor Project</a> and <a href=\"https://transequality.org/\" target=\"_blank\" rel=\"noopener noreferrer\">The National Center for T",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "AllSammie",
+    "charity",
+    "featured",
+    "mystery",
+    "Pride"
+   ],
+   "variants": [
+    {
+     "id": 49288196718905,
+     "title": "Glitter I - Crelly",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": false
+    },
+    {
+     "id": 49288196751673,
+     "title": "Glitter II - Jelly",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": false
+    },
+    {
+     "id": 49288196784441,
+     "title": "Flakie - Jelly",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6606522941505,
+   "title": "I Thought The World Of You",
+   "handle": "i-thought-the-world-of-you",
+   "body_html": "<p>\"Loki, I thought the world of you. I thought we were gonna fight side by side forever…” </p>\n<p>A black, blue, red chameleon with red matte hexes</p>\n<p> </p>\n<meta charset=\"UTF-8\">\n<p>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferrocyanid",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All the colors",
+    "Bifrost",
+    "chameleon",
+    "fandom",
+    "Fandom all",
+    "Feb restock",
+    "glitter",
+    "glitter polish",
+    "overpours",
+    "Stockist",
+    "thor"
+   ],
+   "variants": [
+    {
+     "id": 39431772864577,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 4358198788161,
+   "title": "Cranberry Butter Scrub",
+   "handle": "cranberry-butter-scrub",
+   "body_html": "<p>A yummy cranberry butter blend (shea butter, jojoba and cranberry fruit) lip/cuticle scrub. Cranberry has one of the highest ORAC (oxygen radical absorption capacity, phew that’s a whole lotta words) ratings. Which is the fanciest way to say these little suckers know how to anti oxidate. Which means they’re helping to zap skin damaging free radicals and boosting collagen productions. Working wi",
+   "vendor": "Swamp Gloss",
+   "product_type": "Body Care",
+   "tags": [
+    "body care",
+    "cranberry",
+    "cuticle care",
+    "lip care",
+    "nail care",
+    "out of town",
+    "scrub",
+    "Whips and scrubs"
+   ],
+   "variants": [
+    {
+     "id": 48236176146745,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "8.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6606533492801,
+   "title": "F**king Guy",
+   "handle": "f-king-guy-nandor",
+   "body_html": "<p>Shoulda named this one I, Nandor the Relentless - A bright spring green, with micro holo flakes and absolutely stacked with Aurora shimmer. Total topabilities</p>\n<p>jahohn</p>\n<p> </p>\n<p>15ml bottle</p>\n<meta charset=\"UTF-8\">\n<p><span>TAT 10-15 business days </span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "Indieversary 5",
+    "out of town",
+    "Overpour",
+    "overpours",
+    "Right now",
+    "shimmer",
+    "shimmer polish",
+    "what we do iin the shadows",
+    "wwdits"
+   ],
+   "variants": [
+    {
+     "id": 39431780761665,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6842850934849,
+   "title": "I’ll call the ax when you call the dentist",
+   "handle": "i-ll-call-the-ax-when-you-call-the-dentist",
+   "body_html": "<p>A light greyed purple with metallic flakes and neon hexes   </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "love & Thunder",
+    "love and Thunder",
+    "out of town",
+    "pbe",
+    "pbe polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 40042264232001,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6842850607169,
+   "title": "You Flicked too hard",
+   "handle": "you-flicked-too-hard",
+   "body_html": "<p>Jelly base with aurora shimmer and matte hexes </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "love & Thunder",
+    "love and Thunder",
+    "out of town",
+    "Overpour",
+    "pbe",
+    "pbe polish",
+    "polish"
+   ],
+   "variants": [
+    {
+     "id": 40042263445569,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8053558968633,
+   "title": "Thats basic sh!#$ing",
+   "handle": "thats-basic-sh-ing",
+   "body_html": "<p>Avenue 5, batch #2.</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "avenue 5",
+    "fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "glitter",
+    "jelly",
+    "out of town",
+    "polish"
+   ],
+   "variants": [
+    {
+     "id": 44130592031033,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8053556478265,
+   "title": "I’m the alpha & the beta",
+   "handle": "i-m-the-alpha-the-beta",
+   "body_html": "<p>A deep violet jelly with matte red hexes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "avenue 5",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "jelly",
+    "out of town",
+    "polish",
+    "Restock 8/30",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 44130579087673,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "12.50",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9084291055929,
+   "title": "Agent Whiskey",
+   "handle": "agent-whiskey",
+   "body_html": "<p>A dark blue to clear thermal packed with shifting iridescent flakes and matte hexes </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "Fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "holo flakes",
+    "Kingsman",
+    "micro flakies",
+    "pedro pascal",
+    "Polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 48062860263737,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9084288860473,
+   "title": "Galahad",
+   "handle": "galahad",
+   "body_html": "<p>a violet to clear thermal packed with vibrant blue candy shifting flakes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "Fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "Kingsman",
+    "micro flakies",
+    "Polish"
+   ],
+   "variants": [
+    {
+     "id": 48062851842361,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9084288336185,
+   "title": "Ducks!",
+   "handle": "ducks",
+   "body_html": "<p>A pinky red berry jelly with matte hexes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "good omens",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 48062845190457,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.50",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9084287877433,
+   "title": "Potentially good. Potentially evil.",
+   "handle": "potentially-good-potentially-evil",
+   "body_html": "<p>A chocolatey base with purple undertones stacked with shifting shimmer</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "good omens",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 48062844666169,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9084283617593,
+   "title": "A Spark of Goodness",
+   "handle": "a-spark-of-goodness",
+   "body_html": "<p>Magnetic multichrome with color shifting iridescent flakes and matte hexes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "good omens",
+    "holo flakes",
+    "micro flakies"
+   ],
+   "variants": [
+    {
+     "id": 48062833459513,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9035823874361,
+   "title": "There Will Come A Payday",
+   "handle": "there-will-come-a-payday",
+   "body_html": "<p>A white based crelly with neon coral, pink and ice blue hexes, and white glow in the dark pigment. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Right now",
+    "Righteous gemstones"
+   ],
+   "variants": [
+    {
+     "id": 47864190763321,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.50",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 9035815485753,
+   "title": "Baby Billy’s Bible Bonkers",
+   "handle": "baby-billy-s-bible-bonkers",
+   "body_html": "<p>A cobalt blue jelly packed with pink, red, orange, gold and large aqua, blue iridescent shifting flakes. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "Feb restock",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "holo flakes",
+    "micro flakies",
+    "Restock 8/30",
+    "Right now",
+    "Righteous gemstones"
+   ],
+   "variants": [
+    {
+     "id": 47864158421305,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 4529239752769,
+   "title": "Mango Butter Sugar Scrub",
+   "handle": "mango-butter-sugar-scrub",
+   "body_html": "<p>To Use: Massage scrub onto clean, wet skin. Rinse off with warm water.</p>\n<p><span>Ingredients - Cane Sugar, Apricot Kernel Oil, Mango butter, Meadowfoam Seed Oil,Emulsifying Wax, Stearic Acid, Jojoba, Preservative Fragrance, Mica, Aloe Extract, Vitamin E, </span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Body Care",
+   "tags": [
+    "5/24 b&b",
+    "5/24 inventory",
+    "body",
+    "body care",
+    "critters",
+    "Crittershop",
+    "emulsified",
+    "Shower",
+    "sugar",
+    "sugar scrub",
+    "Whips and scrubs"
+   ],
+   "variants": [
+    {
+     "id": 32061441900609,
+     "title": "Abigail",
+     "sku": "",
+     "barcode": null,
+     "price": "10.00",
+     "available": false
+    },
+    {
+     "id": 32061477552193,
+     "title": "Eat Dirt & Die Trash",
+     "sku": "",
+     "barcode": null,
+     "price": "10.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 9015281680697,
+   "title": "Good Omens Mysteries (OVERPOUR)",
+   "handle": "good-omens-mysteries",
+   "body_html": "<p><strong>Good Omens mystery overpours from Critter Shoppe. Scrolling through photos will result in being spoiled!</strong></p>\n<p> </p>\n<p><br>Three separate mystery polishes. Listed by finish, you may choose which of the finishes you prefer. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "everything",
+    "fandom",
+    "good omens",
+    "nail polish"
+   ],
+   "variants": [
+    {
+     "id": 47778995568953,
+     "title": "Glitter",
+     "sku": "",
+     "barcode": null,
+     "price": "12.50",
+     "available": false
+    },
+    {
+     "id": 47778995601721,
+     "title": "Flakies/Glitter",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 47778995634489,
+     "title": "Shimmer",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6707382386753,
+   "title": "Whipped Mango Butter",
+   "handle": "whipped-mango-butter",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\"><meta charset=\"UTF-8\"><meta charset=\"UTF-8\"><meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p>Luscious mango butter whipped up with super hydrator hemp seed oil, shea butter, skin loving jojoba and argan oil, vitamin a packed rosehip seed oil, anti inflammatory and vitamin c pack aloe vera oil, vitamin e. Melts onto skin,  a little goes a loooong way. Comb",
+   "vendor": "Swamp Gloss",
+   "product_type": "Whipped Mango Buttet",
+   "tags": [
+    "argan",
+    "body",
+    "body butter",
+    "body care",
+    "Indieversary 5",
+    "lotion",
+    "lotions",
+    "mango butter",
+    "oil",
+    "out of town",
+    "whipped",
+    "Whips and scrubs"
+   ],
+   "variants": [
+    {
+     "id": 39727233826881,
+     "title": "Avasarala",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 39727233794113,
+     "title": "Guillermo Buillermo",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 39639666425921,
+     "title": "Eat Dirt & Die Trash",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 4420538695745,
+   "title": "Just Call Me Mary Wanna",
+   "handle": "just-call-me-mary-wanna",
+   "body_html": "<p> </p>\n<p>Swatches by</p>\n<ul>\n<li>Nail.dazed - <a href=\"http://www.instagram.com/nail.dazed\" target=\"_blank\" title=\"Nail dazed instagram\" rel=\"noopener noreferrer\">insta</a> </li>\n<li>Nailsit - <a href=\"http://www.instagram.com/nailsit\" target=\"_blank\" title=\"Nailsit instagram\" rel=\"noopener noreferrer\">insta</a> / <a href=\"https://www.facebook.com/NailsIT-185360588249128/\" target=\"_blank\" rel=",
+   "vendor": "swampgloss.com",
+   "product_type": "Nail Polish",
+   "tags": [
+    "420",
+    "All",
+    "All the colors",
+    "Color",
+    "crelly",
+    "Crelly polish",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter crelly",
+    "glitter polish",
+    "indie polish",
+    "Mary wanna",
+    "out of town",
+    "Overpour",
+    "overpours",
+    "pink",
+    "polish",
+    "red",
+    "reefer madness",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 31621290393665,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "12.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 4420558127169,
+   "title": "Give & Toke",
+   "handle": "give-toke",
+   "body_html": "<p>ultramarine blue jelly with iridescent shifting flakes</p>",
+   "vendor": "swampgloss.com",
+   "product_type": "Nail Polish",
+   "tags": [
+    "420",
+    "All the colors",
+    "aurora",
+    "blue",
+    "blurple",
+    "Color",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "indie polish",
+    "Mary wanna",
+    "micro flakies",
+    "polish",
+    "purple",
+    "reefer madness",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 31621367529537,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "12.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6606526447681,
+   "title": "Bifrost Trio",
+   "handle": "bifrost-trio",
+   "body_html": "<p>All three dysfunctional siblings in one set </p>\n<p>\"I never wanted the throne. I only ever wanted to be your equal.”</p>\n<p>I only ever wanted to be your equal - A rich forest green, stacked with metallic shifting flakes and green glow</p>\n<p> </p>\n<p>\"Loki, I thought the world of you. I thought we were gonna fight side by side forever…” </p>\n<p>I thought the world of you - A black, blue, red ",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All the colors",
+    "Bifrost",
+    "chameleon",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "stockist",
+    "thor"
+   ],
+   "variants": [
+    {
+     "id": 47778953036089,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "35.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6816348209217,
+   "title": "Monthly Overpours",
+   "handle": "mystery-overpours-protos",
+   "body_html": "<p>15ml mystery polishes.</p>\n<p>Options are for mystery overpours from monthly collabs</p>\n<p>Mystery Overpours possibilities include -</p>\n<p>PPU</p>\n<p> </p>\n<p class=\"p1\"> </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All the colors",
+    "critter shop",
+    "critters",
+    "Crittershop",
+    "overpour"
+   ],
+   "variants": [
+    {
+     "id": 39961641189441,
+     "title": "PPU",
+     "sku": null,
+     "barcode": null,
+     "price": "10.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8933353980217,
+   "title": "Thoughts & Prayers Frodo",
+   "handle": "thoughts-prayers-frodo",
+   "body_html": "<p style=\"font-weight: 400;\"><span style=\"font-weight: 400;\">Thoughts &amp; Prayers, Frodo - large particle shifting shimmer in a pale lavender base with blue/aqua glow in the dark pigment</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "Fandom",
+    "Fandom all",
+    "Feb restock",
+    "Flakies",
+    "glitter",
+    "glitter polish",
+    "Lotr",
+    "Polish",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 47501267304761,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8839643070777,
+   "title": "Mischievous Scamp Oops",
+   "handle": "mischievous-scamp-oops",
+   "body_html": "Oopsie magnetic pigment used for this batch of Mischievous Scamp",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "micro flakies"
+   ],
+   "variants": [
+    {
+     "id": 47217614094649,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8839638057273,
+   "title": "Wax Melts",
+   "handle": "wax-melts",
+   "body_html": "<p>Parasoy Wax Melts</p>\n<p> 1 ounce shapes/3 ounce snap bars</p>\n<style type=\"text/css\"><!--\ntd {border: 1px solid #cccccc;}br {mso-data-placement:same-cell;}\n--></style>\n<p><span data-sheets-userformat='{\"2\":14851,\"3\":{\"1\":0},\"4\":{\"1\":2,\"2\":16777215},\"12\":0,\"14\":{\"1\":2,\"2\":0},\"15\":\"Calibri\",\"16\":11}' data-sheets-value='{\"1\":2,\"2\":\"grapefruit, rhubarb, mint, lavender, rose, apple, vanilla\"}'>Acro",
+   "vendor": "Swamp Gloss",
+   "product_type": "Wax Melts",
+   "tags": [
+    "wax melt",
+    "wax melts"
+   ],
+   "variants": [
+    {
+     "id": 47217597514041,
+     "title": "Shapes / Across the Universe",
+     "sku": "",
+     "barcode": null,
+     "price": "1.50",
+     "available": false
+    },
+    {
+     "id": 47217597546809,
+     "title": "Shapes / Freaky Tiki",
+     "sku": "",
+     "barcode": null,
+     "price": "1.50",
+     "available": false
+    },
+    {
+     "id": 47217597579577,
+     "title": "Shapes / Peaches I Love You",
+     "sku": "",
+     "barcode": null,
+     "price": "1.50",
+     "available": false
+    },
+    {
+     "id": 47217597612345,
+     "title": "Shapes / Slice of Fried Gold",
+     "sku": "",
+     "barcode": null,
+     "price": "1.50",
+     "available": false
+    },
+    {
+     "id": 47217597645113,
+     "title": "Snapbars / Across the Universe",
+     "sku": "",
+     "barcode": null,
+     "price": "4.00",
+     "available": false
+    },
+    {
+     "id": 47217597677881,
+     "title": "Snapbars / Freaky Tiki",
+     "sku": "",
+     "barcode": null,
+     "price": "4.00",
+     "available": false
+    },
+    {
+     "id": 47217597710649,
+     "title": "Snapbars / Peaches I Love You",
+     "sku": "",
+     "barcode": null,
+     "price": "4.00",
+     "available": false
+    },
+    {
+     "id": 47217597743417,
+     "title": "Snapbars / Slice of Fried Gold",
+     "sku": "",
+     "barcode": null,
+     "price": "4.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8839619903801,
+   "title": "Oi, Prick?!",
+   "handle": "oi-prick",
+   "body_html": "<p>Flakie bomb with iridescent shifting flakes and metallic flakes. Best layered over a colored base. </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "Feb restock",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "micro flakies",
+    "Right now",
+    "shaun"
+   ],
+   "variants": [
+    {
+     "id": 47217534140729,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8591153791289,
+   "title": "Maui Charity Mystery Overpours",
+   "handle": "maui-charity-mystery-polishes",
+   "body_html": "",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "charity",
+    "fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "maui",
+    "polis",
+    "polish"
+   ],
+   "variants": [
+    {
+     "id": 47217656922425,
+     "title": "Cruel Sun",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    },
+    {
+     "id": 47217656955193,
+     "title": "For Two Millenia",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8591137702201,
+   "title": "Choke On Your Aspirations",
+   "handle": "choke-on-your-aspirations",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\"><meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p><em><strong><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">Choke on your aspirations</span></strong></em><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\"> - a lightened jelly packed with red/violet/orange shifting shimmer and matte red hexes</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "all",
+    "All the colors",
+    "andor",
+    "critters",
+    "Crittershop",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 46378865721657,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8591132229945,
+   "title": "The Ax Forgets",
+   "handle": "the-ax-forgets",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p><em><strong><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">The Ax Forgets</span></strong></em><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\"> - a lightened indigo with large silver, teal, blue iridescent flakes and aqua matte hexes</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "all",
+    "All the colors",
+    "andor",
+    "critters",
+    "Crittershop",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "holo flakes",
+    "Indieversary 5",
+    "micro flakies",
+    "polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 46378802544953,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8591128297785,
+   "title": "That’s Just Love",
+   "handle": "that-s-just-love",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p><em><strong><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">That’s Just Love</span></strong></em><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\"> - a bright cyan jelly with green, teal, blue shifting flakes</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "all",
+    "All the colors",
+    "andor",
+    "critters",
+    "Crittershop",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "micro flakies",
+    "polish",
+    "Right now"
+   ],
+   "variants": [
+    {
+     "id": 46378756636985,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8591111225657,
+   "title": "How Can These Legendary Hands Help You?",
+   "handle": "how-can-these-legendary-hands-help-you",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p><em><strong><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">How can these legendary hands help you</span></strong></em><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\"> - a navy to sheer light blue thermal packed with red, pink, purple, orange iridescent flakes and matte hexes and squares</span",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "holo flakes",
+    "kelvin",
+    "micro flakies",
+    "polish"
+   ],
+   "variants": [
+    {
+     "id": 46378557047097,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8591104049465,
+   "title": "My Mouth Is Itchy",
+   "handle": "my-mouth-is-itchy",
+   "body_html": "<meta charset=\"UTF-8\"><meta charset=\"UTF-8\">\n<p><em><strong><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">My mouth is itchy </span></strong></em><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">- a neon blue green base loaded with candy aurora</span></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "kelvin",
+    "polish",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 46378473357625,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8591092023609,
+   "title": "Mercy Will Be The Last Thing On His Mind",
+   "handle": "mercy-will-be-the-last-thing-on-his-mind",
+   "body_html": "<meta charset=\"UTF-8\">\n<p><em><strong><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\">Mercy will be the last thing on his mind</span></strong></em><span class=\"WdYUQQ text-decoration-none text-strikethrough-none\"> - a sheer dusty blurple base with an abundance of sparkly color shifting candy flakes</span><span class=\"WdYUQQ text-decoration-none text-strikethrough-none white-space",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "everything",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "kelvin",
+    "micro flakies",
+    "polish",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 46378336747833,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8013698302265,
+   "title": "The Star Lasso Experience",
+   "handle": "the-star-lasso-experience-overpour",
+   "body_html": "",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "Indieversary 5",
+    "out of town",
+    "overpour",
+    "polish",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "stardust",
+    "stardust shimmer"
+   ],
+   "variants": [
+    {
+     "id": 43950973944121,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6854385631297,
+   "title": "Vinyl Stickers",
+   "handle": "vinyl-stickers",
+   "body_html": "<p>Water resistant vinyl stickers. Approximately 4”x4”</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Decorative Stickers",
+   "tags": [
+    "All",
+    "fandom",
+    "fandom merch",
+    "mashup",
+    "mashup merch",
+    "out of town",
+    "sticker",
+    "stickers",
+    "stuff n thangs",
+    "vinyl"
+   ],
+   "variants": [
+    {
+     "id": 40079909093441,
+     "title": "Guillermo - Save Sammie",
+     "sku": "",
+     "barcode": null,
+     "price": "3.75",
+     "available": false
+    },
+    {
+     "id": 40079909126209,
+     "title": "Nadja - Burn the donkey",
+     "sku": "",
+     "barcode": null,
+     "price": "3.75",
+     "available": false
+    },
+    {
+     "id": 40079909158977,
+     "title": "The Swamp Files",
+     "sku": "",
+     "barcode": null,
+     "price": "3.50",
+     "available": false
+    },
+    {
+     "id": 40079909191745,
+     "title": "Well Damn BJ",
+     "sku": null,
+     "barcode": null,
+     "price": "3.75",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6854148423745,
+   "title": "Not For Satan - Keefe Magnet",
+   "handle": "not-for-satan-keefe-magnet",
+   "body_html": "<p>3” magnet for your very own. So you can stare at Keefe staring at his past  . </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "magnet",
+   "tags": [
+    "All",
+    "fandom",
+    "fandom merch",
+    "magnet",
+    "Merch",
+    "out of town",
+    "righteous gemstones",
+    "stuff n thangs"
+   ],
+   "variants": [
+    {
+     "id": 40079343517761,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "4.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6853796888641,
+   "title": "The Righteous Gemstones Quad",
+   "handle": "the-righteous-gemstones",
+   "body_html": "<meta charset=\"UTF-8\">\n<p class=\"p1\"><span class=\"s1\">It Makes My Bird Twitch - large particle shifting shimmer in a deep violet jelly with aqua matte hexes and iridescent shifting flakes</span></p>\n<p class=\"p2\"> </p>\n<p class=\"p1\"><span class=\"s1\">The Infants Shall Rule the World - a crunchy holo base with iridescent shifting flakes and sapphire metallic hexes</span></p>\n<p class=\"p2\"> </p>\n<p c",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "All",
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "out of town",
+    "polish",
+    "righteous gemstones"
+   ],
+   "variants": [
+    {
+     "id": 40077570408513,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "49.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6816096256065,
+   "title": "Don’t Give Me Hope",
+   "handle": "don-t-give-me-hope",
+   "body_html": "<meta charset=\"UTF-8\">\n<p>15ml, 10free</p>\n<p> </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "All",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "Hawkeye",
+    "macaroni",
+    "out of town",
+    "reflective glitter",
+    "shimmer",
+    "shimmer polish",
+    "Yelena"
+   ],
+   "variants": [
+    {
+     "id": 39961053659201,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6813372612673,
+   "title": "And She Made Some Really Good Smelling Macaroni",
+   "handle": "and-she-made-some-really-good-smelling-macaroni",
+   "body_html": "<p>15ml, 10free</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polishes",
+   "tags": [
+    "All",
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Hawkeye",
+    "macaroni",
+    "out of town",
+    "Overpour",
+    "overpours",
+    "reflective glitter",
+    "Right now",
+    "shimmer",
+    "shimmer polish",
+    "Yelena"
+   ],
+   "variants": [
+    {
+     "id": 39952260759617,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6606534279233,
+   "title": "Have You Gone Soft My Sweet Syrup Pie",
+   "handle": "have-you-gone-soft-my-sweet-syrup-pie-nadja",
+   "body_html": "<p>No, I’ve gone hard my darling - A clear to grey solar base, absolutely loaded with shifting shimmer and blue hexes. <br><br></p>\n<p><span>solar polishes require uv rays to change color. You can not charge it to hold the color (like a glow in the dark. ) it only changes while in the sun and will revert to its resting color when not exposed to direct sunlight/uv rays. Most car and home windows an",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Indieversary 5",
+    "out of town",
+    "PBE",
+    "pbe polish",
+    "pbe polish random",
+    "polish",
+    "Restock 8/30",
+    "Right now",
+    "Stockist",
+    "what we do iin the shadows",
+    "wwdits"
+   ],
+   "variants": [
+    {
+     "id": 39431781548097,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6571752357953,
+   "title": "The Art of Bush Manipulation",
+   "handle": "the-art-of-bush-manipulation",
+   "body_html": "<p>The Art of Bush Manipulation - A dark red jelly base, loaded with iridescent shifting flakes in red/gold/green and copper/orange/green</p>\n<p>tasteful</p>\n<p> </p>\n<meta charset=\"UTF-8\">\n<p>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Ferroc",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "Indieversary 5",
+    "micro flakies",
+    "out of town",
+    "overpour",
+    "overpours",
+    "PBE",
+    "pbe polish",
+    "pbe polish random",
+    "polish",
+    "Right now",
+    "stockist",
+    "what we do iin the shadows",
+    "wwdits"
+   ],
+   "variants": [
+    {
+     "id": 39431779319873,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6553642205249,
+   "title": "Rebellions are built on hope",
+   "handle": "cassian",
+   "body_html": "<p> </p>\nRebellions Are Built On Hope (cassian) - a light blue sheer base packed with green/blue/purple aurora and aqua glow!\n<p> </p>\n<p><br></p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All",
+    "All the colors",
+    "andor",
+    "diego luna",
+    "fandom",
+    "july",
+    "mystery",
+    "out of town",
+    "overpours",
+    "proto",
+    "Restock 8/30",
+    "Right now",
+    "rogue one",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 39305418047553,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "12.50",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 4357468389441,
+   "title": "I Wear Regular Women Panties",
+   "handle": "i-have-regular-women-panties",
+   "body_html": "<p><i> </i><strong>Overpour</strong><i> </i></p>\n<p><em>\"Singing and dancing at church has changed you, Judy!\"</em></p>\n<p>Poor Judy, always looked over and expected to tow the line. Well, she's a real woman doing real woman things. This polish was inspired by the poor, put upon, yet exceptionally spoiled, Judy Gemstone. A sheer shimmer polish that flashes pink to gold to green, with shimmer match",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All",
+    "All the colors",
+    "color shift",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "Flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "Indieversary 5",
+    "judy",
+    "micro flakies",
+    "multichrome",
+    "out of town",
+    "overpours",
+    "pink",
+    "Right now",
+    "righteous gemstones",
+    "series",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "television",
+    "Tv",
+    "ultra chameleon"
+   ],
+   "variants": [
+    {
+     "id": 31272348942401,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 4550719799361,
+   "title": "Suzy, Do You Copy? 2.0",
+   "handle": "suzie-do-you-copy",
+   "body_html": "<p><em>\"I miss you, Suzie-poo!\"</em> </p>\n<p>A blue (shade) to purple (sun) solar polish with red / green and violet / copper shimmer and iridescent flakies that shift purple to red to gold and pink to gold to green</p>\n<p><span>Expect a turn around time of 3-4 weeks</span></p>\n<p>Blog - <a href=\"https://nerdlifenails.com/swamp-gloss-stranger-things-quad/\" target=\"_blank\" title=\"Nerd Life Nails bl",
+   "vendor": "swampgloss.com",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All the colors",
+    "blue",
+    "Color",
+    "fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "indie polish",
+    "pbe extras",
+    "pbe overpour",
+    "polish",
+    "purple",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish",
+    "solar",
+    "stranger things"
+   ],
+   "variants": [
+    {
+     "id": 32111066775617,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8495819096377,
+   "title": "I Pack A Punch Backed Into A Corner",
+   "handle": "i-pack-a-punch-backed-into-a-corner",
+   "body_html": "<p>I pack a punch backed into a corner - a sheer base with pink gold purple green large particle shimmer.</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All the colors",
+    "chinchilla",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "Indieversary 5",
+    "pbe overpour",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 45855846138169,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8495818768697,
+   "title": "How Very Dare You",
+   "handle": "how-very-dare-you",
+   "body_html": "<p>How very dare you - teal base with pink, bronze, gold, green large particle shifting shimmer</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "chinchilla",
+    "fandom",
+    "Fandom all",
+    "pbe overpour",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 45855843549497,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8495815622969,
+   "title": "I’m Not Positive What My Deal Is",
+   "handle": "i-m-not-positive-what-my-deal-is",
+   "body_html": "<p>I’m not positive what my deal is - a light aqua to twilight blue solar polish with neon green hexes</p>\n<p><span>Solar polishes require uv rays to change color. You can not charge it to hold the color (like a glow in the dark. ) it only changes while in the sun and will revert to its resting color when not exposed to direct sunlight/uv rays. Most car and home windows and some nail polish top co",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Indieversary 5",
+    "pbe overpour",
+    "wwdits",
+    "wwdits pbe"
+   ],
+   "variants": [
+    {
+     "id": 45855825101113,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8495813230905,
+   "title": "Why Don’t You Get Fucked",
+   "handle": "why-don-t-you-get-fucked",
+   "body_html": "<p>Why don’t you get fucked - a white to dusty purple/grey solar with aquamarine and yellow hexes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "pbe overpour",
+    "Right now",
+    "wwdits",
+    "wwdits pbe"
+   ],
+   "variants": [
+    {
+     "id": 45855809765689,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8495790227769,
+   "title": "Ample, But Firm",
+   "handle": "ample-but-firm",
+   "body_html": "<p>Ample, But Firm - a purple, to blue to sheer white thermal with matte neon hexes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "pbe overpour",
+    "Right now",
+    "wwdits",
+    "wwdits pbe"
+   ],
+   "variants": [
+    {
+     "id": 45855697928505,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8495787901241,
+   "title": "Sunrise, Sunset",
+   "handle": "sunrise-sunset",
+   "body_html": "<p>Sunrise, Sunset - a light, peachy red to dark violet maroon solar, packed with violet, red, orange, gold, green iridescent flakes</p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "5/23",
+    "5/24 inventory",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Indieversary 5",
+    "pbe overpour",
+    "Right now",
+    "wwdits",
+    "wwdits pbe"
+   ],
+   "variants": [
+    {
+     "id": 45855674925369,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8053554381113,
+   "title": "Fortune & Glory, Kid",
+   "handle": "glitter-indy",
+   "body_html": "<meta charset=\"UTF-8\">\n<p> </p>\n<p>15ml bottle, 10 free</p>\n<p> Fortune &amp; Glory, Kid - a kitchen sink polish! Packed with aurora shifting shimmer, iridescent shifting flakes, holographic pigment and micro glitter</p>\n<p> </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "fan",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo",
+    "holo flakes",
+    "indiana",
+    "indy jones",
+    "micro flakies",
+    "out of town",
+    "polish"
+   ],
+   "variants": [
+    {
+     "id": 44130569355577,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8053554020665,
+   "title": "Why’d it hafta be snakes?!",
+   "handle": "flakie-indy",
+   "body_html": "<meta charset=\"UTF-8\">\n<p>PRESALE ITEM</p>\n<p><span>TAT 3-4 weeks after end of sale</span></p>\n<p>15ml bottle, 10 free</p>\n<p> Why’d it hafta be snakes?! - a forest green jelly with iridescent shifting flakes and holo flakes</p>\n<p> Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, F",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "fan",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "indiana",
+    "indy jones",
+    "micro flakies",
+    "out of town",
+    "polish",
+    "thermal"
+   ],
+   "variants": [
+    {
+     "id": 44130569060665,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 8053553692985,
+   "title": "Hold on to your potatoes!",
+   "handle": "special-effect-indy",
+   "body_html": "",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "fan",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "holo flakes",
+    "indiana",
+    "indy jones",
+    "micro flakies",
+    "out of town",
+    "polish",
+    "thermal"
+   ],
+   "variants": [
+    {
+     "id": 44130568503609,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6842828619841,
+   "title": "Studded cup",
+   "handle": "studded-cup",
+   "body_html": "<p>24 oz double wall studded tumbler </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Tumblers",
+   "tags": [
+    "All",
+    "Cups",
+    "low cap",
+    "out of town",
+    "PBE",
+    "pbe extras",
+    "stuff n thangs"
+   ],
+   "variants": [
+    {
+     "id": 40042210656321,
+     "title": "Pearl",
+     "sku": "",
+     "barcode": null,
+     "price": "18.00",
+     "available": false
+    },
+    {
+     "id": 40042210689089,
+     "title": "Black",
+     "sku": "",
+     "barcode": null,
+     "price": "18.00",
+     "available": false
+    },
+    {
+     "id": 40042210721857,
+     "title": "Glow",
+     "sku": "",
+     "barcode": null,
+     "price": "18.00",
+     "available": false
+    },
+    {
+     "id": 40042210754625,
+     "title": "Oil slick",
+     "sku": null,
+     "barcode": null,
+     "price": "28.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 6739759562817,
+   "title": "Dibs on Bucky’s Metal Arm",
+   "handle": "dibs-on-bucky-s-metal-arm",
+   "body_html": "<p>15ml bottles, 10 free</p>\n<p> </p>",
+   "vendor": "Swamp Gloss",
+   "product_type": "Cosmetics",
+   "tags": [
+    "All",
+    "All the colors",
+    "fandom",
+    "Fandom all",
+    "flakes",
+    "flakie",
+    "flakie polish",
+    "flakies",
+    "glitter",
+    "glitter polish",
+    "holo flakes",
+    "micro flakies",
+    "out of town",
+    "overpour",
+    "Restock 8/30",
+    "Right now",
+    "Spider-Man release",
+    "spiderman",
+    "thermal"
+   ],
+   "variants": [
+    {
+     "id": 39727328755777,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "11.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 8098395095353,
+   "title": "That’s a weird fu!&@#% tone (The Last of Us Mystery)",
+   "handle": "the-last-of-us-mystery",
+   "body_html": "",
+   "vendor": "Swamp Gloss",
+   "product_type": "",
+   "tags": [
+    "All",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "flakie",
+    "flakie polish",
+    "out of town",
+    "pbe extras",
+    "pedro pascal",
+    "Right now",
+    "shifting shimmer",
+    "shimmer",
+    "shimmer polish"
+   ],
+   "variants": [
+    {
+     "id": 44350169776441,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": true
+    }
+   ]
+  },
+  {
+   "id": 6606535524417,
+   "title": "Oh, You’ll Touch The Swords",
+   "handle": "oh-you-ll-touch-the-swords",
+   "body_html": "<p>Oh, you’ll touch the swords</p>\n<p>A purple to pink magnetic chameleon, with neon green hexes and a blue glow </p>\n<p> </p>\n<p> </p>\n<p>beep beep beep, nerd alert </p>\n<meta charset=\"UTF-8\">\n<p>15ml bottle, 10 free</p>\n<p>Ingredients - Nitrocelluose, Ethyl Acetate, Butyl Acetate, Isopropyl Alcohol, Ethyl Alcohol, Triphenyl Phosphate, and can contain: Aluminum Powder, Mica, Iron Oxide, Ferric Fe",
+   "vendor": "Swamp Gloss",
+   "product_type": "Nail Polish",
+   "tags": [
+    "All",
+    "All the colors",
+    "critters",
+    "Crittershop",
+    "fandom",
+    "Fandom all",
+    "glitter",
+    "glitter polish",
+    "Indieversary 5",
+    "magnetic",
+    "out of town",
+    "overpour",
+    "PBE",
+    "pbe extras",
+    "pbe polish",
+    "pbe polish random",
+    "polish",
+    "Right now",
+    "Stockist",
+    "what we do iin the shadows",
+    "wwdits"
+   ],
+   "variants": [
+    {
+     "id": 39431782170689,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "13.00",
+     "available": false
+    }
+   ]
+  },
+  {
+   "id": 4421712085057,
+   "title": "Gift Card",
+   "handle": "gift-card",
+   "body_html": "<p>Shopping for someone else but not sure what to give them?\nGive them the gift of choice with a Swamp Gloss gift card.</p>\n\n<p>Gift cards are delivered by email and contain instructions to redeem them at checkout.\nOur gift cards have no additional processing fees.</p>\n",
+   "vendor": "Swamp Gloss",
+   "product_type": "Gift Card",
+   "tags": [
+    "All",
+    "extra"
+   ],
+   "variants": [
+    {
+     "id": 31629100580929,
+     "title": "$10.00 USD",
+     "sku": "",
+     "barcode": null,
+     "price": "10.00",
+     "available": true
+    },
+    {
+     "id": 47859901432121,
+     "title": "$15.00 USD",
+     "sku": "",
+     "barcode": null,
+     "price": "15.00",
+     "available": true
+    },
+    {
+     "id": 31629100613697,
+     "title": "$25.00 USD",
+     "sku": "",
+     "barcode": null,
+     "price": "25.00",
+     "available": true
+    },
+    {
+     "id": 47859906904377,
+     "title": "$35.00 USD",
+     "sku": "",
+     "barcode": null,
+     "price": "35.00",
+     "available": true
+    },
+    {
+     "id": 31629100646465,
+     "title": "$50.00 USD",
+     "sku": "",
+     "barcode": null,
+     "price": "50.00",
+     "available": true
+    },
+    {
+     "id": 31629100679233,
+     "title": "$100.00 USD",
+     "sku": "",
+     "barcode": null,
+     "price": "100.00",
+     "available": true
+    }
+   ]
+  }
+ ]
+}

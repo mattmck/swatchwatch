@@ -422,6 +422,7 @@ describe("store-filters — shopifyStoreProductVerdict", () => {
       "PolishPickupShopify",
       "PotionPolishBigCartel",
       "StellaChromaShopify",
+      "SwampGlossShopify",
       "SweetAndSourLacquerShopify",
       "WetNWildShopify",
     ]);
@@ -1978,5 +1979,54 @@ describe("store-filters/picture-polish — Picture Polish (WooCommerce)", () => 
     assert.equal(parse("Peaches N Cream"), null);
     assert.equal(parse(" | Purple | Flakie"), null);
     assert.equal(SHOPIFY_STORE_TITLE_PARSERS.PicturePolishWooCommerce, parsePicturePolishTitle);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Swamp Gloss (enabled 2026-11-13): untyped shades next to body care and merch, two vendor spellings.
+
+const { isSwampGlossPolish, parseSwampGlossTitle } = require("../dist/lib/connectors/store-filters/swamp-gloss");
+const SWAMP = require("./fixtures/swamp-gloss-products.json").products;
+
+describe("store-filters/swamp-gloss — Swamp Gloss", () => {
+  it("keeps 139 of the 178 fixture products, alone and through the connector gate", () => {
+    assert.equal(SWAMP.length, 178);
+    assert.equal(SWAMP.filter((product) => isSwampGlossPolish(product) === true).length, 139);
+    assert.equal(SWAMP.filter((product) => connectorKeeps("SwampGlossShopify", product)).length, 139);
+    assert.equal(SHOPIFY_STORE_PRODUCT_FILTERS.SwampGlossShopify, isSwampGlossPolish);
+  });
+
+  it("keeps untyped shades, the polish types and the coats", () => {
+    for (const title of ["Variant", "Leaky Space Blob", "Born to Lurk", "All That Splendor", "Don’t Give Me Hope", "Quick Dry Top Coat", "Milkshake - Milky Base Coat", "You Matte About It - Matte Top Coat", "Needed (GATE charity polish)"]) {
+      assert.equal(isSwampGlossPolish(fixtureProduct(SWAMP, title)), true, title);
+    }
+  });
+
+  it("drops mystery, overpour, oops, trio, quad and refill listings, merch and the non-polish types", () => {
+    for (const title of ["Lanterns Mystery #4", "Monthly Overpours", "Good Omens Mysteries (OVERPOUR)", "Mischievous Scamp Oops", "Bifrost Trio", "The Righteous Gemstones Quad", "You Matte About It Refill", "Flying Kites In The Swamp - Magnets", "Hand Lotion", "Vinyl Stickers", "Gift Card", "Wax Melts", "Perfume Oil", "Cuticle Oil", "Hair Oil", "Acetone Additive", "Whipped Mango Butter", "Studded cup"]) {
+      assert.equal(isSwampGlossPolish(fixtureProduct(SWAMP, title)), false, title);
+    }
+  });
+
+  it("keeps a nail care coat and defers an unknown type to the generic gate", () => {
+    assert.equal(isSwampGlossPolish({ title: "Glossy Top Coat", product_type: "nail care" }), true);
+    assert.equal(isSwampGlossPolish({ title: "Something New", product_type: "Gift Box Thing" }), null);
+  });
+
+  it("drops a trailing charity note from the shade name and keeps any other title", () => {
+    const parse = (title) => parseSwampGlossTitle({ title });
+    assert.equal(parse("Needed (GATE charity polish)"), "Needed");
+    assert.equal(parse("Sunrise, Sunset"), null);
+    assert.equal(parse("Suzy, Do You Copy? 2.0"), null);
+    assert.equal(parse("(Charity polish)"), null);
+    assert.equal(SHOPIFY_STORE_TITLE_PARSERS.SwampGlossShopify, parseSwampGlossTitle);
+  });
+
+  it("files every record under Swamp Gloss, whichever vendor spelling the listing has", async () => {
+    const records = await pullFixture("SwampGlossShopify", SWAMP);
+    assert.equal(records.length, 139);
+    assert.ok(records.every((record) => record.normalized.brand === "Swamp Gloss"));
+    assert.equal(recordFor(records, "Needed (GATE charity polish)").normalized.name, "Needed");
+    assert.equal(recordFor(records, "Just Call Me Mary Wanna").normalized.brand, "Swamp Gloss");
   });
 });
