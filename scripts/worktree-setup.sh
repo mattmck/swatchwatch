@@ -29,7 +29,7 @@ for arg in "$@"; do
 done
 
 TARGET_ROOT="$(git -C "${TARGET:-.}" rev-parse --show-toplevel)"
-PRIMARY_ROOT="$(git -C "$TARGET_ROOT" worktree list --porcelain | sed -n 's/^worktree //p' | head -n1)"
+PRIMARY_ROOT="$(git -C "$TARGET_ROOT" worktree list --porcelain | awk 'sub(/^worktree /, "") && !found++')"
 SOURCE_ROOT="${SOURCE_ROOT:-$PRIMARY_ROOT}"
 
 echo "Setting up $TARGET_ROOT"

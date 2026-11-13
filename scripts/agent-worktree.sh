@@ -24,7 +24,7 @@ BRANCH="${1:?Usage: agent-worktree.sh <branch-name> [base-branch]}"
 BASE="${2:-dev}"
 
 CURRENT_ROOT="$(git rev-parse --show-toplevel)"
-PRIMARY_ROOT="$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -n1)"
+PRIMARY_ROOT="$(git worktree list --porcelain | awk 'sub(/^worktree /, "") && !found++')"
 if [ -z "${PRIMARY_ROOT:-}" ]; then
   PRIMARY_ROOT="$CURRENT_ROOT"
 fi
