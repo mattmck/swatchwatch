@@ -194,15 +194,26 @@ describe("lib/bottle-resolver — decideBottleResolution (spec 5.3 bands)", () =
     assert.equal(d.kind, "matched");
     assert.equal(d.confidence, 0.93);
   });
-  it("name >= 0.92 with color beyond MEDIUM never auto-matches", () => {
-    const d = decideBottleResolution([cand(1, 0.95, 0.2)], known);
+  it("name >= 0.92 matches by name however far the glass color is: color never blocks an exact name", () => {
+    // Bottle eval 2026-11-25: with detected colors stored, a glass color beyond MEDIUM turned 47
+    // exact name reads (nearly all the right shade, median gap 0.23) into questions.
+    for (const distance of [0.1, 0.2, 0.55]) {
+      const d = decideBottleResolution([cand(1, 0.95, distance)], known);
+      assert.equal(d.kind, "matched", `distance ${distance}`);
+      assert.equal(d.method, "name");
+      assert.equal(d.confidence, 0.95);
+    }
+  });
+  it("two shades tied in the match band are asked: color does not pick between exact names", () => {
+    const d = decideBottleResolution([cand(1, 1, 0.02), cand(2, 1, 0.4)], known);
     assert.equal(d.kind, "candidates");
     assert.equal(d.method, "name");
-    assert.equal(d.tie, false);
-    assert.equal(d.confidence, 0.95);
+    assert.deepEqual(d.candidates.map((c) => c.shadeId), [1, 2]);
   });
-  it("name >= 0.92 at exactly MEDIUM still matches", () => {
-    assert.equal(decideBottleResolution([cand(1, 0.95, 0.1)], known).kind, "matched");
+  it("a match-band name ahead of a lower match-band name still matches", () => {
+    const d = decideBottleResolution([cand(1, 1, 0.3), cand(2, 0.93, 0.01)], known);
+    assert.equal(d.kind, "matched");
+    assert.equal(d.candidate.shadeId, 1);
   });
   it("0.75 <= name < 0.92 with color within HIGH matches name+color at 0.92", () => {
     const d = decideBottleResolution([cand(1, 0.8, 0.04)], known);

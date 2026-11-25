@@ -32,6 +32,8 @@ export interface ResolverTrace {
   shadeNameListed: string | null;
   /** An unverified closed-set pick (a candidate only). */
   shadeNamePick: string | null;
+  /** The printed name was read only in part: it can rank, never match. */
+  nameIncomplete: boolean;
   glassHex: string | null;
   thresholds: { match: number; question: number; colorHigh: number; colorMedium: number };
 }
@@ -87,6 +89,7 @@ export function resolverTraceFromStatus(status: Pick<CaptureStatusResponse, "met
     shadeName: text(evidence.shadeName),
     shadeNameListed: text(evidence.shadeNameListed),
     shadeNamePick: text(evidence.shadeNamePick),
+    nameIncomplete: evidence.shadeNameIncomplete === true,
     glassHex: text(evidence.glassHex),
     thresholds: {
       match: num(thresholds.match) ?? BOTTLE_RESOLVER_THRESHOLDS.match,
@@ -207,6 +210,14 @@ export function attributeFailure(
     const d = label.colorDistance;
     const scores = `name ${fmt(ns)} color ${fmt(d)}`;
     if (ns !== null && ns >= T.match) {
+      if (trace.nameIncomplete) {
+        return { stage: "name_weak", detail: `${readText}; ${scores}: printed name read only in part, so it cannot match` };
+      }
+      const runnerUp = trace.top5[1]?.nameScore ?? null;
+      if (runnerUp !== null && Math.abs(runnerUp - ns) < 1e-9) {
+        return { stage: "name_ambiguous", detail: `${readText}; ${scores}: another shade tied in the match band` };
+      }
+      // Sessions resolved before 2026-11-25, when color beyond colorMedium still vetoed a match-band name.
       return d !== null && d > T.colorMedium
         ? { stage: "color_vetoed", detail: `${scores}: glass too far from the shade's color` }
         : { stage: "unknown", detail: `label ranked first with ${scores}` };

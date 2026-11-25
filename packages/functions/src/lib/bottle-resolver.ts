@@ -53,7 +53,10 @@ export const BOTTLE_RESOLVER_THRESHOLDS = {
   candidateOnly: 0.6,
   /** OKLAB distance within which color confirms a mid-band name. */
   colorHigh: HIGH_CONFIDENCE_MAX_DISTANCE,
-  /** OKLAB distance beyond which color rejects an auto-match, and within which color lists candidates. */
+  /**
+   * OKLAB distance within which color lists candidates when no name was read. It never rejects a
+   * match-band name (bottle eval 2026-11-25: only 41% of right shades are this close to the glass).
+   */
   colorMedium: MEDIUM_CONFIDENCE_MAX_DISTANCE,
   /** Lowest confidence at which a brand read from a frame is used as the session brand. */
   brandRead: 0.6,
@@ -384,9 +387,11 @@ function decideBands(scored: readonly ScoredBottleCandidate[], ctx: BottleDecisi
   const nameScore = top.nameScore;
 
   if (nameScore !== null && nameScore >= T.match) {
-    if (distance === null || distance <= T.colorMedium) {
-      return { kind: "matched", candidate: top, confidence: nameScore, method: "name" };
-    }
+    // Color never blocks a match-band name (bottle eval 2026-11-25: the right shade's stored color
+    // is a median 0.13 OKLAB from the glass read, so a `colorMedium` veto turned 47 exact reads
+    // into questions). Nor does it pick between two names tied in the match band: ask.
+    const tied = scored[1]?.nameScore === nameScore;
+    if (!tied) return { kind: "matched", candidate: top, confidence: nameScore, method: "name" };
     return { kind: "candidates", candidates: cut, confidence: nameScore, tie: false, method: "name" };
   }
 
