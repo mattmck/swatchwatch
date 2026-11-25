@@ -14,6 +14,8 @@
  *   and `maxPages` are read by the connectors; so are the connector keys `feedUrl`,
  *   `feedAuthEnv`, `sitemapUrl`, `productUrlPrefixes` and `subdomain`, passed through as-is.
  * - `currency`: the raw `metadata.currency` (connectors validate it with `normalizeCurrencyCode`).
+ * - `robotsOverride`: the store owner's OK to read a robots.txt-disallowed path, only for a store
+ *   that allowed us.
  */
 
 export const SOURCE_KINDS = ["brand", "retailer", "feed"] as const;
@@ -41,6 +43,12 @@ export interface SourceSettings {
   sitemapUrl: string | null;
   productUrlPrefixes: string[];
   subdomain: string | null;
+  /**
+   * `metadata.robotsOverride`: the store owner's OK to read a path its robots.txt disallows (who,
+   * when, how). When set, a connector that checks robots.txt logs the disallow and reads the store
+   * anyway; null = robots.txt is obeyed.
+   */
+  robotsOverride: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -156,6 +164,7 @@ export function readSourceSettings(metadata: unknown, sourceName?: string): Sour
     sitemapUrl: nonEmptyString(meta.sitemapUrl),
     productUrlPrefixes: readStringList(meta.productUrlPrefixes),
     subdomain: nonEmptyString(meta.subdomain),
+    robotsOverride: nonEmptyString(meta.robotsOverride),
   };
 }
 
