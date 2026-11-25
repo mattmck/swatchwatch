@@ -2335,6 +2335,27 @@ export async function updateGlobalSettings(settings: Partial<GlobalSettings>): P
 
 
 /** Inserts an `ingestion_job` row (queued by default) and returns its id and start time. */
+/**
+ * The newest queued or running job (`awaiting_ai` is a `running` stage) of each given source,
+ * keyed by `data_source_id`. The same-source guard of the bulk run and the catalog refresh (#532).
+ */
+export async function listActiveIngestionJobsBySource(dataSourceIds: readonly number[]): Promise<Map<number, number>> {
+  const active = new Map<number, number>();
+  if (dataSourceIds.length === 0) return active;
+  const result = await query<{ dataSourceId: number | string; jobId: number | string }>(
+    `SELECT DISTINCT ON (data_source_id)
+       data_source_id AS "dataSourceId",
+       ingestion_job_id AS "jobId"
+     FROM ingestion_job
+     WHERE data_source_id = ANY($1::bigint[])
+       AND status IN ('queued', 'running')
+     ORDER BY data_source_id, started_at DESC`,
+    [dataSourceIds]
+  );
+  for (const row of result.rows) active.set(Number(row.dataSourceId), Number(row.jobId));
+  return active;
+}
+
 export async function createIngestionJob(
   dataSourceId: number,
   jobType: string,

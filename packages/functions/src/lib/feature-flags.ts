@@ -20,6 +20,8 @@ export const FEATURE_FLAGS = {
   bottleCapture: { env: "BOTTLE_CAPTURE_ENABLED", public: true },
   hexDetectionBatch: { env: "HEX_DETECTION_BATCH_ENABLED", public: false, lenient: true },
   hexDetectionSnap: { env: "HEX_DETECTION_SNAP_ENABLED", public: false },
+  /** Nightly catalog refresh timer (#532); internal, never sent to clients. */
+  catalogRefresh: { env: "CATALOG_REFRESH_ENABLED", public: false },
 } as const satisfies Record<string, FeatureFlagDefinition>;
 
 export type FeatureFlagName = keyof typeof FEATURE_FLAGS;

@@ -544,7 +544,7 @@ The "add it as new" card for a bottle the catalog could not match. Pure.
 | `IngestionLogOmission` | Roll-up on the marker entry of a bounded job log: `{ count, byLevel, firstTs?, lastTs? }` for the lines dropped between the start of the run and the newest lines |
 | `IngestionJobRunRequest` | Request payload for `POST /api/ingestion/jobs` (includes optional `recentDays`, `materializeToInventory`, `detectHexFromImage`, `overwriteDetectedHex`, and `exhaustive` for full-catalog pulls) |
 | `BulkIngestionRequest` | Request payload for `POST /api/ingestion/bulk` (`sources: IngestionSourceName[]`, optional `options` for `materializeToInventory`, `detectHexFromImage`, and `overwriteDetectedHex`) |
-| `BulkIngestionResponse` | Bulk run response: `{ enqueued: number, jobs: IngestionJobRecord[] }` |
+| `BulkIngestionResponse` | Bulk run response: `{ enqueued: number, jobs: IngestionJobRecord[], skipped?: { source, reason: "already_running", jobId }[] }` (`skipped`: sources with a job still queued or running, #532) |
 | `IngestionJobRecord` | Ingestion job summary payload (source, status, timestamps, metrics, error) |
 | `IngestionJobRunResponse` | Job-trigger response wrapper: `{ job }` |
 | `IngestionJobListResponse` | Job list payload: `{ jobs, total }` |

@@ -562,7 +562,13 @@ export function AdminJobsContent() {
           overwriteDetectedHex: bulkOverwriteHex === "true",
         },
       });
-      setBulkMessage(`${response.enqueued} job${response.enqueued !== 1 ? "s" : ""} queued.`);
+      const skipped = response.skipped ?? [];
+      setBulkMessage(
+        `${response.enqueued} job${response.enqueued !== 1 ? "s" : ""} queued.` +
+          (skipped.length > 0
+            ? ` Skipped (a job is already queued or running): ${skipped.map((s) => s.source).join(", ")}.`
+            : "")
+      );
       await refreshJobs();
     } catch (error: unknown) {
       setBulkError(error instanceof Error ? error.message : "Failed to queue bulk run");
