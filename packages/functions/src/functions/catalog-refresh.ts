@@ -24,13 +24,13 @@ import {
   JOB_TYPE_CONNECTOR_VERIFY,
   withPipelineMetrics,
 } from "../lib/ingestion-job-request";
-import { createIngestionJob, markIngestionJobFailed } from "../lib/ingestion-repo";
+import { admitIngestionJob, markIngestionJobFailed } from "../lib/ingestion-repo";
 import { trackEvent, trackException } from "../lib/telemetry";
 
 export interface CatalogRefreshDeps {
   isEnabled: () => boolean;
   loadSources: () => Promise<CatalogRefreshSourceRow[]>;
-  createJob: typeof createIngestionJob;
+  admitJob: typeof admitIngestionJob;
   markJobFailed: typeof markIngestionJobFailed;
   sendMessage: typeof sendIngestionQueueMessage;
   trackEvent: typeof trackEvent;
@@ -42,7 +42,7 @@ export interface CatalogRefreshDeps {
 const defaultDeps: CatalogRefreshDeps = {
   isEnabled: () => isFeatureEnabled("catalogRefresh"),
   loadSources: async () => (await query<CatalogRefreshSourceRow>(SELECT_CATALOG_REFRESH_SOURCES_SQL, [])).rows,
-  createJob: createIngestionJob,
+  admitJob: admitIngestionJob,
   markJobFailed: markIngestionJobFailed,
   sendMessage: sendIngestionQueueMessage,
   trackEvent,
@@ -52,8 +52,10 @@ const defaultDeps: CatalogRefreshDeps = {
 };
 
 /**
- * Timer (#532): queue one ingestion job per eligible data source every night, staggered with a
- * queue visibility delay. Does nothing (no query, no message) unless `CATALOG_REFRESH_ENABLED`
+ * Timer (#532): queue one ingestion job per eligible data source every night, each message made
+ * visible after a staggered delay (a start delay, not a no-overlap guarantee). Each source is
+ * admitted atomically (`admitIngestionJob`), so a bulk run overlapping the timer cannot queue a
+ * second job for it. Does nothing (no query, no message) unless `CATALOG_REFRESH_ENABLED`
  * is exactly `true`. Each job is what an admin bulk run queues with default options (whole
  * catalog, catalog shades only, hex detection as the source settings allow, no hex overwrite),
  * with `triggeredByUserId: null` and `triggeredBy: "catalog_refresh"` in its metrics. Emits
@@ -82,6 +84,8 @@ export async function runCatalogRefresh(
     const queuedAt = runAt.toISOString();
     const enqueued: Array<{ source: string; jobId: number; delaySeconds: number }> = [];
     const failed: string[] = [];
+    // A source that gained a job between the plan and its admission (an overlapping bulk run).
+    const busyAtAdmission: Array<{ name: string; reason: "already_running"; activeJobId: number }> = [];
 
     for (const source of plan.planned) {
       const request = buildBulkRunRequest(source.name as SupportedConnectorSource);
@@ -96,12 +100,16 @@ export async function runCatalogRefresh(
       };
       let jobId: number | null = null;
       try {
-        const job = await deps.createJob(
+        const admission = await deps.admitJob(
           source.dataSourceId,
           JOB_TYPE_CONNECTOR_VERIFY,
-          withPipelineMetrics(requestedMetrics, "queued", "queued", runMetrics),
-          "queued"
+          withPipelineMetrics(requestedMetrics, "queued", "queued", runMetrics)
         );
+        if (!admission.admitted) {
+          busyAtAdmission.push({ name: source.name, reason: "already_running", activeJobId: admission.activeJobId });
+          continue;
+        }
+        const job = admission.job;
         jobId = job.jobId;
         const message: IngestionJobQueueMessage = {
           jobId: job.jobId,
@@ -134,17 +142,18 @@ export async function runCatalogRefresh(
       }
     }
 
-    const skipsByReason = countSkipsByReason(plan.skipped);
+    const allSkipped = [...plan.skipped, ...busyAtAdmission];
+    const skipsByReason = countSkipsByReason(allSkipped);
     context.log(
-      `[catalog-refresh] queued ${enqueued.length} of ${plan.planned.length} planned sources; skipped ${plan.skipped.length}`,
-      { enqueued, failed, skipped: plan.skipped }
+      `[catalog-refresh] queued ${enqueued.length} of ${plan.planned.length} planned sources; skipped ${allSkipped.length}`,
+      { enqueued, failed, skipped: allSkipped }
     );
     deps.trackEvent("catalog_refresh.run", {
       sources: rows.length,
       planned: plan.planned.length,
       enqueued: enqueued.length,
       failed: failed.length,
-      skipped: plan.skipped.length,
+      skipped: allSkipped.length,
       ...Object.fromEntries(Object.entries(skipsByReason).map(([reason, count]) => [`skipped_${reason}`, count])),
       staggerSeconds: config.staggerSeconds,
       maxSourcesPerRun: config.maxSourcesPerRun,

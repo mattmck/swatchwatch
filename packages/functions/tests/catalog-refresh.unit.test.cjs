@@ -38,7 +38,7 @@ const row = (name, overrides = {}) => ({
   enabled: true,
   metadata: {},
   activeJobId: null,
-  lastSucceededAt: null,
+  lastAttemptAt: null,
   ...overrides,
 });
 
@@ -92,7 +92,7 @@ describe("planCatalogRefresh", () => {
       { name: "OpenBeautyFacts", reason: "not_catalog_source" },
       { name: "BusyShopify", reason: "already_running", activeJobId: 77 },
     ]);
-    assert.deepEqual(plan.planned, [{ dataSourceId: 5, name: "GoodShopify", delaySeconds: 0, lastSucceededAt: null }]);
+    assert.deepEqual(plan.planned, [{ dataSourceId: 5, name: "GoodShopify", delaySeconds: 0, lastAttemptAt: null }]);
     assert.deepEqual(refresh.countSkipsByReason(plan.skipped), {
       disabled: 1,
       blocked: 2,
@@ -103,14 +103,14 @@ describe("planCatalogRefresh", () => {
     });
   });
 
-  it("orders by last success (never first, then oldest, then name) and staggers the delays", () => {
+  it("orders by last attempt (never run first, then oldest, then name) and staggers the delays", () => {
     const plan = refresh.planCatalogRefresh(
       [
-        row("CShopify", { lastSucceededAt: "2026-11-20T07:00:00Z" }),
-        row("AShopify", { lastSucceededAt: new Date("2026-11-24T07:00:00Z") }),
+        row("CShopify", { lastAttemptAt: "2026-11-20T07:00:00Z" }),
+        row("AShopify", { lastAttemptAt: new Date("2026-11-24T07:00:00Z") }),
         row("ZShopify"),
         row("BShopify"),
-        row("DShopify", { lastSucceededAt: "2026-11-01T07:00:00Z" }),
+        row("DShopify", { lastAttemptAt: "2026-11-01T07:00:00Z" }),
       ],
       deps,
       config
@@ -125,15 +125,15 @@ describe("planCatalogRefresh", () => {
         ["AShopify", 480],
       ]
     );
-    assert.equal(plan.planned[4].lastSucceededAt, "2026-11-24T07:00:00.000Z");
+    assert.equal(plan.planned[4].lastAttemptAt, "2026-11-24T07:00:00.000Z");
     assert.deepEqual(plan.skipped, []);
   });
 
-  it("caps the run at the stalest sources and reports the rest as capped", () => {
+  it("caps the run at the least recently attempted sources and reports the rest as capped", () => {
     const plan = refresh.planCatalogRefresh(
       [
-        row("FreshShopify", { lastSucceededAt: "2026-11-24T07:00:00Z" }),
-        row("StaleShopify", { lastSucceededAt: "2026-10-01T07:00:00Z" }),
+        row("FreshShopify", { lastAttemptAt: "2026-11-24T07:00:00Z" }),
+        row("StaleShopify", { lastAttemptAt: "2026-10-01T07:00:00Z" }),
         row("NeverShopify"),
         row("OffShopify", { enabled: false }),
       ],
@@ -165,7 +165,8 @@ describe("planCatalogRefresh", () => {
     assert.deepEqual([...refresh.ACTIVE_INGESTION_JOB_STATUSES], ["queued", "running"]);
     const sql = refresh.SELECT_CATALOG_REFRESH_SOURCES_SQL.replace(/\s+/g, " ");
     assert.match(sql, /j\.status IN \('queued', 'running'\)/);
-    assert.match(sql, /j\.status = 'succeeded'/);
+    assert.match(sql, /max\(j\.started_at\)/);
+    assert.doesNotMatch(sql, /'succeeded'/);
     assert.match(sql, /FROM data_source ds/);
   });
 });
@@ -178,7 +179,7 @@ function makeTimerDeps(overrides = {}) {
     loadSources: async () => {
       calls.loads += 1;
       return [
-        row("CirqueColorsShopify", { dataSourceId: "11", lastSucceededAt: "2026-11-20T07:30:00Z" }),
+        row("CirqueColorsShopify", { dataSourceId: "11", lastAttemptAt: "2026-11-20T07:30:00Z" }),
         row("ColoresDeCarolBigCartel", { dataSourceId: "12" }),
         row("OpenBeautyFacts", { dataSourceId: "13" }),
         row("CosIng", { dataSourceId: "14" }),
@@ -186,10 +187,10 @@ function makeTimerDeps(overrides = {}) {
         row("PahlishShopify", { dataSourceId: "16", enabled: false }),
       ];
     },
-    createJob: async (dataSourceId, jobType, metrics, status) => {
+    admitJob: async (dataSourceId, jobType, metrics) => {
       const jobId = nextJobId++;
-      calls.jobs.push({ dataSourceId, jobType, metrics, status, jobId });
-      return { jobId, startedAt: "2026-11-25T07:30:00Z" };
+      calls.jobs.push({ dataSourceId, jobType, metrics, status: metrics.pipeline.status, jobId });
+      return { admitted: true, job: { jobId, startedAt: "2026-11-25T07:30:00Z" } };
     },
     markJobFailed: async (jobId, message, metrics) => {
       calls.failed.push({ jobId, message, metrics });
@@ -297,6 +298,18 @@ describe("runCatalogRefresh", () => {
     assert.equal(calls.events[0].props.failed, 1);
   });
 
+  it("skips a source that gained a job between the plan and its admission", async () => {
+    const { deps, calls } = makeTimerDeps();
+    const admit = deps.admitJob;
+    deps.admitJob = async (dataSourceId, jobType, metrics) =>
+      dataSourceId === 12 ? { admitted: false, activeJobId: 555 } : admit(dataSourceId, jobType, metrics);
+    await runCatalogRefresh({}, context, deps);
+    assert.deepEqual(calls.messages.map((m) => m.message.request.source), ["CirqueColorsShopify"]);
+    assert.equal(calls.events[0].props.enqueued, 1);
+    assert.equal(calls.events[0].props.skipped_already_running, 2);
+    assert.equal(calls.events[0].props.failed, 0);
+  });
+
   it("reports a run that cannot load the sources", async () => {
     const { deps, calls } = makeTimerDeps({
       loadSources: async () => {
@@ -307,5 +320,59 @@ describe("runCatalogRefresh", () => {
     assert.deepEqual(calls.jobs, []);
     assert.equal(calls.events[0].name, "catalog_refresh.failed");
     assert.equal(calls.exceptions[0].props.stage, "run");
+  });
+});
+
+describe("admitIngestionJob (atomic same-source guard)", () => {
+  const { admitIngestionJob, INGESTION_ADMISSION_LOCK_NAMESPACE } = require("../dist/lib/ingestion-repo");
+
+  /** One fake database: a transaction runs under the advisory lock, then sees committed jobs. */
+  function makeDb() {
+    const jobs = [];
+    const log = [];
+    let nextId = 1;
+    const runInTransaction = async (callback) => {
+      const client = {
+        query: async (sql, params) => {
+          const text = String(sql);
+          if (/pg_advisory_xact_lock/.test(text)) {
+            log.push(["lock", ...params]);
+            return { rows: [] };
+          }
+          if (/^\s*SELECT ingestion_job_id/.test(text)) {
+            log.push(["check", params[0]]);
+            const active = jobs.filter((j) => j.dataSourceId === params[0] && ["queued", "running"].includes(j.status));
+            return { rows: active.length ? [{ jobId: String(active.at(-1).jobId) }] : [] };
+          }
+          if (/INSERT INTO ingestion_job/.test(text)) {
+            log.push(["insert", params[0]]);
+            const job = { jobId: nextId++, dataSourceId: params[0], status: "queued" };
+            jobs.push(job);
+            return { rows: [{ jobId: job.jobId, startedAt: "2026-11-25T07:30:00Z" }] };
+          }
+          throw new Error(`unexpected SQL: ${text}`);
+        },
+      };
+      return callback(client);
+    };
+    return { jobs, log, runInTransaction };
+  }
+
+  it("takes the per-source lock before the check and the insert", async () => {
+    const db = makeDb();
+    const result = await admitIngestionJob(7, "connector_verify", { a: 1 }, db.runInTransaction);
+    assert.deepEqual(result, { admitted: true, job: { jobId: 1, startedAt: "2026-11-25T07:30:00Z" } });
+    assert.deepEqual(db.log, [["lock", INGESTION_ADMISSION_LOCK_NAMESPACE, 7], ["check", 7], ["insert", 7]]);
+  });
+
+  it("refuses a second admission for the same source as already running", async () => {
+    const db = makeDb();
+    await admitIngestionJob(7, "connector_verify", {}, db.runInTransaction);
+    const second = await admitIngestionJob(7, "connector_verify", {}, db.runInTransaction);
+    assert.deepEqual(second, { admitted: false, activeJobId: 1 });
+    assert.deepEqual(db.log.slice(3), [["lock", INGESTION_ADMISSION_LOCK_NAMESPACE, 7], ["check", 7]]);
+    assert.equal(db.jobs.length, 1);
+    const other = await admitIngestionJob(8, "connector_verify", {}, db.runInTransaction);
+    assert.equal(other.admitted, true);
   });
 });

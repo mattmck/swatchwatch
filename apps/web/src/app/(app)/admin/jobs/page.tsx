@@ -28,6 +28,7 @@ import {
   type QueueStatsResponse,
 } from "@/lib/api";
 import { BrandSpinner } from "@/components/brand-spinner";
+import { bulkRunErrorMessage, bulkRunSuccessMessage } from "@/lib/bulk-ingestion-message";
 import { ErrorState } from "@/components/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -562,16 +563,10 @@ export function AdminJobsContent() {
           overwriteDetectedHex: bulkOverwriteHex === "true",
         },
       });
-      const skipped = response.skipped ?? [];
-      setBulkMessage(
-        `${response.enqueued} job${response.enqueued !== 1 ? "s" : ""} queued.` +
-          (skipped.length > 0
-            ? ` Skipped (a job is already queued or running): ${skipped.map((s) => s.source).join(", ")}.`
-            : "")
-      );
+      setBulkMessage(bulkRunSuccessMessage(response));
       await refreshJobs();
     } catch (error: unknown) {
-      setBulkError(error instanceof Error ? error.message : "Failed to queue bulk run");
+      setBulkError(bulkRunErrorMessage(error));
     } finally {
       setBulkBusy(false);
     }

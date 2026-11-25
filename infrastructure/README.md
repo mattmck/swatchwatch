@@ -229,8 +229,8 @@ The preflight should return 204 with the app's fixed `Access-Control-Allow-Metho
 | `ingestion_ai_batch_max_poll_jobs` | `10` | Function App setting `INGESTION_AI_BATCH_MAX_POLL_JOBS` per poll run |
 | `catalog_refresh_enabled` | `false` | Feature-flag Function App setting `CATALOG_REFRESH_ENABLED` — the nightly catalog-refresh timer (#532) queues one ingestion job per enabled, unblocked catalog source only when `true`; enable on dev first and measure one full pass |
 | `catalog_refresh_schedule` | `0 30 7 * * *` | Function App setting `CATALOG_REFRESH_SCHEDULE` — NCRONTAB schedule (UTC) of the catalog-refresh timer |
-| `catalog_refresh_stagger_seconds` | `120` | Function App setting `CATALOG_REFRESH_STAGGER_SECONDS` — queue visibility delay between consecutive refresh jobs, 0-3600 |
-| `catalog_refresh_max_sources_per_run` | `0` | Function App setting `CATALOG_REFRESH_MAX_SOURCES_PER_RUN` — most sources one refresh run queues, stalest first; 0 = no cap, at most 1000 |
+| `catalog_refresh_stagger_seconds` | `120` | Function App setting `CATALOG_REFRESH_STAGGER_SECONDS` — queue visibility delay per position between refresh jobs (a start delay, not a no-overlap guarantee), 0-3600 |
+| `catalog_refresh_max_sources_per_run` | `0` | Function App setting `CATALOG_REFRESH_MAX_SOURCES_PER_RUN` — most sources one refresh run queues, least recently attempted first; 0 = no cap, at most 1000 |
 | `capture_frame_sweep_schedule` | `0 0 * * * *` | Function App setting `CAPTURE_FRAME_SWEEP_SCHEDULE` — NCRONTAB schedule of the capture-frame-sweep timer that deletes Rapid Add frame blobs past their retention |
 | `capture_frame_retention_seconds` | `86400` | Function App setting `CAPTURE_FRAME_RETENTION_SECONDS` — Age (seconds since image_asset.captured_at) after which the capture-frame sweep deletes a frame's blob, 3600-604800 |
 | `capture_frame_sweep_batch_size` | `200` | Function App setting `CAPTURE_FRAME_SWEEP_BATCH_SIZE` — Capture-frame sweep rows per scan query, 1-1000 |

@@ -8,7 +8,8 @@ import { sourceBlockedReason } from "./ingestion-run-guard";
  * A source is refreshed only when it would also be accepted by the admin run endpoints
  * (`lib/ingestion-run-guard.ts`: not `metadata.blocked`, `enabled`), the worker has a connector
  * for it (`lib/connectors/factories.ts`), its records become catalog shades, and no job of its
- * own is still queued or running (the same-source guard the bulk endpoint applies too).
+ * own is still queued or running. The timer re-checks that last rule atomically when it queues
+ * (`admitIngestionJob`, shared with the bulk endpoint).
  */
 
 export const DEFAULT_CATALOG_REFRESH_SCHEDULE = "0 30 7 * * *";
@@ -49,8 +50,12 @@ export interface CatalogRefreshSourceRow {
   metadata: Record<string, unknown> | null;
   /** Newest queued/running job of the source, or null. */
   activeJobId: number | string | null;
-  /** `finished_at` of the source's newest succeeded job, or null when none ever succeeded. */
-  lastSucceededAt: string | Date | null;
+  /**
+   * `started_at` of the source's newest job of any status (the last attempt), or null when it was
+   * never run. Ordering by attempt, not success, keeps a source that keeps failing from holding
+   * the front of a capped run every night.
+   */
+  lastAttemptAt: string | Date | null;
 }
 
 export interface CatalogRefreshPlanDeps {
@@ -69,9 +74,9 @@ export interface CatalogRefreshConfig {
 export interface PlannedCatalogRefresh {
   dataSourceId: number;
   name: string;
-  /** Queue visibility delay: the job's message becomes visible this many seconds after the run. */
+  /** Queue visibility delay: the job's message becomes visible this many seconds after the run (a start delay, not a no-overlap guarantee). */
   delaySeconds: number;
-  lastSucceededAt: string | null;
+  lastAttemptAt: string | null;
 }
 
 export interface SkippedCatalogRefresh {
@@ -113,7 +118,7 @@ export function getCatalogRefreshConfig(env: NodeJS.ProcessEnv = process.env): C
 
 /**
  * Every `data_source` row (disabled ones too, so the run reports why they were skipped) with its
- * newest queued/running job and the finish time of its newest succeeded job.
+ * newest queued/running job and the start time of its newest job (any status).
  */
 export const SELECT_CATALOG_REFRESH_SOURCES_SQL = `
   SELECT
@@ -122,7 +127,7 @@ export const SELECT_CATALOG_REFRESH_SOURCES_SQL = `
     ds.enabled,
     ds.metadata,
     active.ingestion_job_id AS "activeJobId",
-    last_ok.finished_at AS "lastSucceededAt"
+    last_run.started_at AS "lastAttemptAt"
   FROM data_source ds
   LEFT JOIN LATERAL (
     SELECT j.ingestion_job_id
@@ -133,11 +138,10 @@ export const SELECT_CATALOG_REFRESH_SOURCES_SQL = `
     LIMIT 1
   ) active ON true
   LEFT JOIN LATERAL (
-    SELECT max(j.finished_at) AS finished_at
+    SELECT max(j.started_at) AS started_at
     FROM ingestion_job j
     WHERE j.data_source_id = ds.data_source_id
-      AND j.status = 'succeeded'
-  ) last_ok ON true
+  ) last_run ON true
   ORDER BY ds.name`;
 
 function toIsoOrNull(value: string | Date | null | undefined): string | null {
@@ -171,10 +175,13 @@ export function catalogRefreshSkipReason(
 }
 
 /**
- * The run's plan: eligible sources ordered by their last successful job, oldest first (never
- * succeeded first, then by name), so a capped run reaches the stalest stores and the rest get
- * their turn the next night. The i-th planned source starts `i × staggerSeconds` after the run
- * (bounded by the queue's 7-day visibility limit).
+ * The run's plan: eligible sources ordered by their last attempt (newest job of any status),
+ * oldest first (never run first, then by name). Under a cap the least recently attempted sources
+ * go first; the others wait for a later run, possibly several nights when the cap is small, and a
+ * source that keeps failing moves to the back once attempted instead of holding the front. The
+ * i-th planned source's queue message becomes visible `i × staggerSeconds` after the run (bounded
+ * by the queue's 7-day visibility limit); that is a start delay only, not a guarantee that the
+ * previous job has finished.
  */
 export function planCatalogRefresh(
   rows: readonly CatalogRefreshSourceRow[],
@@ -182,7 +189,7 @@ export function planCatalogRefresh(
   config: CatalogRefreshConfig
 ): CatalogRefreshPlan {
   const skipped: SkippedCatalogRefresh[] = [];
-  const eligible: Array<{ dataSourceId: number; name: string; lastSucceededAt: string | null }> = [];
+  const eligible: Array<{ dataSourceId: number; name: string; lastAttemptAt: string | null }> = [];
 
   for (const row of rows) {
     const skip = catalogRefreshSkipReason(row, deps);
@@ -195,14 +202,14 @@ export function planCatalogRefresh(
       skipped.push({ name: row.name, reason: "no_runnable_connector", detail: "invalid data_source_id" });
       continue;
     }
-    eligible.push({ dataSourceId, name: row.name, lastSucceededAt: toIsoOrNull(row.lastSucceededAt) });
+    eligible.push({ dataSourceId, name: row.name, lastAttemptAt: toIsoOrNull(row.lastAttemptAt) });
   }
 
   eligible.sort((a, b) => {
-    if (a.lastSucceededAt !== b.lastSucceededAt) {
-      if (a.lastSucceededAt === null) return -1;
-      if (b.lastSucceededAt === null) return 1;
-      return a.lastSucceededAt < b.lastSucceededAt ? -1 : 1;
+    if (a.lastAttemptAt !== b.lastAttemptAt) {
+      if (a.lastAttemptAt === null) return -1;
+      if (b.lastAttemptAt === null) return 1;
+      return a.lastAttemptAt < b.lastAttemptAt ? -1 : 1;
     }
     return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
   });

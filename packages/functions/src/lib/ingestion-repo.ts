@@ -2335,25 +2335,53 @@ export async function updateGlobalSettings(settings: Partial<GlobalSettings>): P
 
 
 /** Inserts an `ingestion_job` row (queued by default) and returns its id and start time. */
+/** First key of the two-int `pg_advisory_xact_lock` that serializes job admission per data source (#532). */
+export const INGESTION_ADMISSION_LOCK_NAMESPACE = 532_001;
+
+export type IngestionJobAdmission =
+  | { admitted: true; job: IngestionJobStartRecord }
+  | { admitted: false; activeJobId: number };
+
+type AdmissionClient = Pick<PoolClient, "query">;
+
 /**
- * The newest queued or running job (`awaiting_ai` is a `running` stage) of each given source,
- * keyed by `data_source_id`. The same-source guard of the bulk run and the catalog refresh (#532).
+ * Same-source guard (#532) used by the bulk run and the catalog refresh: in one transaction, take
+ * a per-source advisory lock, then queue the job only when the source has no job still `queued`
+ * or `running` (`awaiting_ai` is a `running` stage). Two overlapping admissions for one source
+ * serialize on the lock, so the second sees the first's committed row and is refused. The
+ * single-job admin endpoint does not use this (it may queue a second job on purpose).
  */
-export async function listActiveIngestionJobsBySource(dataSourceIds: readonly number[]): Promise<Map<number, number>> {
-  const active = new Map<number, number>();
-  if (dataSourceIds.length === 0) return active;
-  const result = await query<{ dataSourceId: number | string; jobId: number | string }>(
-    `SELECT DISTINCT ON (data_source_id)
-       data_source_id AS "dataSourceId",
-       ingestion_job_id AS "jobId"
-     FROM ingestion_job
-     WHERE data_source_id = ANY($1::bigint[])
-       AND status IN ('queued', 'running')
-     ORDER BY data_source_id, started_at DESC`,
-    [dataSourceIds]
-  );
-  for (const row of result.rows) active.set(Number(row.dataSourceId), Number(row.jobId));
-  return active;
+export async function admitIngestionJob(
+  dataSourceId: number,
+  jobType: string,
+  metrics: Record<string, unknown>,
+  runInTransaction: <T>(callback: (client: AdmissionClient) => Promise<T>) => Promise<T> = transaction
+): Promise<IngestionJobAdmission> {
+  return runInTransaction(async (client) => {
+    await client.query(
+      `SELECT pg_advisory_xact_lock($1::int, ($2::bigint % 2147483647)::int)`,
+      [INGESTION_ADMISSION_LOCK_NAMESPACE, dataSourceId]
+    );
+    const active = await client.query<{ jobId: number | string }>(
+      `SELECT ingestion_job_id AS "jobId"
+       FROM ingestion_job
+       WHERE data_source_id = $1
+         AND status IN ('queued', 'running')
+       ORDER BY started_at DESC
+       LIMIT 1`,
+      [dataSourceId]
+    );
+    if (active.rows.length > 0) {
+      return { admitted: false, activeJobId: Number(active.rows[0].jobId) };
+    }
+    const inserted = await client.query<{ jobId: number; startedAt: string }>(
+      `INSERT INTO ingestion_job (data_source_id, job_type, status, metrics_json)
+       VALUES ($1, $2, 'queued', $3::jsonb)
+       RETURNING ingestion_job_id AS "jobId", started_at::text AS "startedAt"`,
+      [dataSourceId, jobType, metrics]
+    );
+    return { admitted: true, job: inserted.rows[0] };
+  });
 }
 
 export async function createIngestionJob(

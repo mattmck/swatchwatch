@@ -24,7 +24,7 @@ import {
   getIngestionJobById,
   listDataSources,
   listDataSourcesWithSettings,
-  listActiveIngestionJobsBySource,
+  admitIngestionJob,
   listIngestionJobs,
   markIngestionJobFailed,
   markIngestionJobRunning,
@@ -1777,31 +1777,9 @@ async function bulkIngestionHandler(
       },
     };
   }
-  // Same-source guard (#532): a source with a job still queued or running is skipped, not queued twice.
-  let skipped: NonNullable<BulkIngestionResponse["skipped"]> = [];
-  try {
-    const activeJobs = await listActiveIngestionJobsBySource(
-      [...ensuredRows.values()].flatMap((row) => (row ? [Number(row.dataSourceId)] : []))
-    );
-    skipped = sources.flatMap((source) => {
-      const row = ensuredRows.get(source);
-      const activeJobId = row ? activeJobs.get(Number(row.dataSourceId)) : undefined;
-      return activeJobId === undefined ? [] : [{ source, reason: "already_running" as const, jobId: String(activeJobId) }];
-    });
-  } catch (error) {
-    return internalServerError(context, error, "Bulk ingestion: checking running jobs failed", "ingestion.bulk");
-  }
-  if (skipped.length === sources.length) {
-    return {
-      status: 409,
-      jsonBody: {
-        error: "source_busy",
-        message: `Every source already has a job queued or running: ${skipped.map((s) => s.source).join(", ")}`,
-        skipped,
-      },
-    };
-  }
-  const skippedSources = new Set(skipped.map((s) => s.source));
+  // Same-source guard (#532): each source is admitted atomically (`admitIngestionJob`: advisory
+  // lock, active-job check and insert in one transaction); a busy source is skipped, not queued twice.
+  const skipped: NonNullable<BulkIngestionResponse["skipped"]> = [];
   const options = body.options ?? {};
   const queuedAt = new Date().toISOString();
   const queueMessages: string[] = [];
@@ -1814,7 +1792,6 @@ async function bulkIngestionHandler(
 
   try {
     for (const source of sources) {
-      if (skippedSources.has(source)) continue;
       const normalizedRequest: NormalizedIngestionJobRequest = buildBulkRunRequest(source, options);
 
       const requestedMetrics = buildRequestedMetrics(normalizedRequest, userId);
@@ -1831,12 +1808,16 @@ async function bulkIngestionHandler(
         bulkRun: true,
       });
 
-      const job = await createIngestionJob(
-        dataSource.dataSourceId,
+      const admission = await admitIngestionJob(
+        Number(dataSource.dataSourceId),
         JOB_TYPE_CONNECTOR_VERIFY,
-        queuedMetrics,
-        "queued"
+        queuedMetrics
       );
+      if (!admission.admitted) {
+        skipped.push({ source, reason: "already_running", jobId: String(admission.activeJobId) });
+        continue;
+      }
+      const job = admission.job;
       createdJobs.push({ jobId: job.jobId, requestedMetrics, source });
 
       const queueMessage: IngestionJobQueueMessage = {
@@ -1855,6 +1836,16 @@ async function bulkIngestionHandler(
     }
 
     if (queueMessages.length === 0) {
+      if (skipped.length > 0) {
+        return {
+          status: 409,
+          jsonBody: {
+            error: "source_busy",
+            message: `Every source already has a job queued or running: ${skipped.map((s) => s.source).join(", ")}`,
+            skipped,
+          },
+        };
+      }
       return { status: 400, jsonBody: { error: "No valid sources could be queued" } };
     }
 

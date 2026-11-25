@@ -494,7 +494,7 @@ variable "catalog_refresh_schedule" {
 }
 
 variable "catalog_refresh_stagger_seconds" {
-  description = "Seconds between the start of consecutive catalog-refresh jobs (queue visibility delay), 0-3600 (CATALOG_REFRESH_STAGGER_SECONDS)"
+  description = "Queue visibility delay per position between catalog-refresh jobs (a start delay, not a no-overlap guarantee), 0-3600 (CATALOG_REFRESH_STAGGER_SECONDS)"
   type        = number
   default     = 120
 
@@ -505,7 +505,7 @@ variable "catalog_refresh_stagger_seconds" {
 }
 
 variable "catalog_refresh_max_sources_per_run" {
-  description = "Most sources one catalog-refresh run queues, stalest first; 0 = no cap, at most 1000 (CATALOG_REFRESH_MAX_SOURCES_PER_RUN)"
+  description = "Most sources one catalog-refresh run queues, least recently attempted first; 0 = no cap, at most 1000 (CATALOG_REFRESH_MAX_SOURCES_PER_RUN)"
   type        = number
   default     = 0
 
