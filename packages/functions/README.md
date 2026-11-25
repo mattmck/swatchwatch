@@ -110,7 +110,7 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   [Hex detection evaluation harness](#hex-detection-evaluation-harness)). The pixel baseline runs
   offline; Azure strategies are skipped when Azure OpenAI is not configured.
 
-Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools@4`).
+Requires **Azure Functions Core Tools v4 (>= 4.16)** installed globally: `brew tap azure/functions && brew install azure-functions-core-tools@4` on macOS, `npm i -g azure-functions-core-tools@4 --unsafe-perm true` elsewhere. It is not a workspace dependency (its postinstall downloads ~1.5 GB of host binaries into every checkout); `npm run dev` / `dev:functions` check that `func` is on PATH and new enough.
 
 ## API Routes
 
