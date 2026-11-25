@@ -77,6 +77,9 @@ Every other script (`build:*`, `migrate:down`, `migrate:create`, `sync:design-to
 
 **Important:** `dev`, `dev:web`, `dev:functions`, and `dev:shared` run a dependency preflight and
 print `npm run setup` if workspace dependencies are missing.
+`dev` and `dev:functions` also require a global Azure Functions Core Tools `func` >= 4.16 on PATH
+(`brew tap azure/functions && brew install azure-functions-core-tools@4`); it is deliberately not an npm
+dependency, because its postinstall downloads ~1.5 GB of host binaries into every checkout and worktree.
 
 If you run web/functions separately without the watcher flow, build `packages/shared` first:
 ```bash
