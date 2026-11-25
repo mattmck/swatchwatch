@@ -1190,7 +1190,7 @@ truth as "pending" until reviewed.
 
 ### Bottle recognition eval (`src/eval/bottle/`)
 
-`npm run eval:bottle` replays every bottle eval sample (admin console → bottle eval capture, tables `bottle_eval_sample` / `bottle_eval_frame`) through the live capture API and scores the answers against the labels. With the bottle flow off the resolver reads label text only, so those numbers are the baseline that the bottle recognition slices are measured against.
+`npm run eval:bottle` replays every bottle eval sample (admin console → bottle eval capture, tables `bottle_eval_sample` / `bottle_eval_frame`) through the live capture API and scores the answers against the labels. With the bottle flow off the resolver reads label text only, so those numbers are the baseline that the bottle recognition slices are measured against. A sample labelled by brand and shade text (not in the catalog when it was labelled) is re-checked against the catalog at every run (`resolveTextLabels` in `src/eval/bottle/samples.ts`): when exactly one live shade of that brand (name or alias) has the same name (`normalizeMatchText`, so case and apostrophes never matter), the sample is scored as that catalog shade, and the run prints how many labels were re-checked; several matching shades leave it as not in the catalog. Ingesting a brand after its photos were labelled therefore never shows its correct matches as `matched_wrong`.
 
 ```bash
 # From repo root, with Postgres, Azurite and a Functions host running
