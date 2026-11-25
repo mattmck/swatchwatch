@@ -539,7 +539,9 @@ export function AdminJobsContent() {
       setPurgeError(null);
       setPurgeMessage(null);
       await purgeQueue();
-      setPurgeMessage("Queue purged successfully");
+      setPurgeMessage(
+        "Queue purged. Purged jobs stay queued: use Cancel Job on each before its source can run again."
+      );
       setPurgeDialogOpen(false);
       await refreshQueueStats();
     } catch (error: unknown) {
@@ -1029,7 +1031,8 @@ export function AdminJobsContent() {
             <DialogTitle>Purge Queue</DialogTitle>
             <DialogDescription>
               This will permanently delete all {queueStats?.messageCount || 0} message(s) from the ingestion queue.
-              This action cannot be undone.
+              This action cannot be undone. The jobs those messages belonged to stay &ldquo;queued&rdquo;: use Cancel Job
+              on each of them before that source can be run again by a bulk run or the nightly refresh.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
