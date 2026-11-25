@@ -111,6 +111,16 @@ export function canAddFrame(frames: readonly CaptureFrameEntry[]): boolean {
   return frames.length < MAX_CAPTURE_FRAMES;
 }
 
+/**
+ * Said once a scan has its `MAX_CAPTURE_FRAMES` photos (#527): enough photos were taken, and
+ * what Find match does next. On the legacy path Find match also adds the match, so it says so.
+ */
+export function frameCapMessage(opts: { bottleSequence: boolean }): string {
+  return opts.bottleSequence
+    ? "That's enough photos. Tap Find match to see what we found."
+    : "That's enough photos. Tap Find match to find it and add it to your collection.";
+}
+
 export interface FrameQualityInput {
   source: FrameSource;
   width: number;
@@ -367,6 +377,73 @@ export function canCheck(input: {
   hasHints: boolean;
 }): boolean {
   return canFinalize(input);
+}
+
+// ---------------------------------------------------------------------------
+// Failed actions (#527)
+// ---------------------------------------------------------------------------
+
+/** A tap on the verdict card, the bottle prompt or the shelf that saves something. */
+export type RapidAddAction =
+  | "add"
+  | "create_owned"
+  | "create_wishlist"
+  | "wishlist"
+  | "skip"
+  | "undo"
+  | "bought_another";
+
+const ACTION_FAILURE_COPY: Record<RapidAddAction, string> = {
+  add: "Couldn't add it to your collection",
+  create_owned: "Couldn't add it to your collection",
+  create_wishlist: "Couldn't add it to your wishlist",
+  wishlist: "Couldn't add it to your wishlist",
+  skip: "Couldn't skip that photo",
+  undo: "Couldn't update the quantity",
+  bought_another: "Couldn't save the extra bottle",
+};
+
+/**
+ * What a failed action shows: what failed, why (the API's message, else "network error") and
+ * "Try again". The action's own button stays enabled and the page offers the same retry.
+ */
+export function actionFailureMessage(action: RapidAddAction, error: unknown): string {
+  const reason =
+    error instanceof Error && error.message.trim() ? error.message.trim().replace(/[.!]+$/, "") : "network error";
+  return `${ACTION_FAILURE_COPY[action]}: ${reason}. Try again.`;
+}
+
+// ---------------------------------------------------------------------------
+// Capture mode (#527)
+// ---------------------------------------------------------------------------
+
+export interface CaptureMode {
+  /** Flags have loaded (or a session already fixed the mode): scanning and photos may start. */
+  ready: boolean;
+  /** `BOTTLE_CAPTURE_ENABLED` as this scan uses it. */
+  bottleCapture: boolean;
+  /** The guided bottle sequence runs (flag on and "More options" not chosen). */
+  bottleSequence: boolean;
+}
+
+/**
+ * Which Rapid Add path a scan takes. Until the server flags load every flag reads false, so a
+ * scan started then would take the legacy finalize path (which adds the match) and switch to
+ * the check-first bottle sequence mid-scan once the flags arrive. Nothing may start until the
+ * flags have loaded (a failed or timed-out request loads as every flag off), and a started
+ * session keeps the flag value it started with (`lockedBottleCapture`) until the next bottle.
+ * "More options" stays a user switch between the two views at any time.
+ */
+export function resolveCaptureMode(input: {
+  flagsLoaded: boolean;
+  bottleCaptureFlag: boolean;
+  moreOptions: boolean;
+  /** The flag value fixed when this scan's capture session started, or null before that. */
+  lockedBottleCapture: boolean | null;
+}): CaptureMode {
+  const ready = input.flagsLoaded || input.lockedBottleCapture !== null;
+  const bottleCapture = input.lockedBottleCapture ?? (input.flagsLoaded && input.bottleCaptureFlag);
+  return { ready, bottleCapture, bottleSequence: bottleCapture && !input.moreOptions };
 }
 
 /**

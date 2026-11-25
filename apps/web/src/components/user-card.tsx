@@ -41,7 +41,7 @@ function B2CUserCard() {
       name={user.name}
       email={user.email}
       onSignOut={() => {
-        // The Rapid Add shelf is per user and per tab session; never leave it to the next user.
+        // The Rapid Add shelf is per user (localStorage); never leave it to the next user.
         clearAllShelves(safeShelfStorage());
         // Likewise the remembered "going through this brand" hints.
         clearStickyHints(safeLocalStorage());

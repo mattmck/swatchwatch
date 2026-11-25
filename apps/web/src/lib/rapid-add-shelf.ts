@@ -4,8 +4,10 @@
  *
  * Every finished scan becomes a `ShelfEntry` (newest first). A second scan of the same barcode
  * is flagged in place ("Scanned already") instead of appended. Entries hold only ids, names,
- * hexes and verdicts — never frame or image data — and live in `sessionStorage` per user
- * (`shelfStorageKey`), cleared by Clear shelf and on sign-out (`clearAllShelves`).
+ * hexes and verdicts — never frame or image data or private `v3` image URLs — and live in
+ * `localStorage` per user (`shelfStorageKey`), so iOS evicting a background tab mid-shelf does
+ * not lose them (#527). A shelf not changed for `SHELF_MAX_AGE_MS` (7 days) is dropped on read;
+ * it is cleared by Clear shelf and on sign-out (`clearAllShelves`).
  *
  * Nothing here adds to the collection: the page calls the API when the user taps an action and
  * then records it with `acted`.
@@ -64,7 +66,10 @@ export const SHELF_MAX_ENTRIES = 100;
 
 export const SHELF_STORAGE_PREFIX = "swatchwatch.rapid-add.shelf";
 
-/** Per-user sessionStorage key; without a user id, one shared key (cleared on sign-out too). */
+/** A stored shelf not changed for this long is dropped when read (#527). */
+export const SHELF_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Per-user localStorage key; without a user id, one shared key (cleared on sign-out too). */
 export function shelfStorageKey(userId: string | null | undefined): string {
   return userId ? `${SHELF_STORAGE_PREFIX}:${userId}` : SHELF_STORAGE_PREFIX;
 }
@@ -350,7 +355,7 @@ export function formatShelfAge(then: number, now: number): string {
   return `${Math.round(minutes / 60)} h ago`;
 }
 
-// ── sessionStorage ──────────────────────────────────────────────────────────────────────────
+// ── localStorage ────────────────────────────────────────────────────────────────────────────
 
 type ShelfStore = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 
@@ -417,30 +422,84 @@ export function serializeShelfEntries(entries: readonly ShelfEntry[]): string {
   return JSON.stringify(entries.map((entry) => parseEntry(entry)).filter(Boolean));
 }
 
-export function safeShelfStorage(): ShelfStore | null {
+/** How far in the future a saved time may be (clock changes) before the shelf counts as stale. */
+const SHELF_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
+
+interface StoredShelf {
+  savedAt: number;
+  entries: ShelfEntry[];
+}
+
+/** `{ savedAt, entries }`, or null for anything else (corrupt, or the old bare-array format). */
+function parseStoredShelf(raw: string | null): StoredShelf | null {
+  if (!raw) return null;
   try {
-    if (typeof window === "undefined") return null;
-    return window.sessionStorage ?? null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    const savedAt = finiteNumber(record.savedAt);
+    if (savedAt === undefined || !Array.isArray(record.entries)) return null;
+    return { savedAt, entries: parseShelfEntries(JSON.stringify(record.entries)) };
   } catch {
     return null;
   }
 }
 
-export function readShelf(storage: ShelfStore | null | undefined, key: string): ShelfEntry[] {
+/** True when a shelf saved at `savedAt` is older than `SHELF_MAX_AGE_MS` (or saved in the future). */
+export function isShelfExpired(savedAt: number, now: number): boolean {
+  const age = now - savedAt;
+  return age > SHELF_MAX_AGE_MS || age < -SHELF_CLOCK_SKEW_MS;
+}
+
+export function safeShelfStorage(): ShelfStore | null {
+  try {
+    if (typeof window === "undefined") return null;
+    return window.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The stored shelf; a stale, corrupt or old-format one is removed and reads as empty. */
+export function readShelf(storage: ShelfStore | null | undefined, key: string, now: number = Date.now()): ShelfEntry[] {
   if (!storage) return [];
   try {
-    return parseShelfEntries(storage.getItem(key));
+    const raw = storage.getItem(key);
+    if (raw === null) return [];
+    const stored = parseStoredShelf(raw);
+    if (!stored || isShelfExpired(stored.savedAt, now)) {
+      storage.removeItem(key);
+      return [];
+    }
+    return stored.entries;
   } catch {
     return [];
   }
 }
 
-/** Save the shelf (an empty one removes the key). Storage failures are ignored. */
-export function writeShelf(storage: ShelfStore | null | undefined, key: string, entries: readonly ShelfEntry[]): void {
+/**
+ * Save the shelf with the time it changed (an empty one removes the key). Writing the entries
+ * already stored keeps their `savedAt`, so opening the page does not keep a stale shelf alive.
+ * Storage failures are ignored.
+ */
+export function writeShelf(
+  storage: ShelfStore | null | undefined,
+  key: string,
+  entries: readonly ShelfEntry[],
+  now: number = Date.now(),
+): void {
   if (!storage) return;
   try {
-    if (entries.length === 0) storage.removeItem(key);
-    else storage.setItem(key, serializeShelfEntries(entries));
+    if (entries.length === 0) {
+      storage.removeItem(key);
+      return;
+    }
+    const serialized = serializeShelfEntries(entries);
+    const current = parseStoredShelf(storage.getItem(key));
+    if (current && !isShelfExpired(current.savedAt, now) && serializeShelfEntries(current.entries) === serialized) {
+      return;
+    }
+    storage.setItem(key, `{"savedAt":${now},"entries":${serialized}}`);
   } catch {
     // Quota or blocked storage: the shelf just doesn't survive a reload.
   }
