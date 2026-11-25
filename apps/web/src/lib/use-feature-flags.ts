@@ -12,7 +12,7 @@ const ALL_OFF = Object.fromEntries(FEATURE_FLAG_NAMES.map((name) => [name, false
  * How long a page waits for `GET /config/flags` before treating every flag as off, so a request
  * that never answers (a stalled phone connection) cannot keep a page waiting on `loaded`.
  */
-export const FEATURE_FLAGS_TIMEOUT_MS = 5000;
+export const FEATURE_FLAGS_TIMEOUT_MS = 15000;
 
 let cached: Flags | null = null;
 let inFlight: Promise<Flags> | null = null;
