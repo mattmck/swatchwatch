@@ -73,7 +73,7 @@ import {
   viewForSurface,
 } from "@/lib/bottle-rapid-add";
 import { readStickyHints, safeLocalStorage, writeStickyHints } from "@/lib/sticky-hints-store";
-import { useFeatureFlags } from "@/lib/use-feature-flags";
+import { useFeatureFlagsState } from "@/lib/use-feature-flags";
 import {
   ADD_GUARD_EVENTS,
   addGuardTelemetry,
@@ -96,6 +96,7 @@ import {
   MAX_CAPTURE_FRAMES,
   planLiveBarcode,
   rapidAddPhase,
+  resolveCaptureMode,
   scanBadge,
   sessionReducer,
   summarizeFrames,
@@ -173,10 +174,20 @@ const CAMERA_FLASH_MS = 2500;
 export default function RapidAddPage() {
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
-  const flags = useFeatureFlags();
+  const { flags, loaded: flagsLoaded } = useFeatureFlagsState();
   // Guided bottle sequence (flag on); "More options" falls back to today's chips and finalize.
   const [moreOptions, setMoreOptions] = useState(false);
-  const bottleSequence = flags.bottleCapture && !moreOptions;
+  /** The flag value this scan's capture session started with (null before it starts). */
+  const [lockedBottleCapture, setLockedBottleCapture] = useState<boolean | null>(null);
+  // Nothing starts until the flags have loaded, and a session keeps the mode it started in (#527).
+  const captureMode = resolveCaptureMode({
+    flagsLoaded,
+    bottleCaptureFlag: flags.bottleCapture,
+    moreOptions,
+    lockedBottleCapture,
+  });
+  const bottleCapture = captureMode.bottleCapture;
+  const bottleSequence = captureMode.bottleSequence;
   const [sticky, setSticky] = useState<StickyHints>(EMPTY_STICKY_HINTS);
   const [bottle, setBottle] = useState(INITIAL_BOTTLE_FLOW_STATE);
   /** What the server has read from this bottle's photos so far (bottle sequence only). */
@@ -226,7 +237,8 @@ export default function RapidAddPage() {
   const sessionRef = useRef(session);
   const framesRef = useRef(frames);
   const hintsRef = useRef({ brand: brandHint, shadeName: shadeHint, finish: finishHint, collection: collectionHint });
-  const bottleCaptureRef = useRef(flags.bottleCapture);
+  const bottleCaptureRef = useRef(bottleCapture);
+  const captureReadyRef = useRef(captureMode.ready);
   const bottleSequenceRef = useRef(bottleSequence);
   const bottleRef = useRef(bottle);
   const stickyRef = useRef(sticky);
@@ -236,8 +248,9 @@ export default function RapidAddPage() {
     sessionRef.current = session;
     framesRef.current = frames;
     hintsRef.current = { brand: brandHint, shadeName: shadeHint, finish: finishHint, collection: collectionHint };
-    bottleCaptureRef.current = flags.bottleCapture;
+    bottleCaptureRef.current = bottleCapture;
     bottleSequenceRef.current = bottleSequence;
+    captureReadyRef.current = captureMode.ready;
   });
 
   const applyBottle = useCallback((action: BottleFlowAction) => {
@@ -341,6 +354,8 @@ export default function RapidAddPage() {
     if (!sessionPromiseRef.current) {
       dispatch({ type: "busy", busy: "starting" });
       const scan = scanRef.current;
+      // The session's mode is fixed here, so a flag can't switch paths mid-scan.
+      setLockedBottleCapture(bottleCaptureRef.current);
       sessionPromiseRef.current = startCapture({
         metadata: buildStartMetadata({
           barcode: barcode ?? sessionRef.current.barcode,
@@ -499,6 +514,11 @@ export default function RapidAddPage() {
 
   const handleCapture = useCallback(
     (event: CameraCaptureEvent) => {
+      // Flags still loading: which path this scan takes isn't known yet, so nothing starts.
+      if (!captureReadyRef.current) {
+        if (event.trigger !== "live-scan") setCameraFlash({ tone: "info", text: "Getting ready… try again in a moment." });
+        return;
+      }
       if (event.trigger === "live-scan" && event.barcode) {
         const { gtin } = event.barcode;
         const action = planLiveBarcode(sessionRef.current, gtin);
@@ -765,6 +785,7 @@ export default function RapidAddPage() {
     sessionRef.current = INITIAL_SESSION_STATE;
     framesRef.current = [];
     applyBottle({ type: "reset" });
+    setLockedBottleCapture(null);
     setReadSoFar(null);
     setManualSurface(null);
     setQualityHint(null);
@@ -956,6 +977,7 @@ export default function RapidAddPage() {
         : defaultCameraGuide(frameType);
   const viewfinderStatus: ViewfinderStatus | null =
     cameraFlash ??
+    (!captureMode.ready ? { tone: "info", text: "Getting ready…" } : null) ??
     (session.verdict
       ? { tone: "success", text: verdictHeadline(session.verdict), action: { label: "See result", onClick: scrollToVerdict } }
       : badge
@@ -1012,7 +1034,7 @@ export default function RapidAddPage() {
 
       <Card ref={cameraSectionRef} className="scroll-mt-4">
         <CardContent className="space-y-4">
-          {flags.bottleCapture && (
+          {bottleCapture && (
             <BatchBrandField
               hints={sticky}
               finishOptions={finishOptions}
@@ -1033,8 +1055,9 @@ export default function RapidAddPage() {
           )}
 
           <CameraCapture
-            scanBarcodes={scanning}
+            scanBarcodes={scanning && captureMode.ready}
             captureDisabled={
+              !captureMode.ready ||
               phase === "verdict" ||
               phase === "resolving" ||
               !canAddFrame(frames) ||
@@ -1087,7 +1110,7 @@ export default function RapidAddPage() {
             />
           )}
 
-          {flags.bottleCapture && phase === "collecting" && (
+          {bottleCapture && phase === "collecting" && (
             <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setMoreOptions((on) => !on)}>
               {moreOptions ? "Back to guided photos" : "More options"}
             </Button>
@@ -1114,13 +1137,15 @@ export default function RapidAddPage() {
             size="lg"
             className="w-full"
             onClick={() => (bottleSequence ? void runBottleCheck() : void handleFinalize())}
-            disabled={!finalizeEnabled}
+            disabled={!finalizeEnabled || !captureMode.ready}
           >
             {matching ? <Loader2 className="animate-spin" aria-hidden /> : <Search aria-hidden />}
             {matching ? "Matching…" : "Find match"}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            {frameSummary.uploading > 0
+            {!captureMode.ready
+              ? "Getting ready…"
+              : frameSummary.uploading > 0
               ? "Uploading frames…"
               : bottleSequence
                 ? "Nothing is added until you tap Add."

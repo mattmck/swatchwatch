@@ -369,6 +369,39 @@ export function canCheck(input: {
   return canFinalize(input);
 }
 
+// ---------------------------------------------------------------------------
+// Capture mode (#527)
+// ---------------------------------------------------------------------------
+
+export interface CaptureMode {
+  /** Flags have loaded (or a session already fixed the mode): scanning and photos may start. */
+  ready: boolean;
+  /** `BOTTLE_CAPTURE_ENABLED` as this scan uses it. */
+  bottleCapture: boolean;
+  /** The guided bottle sequence runs (flag on and "More options" not chosen). */
+  bottleSequence: boolean;
+}
+
+/**
+ * Which Rapid Add path a scan takes. Until the server flags load every flag reads false, so a
+ * scan started then would take the legacy finalize path (which adds the match) and switch to
+ * the check-first bottle sequence mid-scan once the flags arrive. Nothing may start until the
+ * flags have loaded (a failed or timed-out request loads as every flag off), and a started
+ * session keeps the flag value it started with (`lockedBottleCapture`) until the next bottle.
+ * "More options" stays a user switch between the two views at any time.
+ */
+export function resolveCaptureMode(input: {
+  flagsLoaded: boolean;
+  bottleCaptureFlag: boolean;
+  moreOptions: boolean;
+  /** The flag value fixed when this scan's capture session started, or null before that. */
+  lockedBottleCapture: boolean | null;
+}): CaptureMode {
+  const ready = input.flagsLoaded || input.lockedBottleCapture !== null;
+  const bottleCapture = input.lockedBottleCapture ?? (input.flagsLoaded && input.bottleCaptureFlag);
+  return { ready, bottleCapture, bottleSequence: bottleCapture && !input.moreOptions };
+}
+
 /**
  * Metadata for `POST /api/capture/start`: a scanned GTIN is the strongest evidence. Sticky
  * (batch) hints fill the brand, finish and collection a bottle's own hint leaves empty.

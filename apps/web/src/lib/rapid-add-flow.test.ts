@@ -15,6 +15,7 @@ import {
   MAX_CAPTURE_FRAMES,
   planLiveBarcode,
   rapidAddPhase,
+  resolveCaptureMode,
   scanBadge,
   sessionReducer,
   shouldCheckBarcodeFrame,
@@ -499,5 +500,43 @@ describe("planLiveBarcode", () => {
 
   it("waits while a finished session resolves", () => {
     assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, status: "matched" }, other), "wait");
+  });
+});
+
+describe("resolveCaptureMode", () => {
+  const base = { flagsLoaded: true, bottleCaptureFlag: true, moreOptions: false, lockedBottleCapture: null };
+
+  it("is not ready, and reads the flag as off, until the flags have loaded", () => {
+    assert.deepEqual(resolveCaptureMode({ ...base, flagsLoaded: false }), {
+      ready: false,
+      bottleCapture: false,
+      bottleSequence: false,
+    });
+  });
+
+  it("follows the loaded flag and the More options switch", () => {
+    assert.deepEqual(resolveCaptureMode(base), { ready: true, bottleCapture: true, bottleSequence: true });
+    assert.deepEqual(resolveCaptureMode({ ...base, moreOptions: true }), {
+      ready: true,
+      bottleCapture: true,
+      bottleSequence: false,
+    });
+    assert.deepEqual(resolveCaptureMode({ ...base, bottleCaptureFlag: false }), {
+      ready: true,
+      bottleCapture: false,
+      bottleSequence: false,
+    });
+  });
+
+  it("keeps the mode a session started with, whatever the flag reads later", () => {
+    assert.deepEqual(resolveCaptureMode({ ...base, bottleCaptureFlag: true, lockedBottleCapture: false }), {
+      ready: true,
+      bottleCapture: false,
+      bottleSequence: false,
+    });
+    assert.deepEqual(
+      resolveCaptureMode({ ...base, flagsLoaded: false, bottleCaptureFlag: false, lockedBottleCapture: true }),
+      { ready: true, bottleCapture: true, bottleSequence: true },
+    );
   });
 });
