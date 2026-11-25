@@ -111,6 +111,16 @@ export function canAddFrame(frames: readonly CaptureFrameEntry[]): boolean {
   return frames.length < MAX_CAPTURE_FRAMES;
 }
 
+/**
+ * Said once a scan has its `MAX_CAPTURE_FRAMES` photos (#527): enough photos were taken, and
+ * what Find match does next. On the legacy path Find match also adds the match, so it says so.
+ */
+export function frameCapMessage(opts: { bottleSequence: boolean }): string {
+  return opts.bottleSequence
+    ? "That's enough photos. Tap Find match to see what we found."
+    : "That's enough photos. Tap Find match to find it and add it to your collection.";
+}
+
 export interface FrameQualityInput {
   source: FrameSource;
   width: number;

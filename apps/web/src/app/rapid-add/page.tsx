@@ -92,9 +92,9 @@ import {
   stillFrameTarget,
   canCheck,
   canFinalize,
+  frameCapMessage,
   framesReducer,
   INITIAL_SESSION_STATE,
-  MAX_CAPTURE_FRAMES,
   planLiveBarcode,
   rapidAddPhase,
   resolveCaptureMode,
@@ -586,7 +586,7 @@ export default function RapidAddPage() {
         return;
       }
       if (!canAddFrame(framesRef.current)) {
-        dispatch({ type: "failed", error: `That's the most frames for one scan (${MAX_CAPTURE_FRAMES}). Tap Find match.` });
+        setCameraFlash({ tone: "info", text: frameCapMessage({ bottleSequence: bottleSequenceRef.current }) });
         return;
       }
       const warnings = assessFrameQuality(event.frame.metrics);
@@ -1189,6 +1189,8 @@ export default function RapidAddPage() {
               ? "Getting ready…"
               : frameSummary.uploading > 0
               ? "Uploading frames…"
+              : !canAddFrame(frames)
+              ? frameCapMessage({ bottleSequence })
               : bottleSequence
                 ? "Nothing is added until you tap Add."
                 : "A match is added to your collection; if you already own it you can undo the extra bottle."}

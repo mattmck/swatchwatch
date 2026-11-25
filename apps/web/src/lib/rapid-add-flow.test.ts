@@ -11,6 +11,7 @@ import {
   canCheck,
   canCheckBarcodeFromMetadata,
   canFinalize,
+  frameCapMessage,
   framesReducer,
   INITIAL_SESSION_STATE,
   MAX_CAPTURE_FRAMES,
@@ -558,5 +559,16 @@ describe("actionFailureMessage", () => {
   it("falls back to a network error when the failure has no message", () => {
     assert.equal(actionFailureMessage("wishlist", "boom"), "Couldn't add it to your wishlist: network error. Try again.");
     assert.equal(actionFailureMessage("undo", new Error("  ")), "Couldn't update the quantity: network error. Try again.");
+  });
+});
+
+describe("frameCapMessage", () => {
+  it("says enough photos were taken and what Find match does", () => {
+    assert.equal(
+      frameCapMessage({ bottleSequence: true }),
+      "That's enough photos. Tap Find match to see what we found.",
+    );
+    // The legacy path's Find match adds the match, so the copy says so.
+    assert.match(frameCapMessage({ bottleSequence: false }), /^That's enough photos\. Tap Find match .*add it to your collection\.$/);
   });
 });
