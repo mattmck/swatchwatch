@@ -226,7 +226,7 @@ export default function RapidAddPage() {
   const frameSummary = summarizeFrames(frames);
   const hasHints = Boolean(brandHint.trim() || shadeHint.trim());
 
-  // Shelf mode: this session's verdicts across scans, in sessionStorage per user.
+  // Shelf mode: verdicts across scans, in localStorage per user (7-day expiry, wiped on sign-out).
   const [shelf, dispatchShelf] = useReducer(shelfReducer, EMPTY_SHELF);
   const [shelfKey, setShelfKey] = useState<string | null>(null);
   const [shelfPendingKey, setShelfPendingKey] = useState<string | null>(null);

@@ -5,9 +5,11 @@ import {
   clearAllShelves,
   EMPTY_SHELF,
   formatShelfAge,
+  isShelfExpired,
   parseShelfEntries,
   readShelf,
   serializeShelfEntries,
+  SHELF_MAX_AGE_MS,
   SHELF_MAX_ENTRIES,
   shelfActionEvent,
   shelfCounts,
@@ -339,6 +341,56 @@ describe("shelf storage", () => {
     assert.deepEqual(parseShelfEntries(null), []);
     const [noHex] = parseShelfEntries(JSON.stringify([{ ...entry(), hex: "data:image/png;base64,AA" }]));
     assert.equal(noHex.hex, undefined);
+  });
+
+  it("stores the entries with the time they changed and drops a shelf older than 7 days", () => {
+    const storage = memoryStorage();
+    const key = shelfStorageKey("1");
+    writeShelf(storage, key, [entry()], 1_000);
+    const stored = JSON.parse(storage.getItem(key) ?? "null");
+    assert.equal(stored.savedAt, 1_000);
+    assert.equal(stored.entries.length, 1);
+    assert.equal(readShelf(storage, key, 1_000 + SHELF_MAX_AGE_MS).length, 1);
+    assert.deepEqual(readShelf(storage, key, 1_000 + SHELF_MAX_AGE_MS + 1), []);
+    assert.equal(storage.getItem(key), null, "a stale shelf is removed");
+  });
+
+  it("keeps savedAt when the same entries are written again, and moves it when they change", () => {
+    const storage = memoryStorage();
+    const key = shelfStorageKey("1");
+    writeShelf(storage, key, [entry()], 1_000);
+    // Opening the page writes back what it read: that alone must not keep a stale shelf alive.
+    writeShelf(storage, key, readShelf(storage, key, 5_000), 5_000);
+    assert.equal(JSON.parse(storage.getItem(key) ?? "null").savedAt, 1_000);
+    writeShelf(storage, key, [entry({ acted: "added" })], 6_000);
+    assert.equal(JSON.parse(storage.getItem(key) ?? "null").savedAt, 6_000);
+  });
+
+  it("drops the old bare-array format, corrupt records and far-future timestamps", () => {
+    const key = shelfStorageKey("1");
+    const legacy = memoryStorage({ [key]: serializeShelfEntries([entry()]) });
+    assert.deepEqual(readShelf(legacy, key, 1_000), []);
+    assert.equal(legacy.getItem(key), null);
+    const corrupt = memoryStorage({ [key]: "{" });
+    assert.deepEqual(readShelf(corrupt, key, 1_000), []);
+    const future = memoryStorage();
+    writeShelf(future, key, [entry()], 10 * SHELF_MAX_AGE_MS);
+    assert.deepEqual(readShelf(future, key, 1_000), []);
+    assert.equal(isShelfExpired(0, SHELF_MAX_AGE_MS), false);
+    assert.equal(isShelfExpired(0, SHELF_MAX_AGE_MS + 1), true);
+  });
+
+  it("never stores image data or private image URLs", () => {
+    const storage = memoryStorage();
+    const key = shelfStorageKey("1");
+    writeShelf(
+      storage,
+      key,
+      [{ ...entry(), imageUrl: "https://api.example/api/images/v3.abc", dataUrl: "data:image/png;base64,AA" } as ShelfEntry],
+      1_000,
+    );
+    const raw = storage.getItem(key) ?? "";
+    assert.ok(!raw.includes("v3.abc") && !raw.includes("data:image"));
   });
 
   it("writes, removes when empty, and clears every user's shelf", () => {
