@@ -65,7 +65,16 @@ const MIN_FUNC_VERSION = [4, 16, 0];
 if (process.argv.includes("--func")) {
   let version = "";
   try {
-    version = execFileSync("func", ["--version"], { encoding: "utf8" }).trim().split("\n").pop().trim();
+    // On Windows an npm global install exposes func as a func.cmd shim, which
+    // Node only launches through a shell; the arguments are fixed, so this is safe.
+    version = execFileSync("func", ["--version"], {
+      encoding: "utf8",
+      shell: process.platform === "win32",
+    })
+      .trim()
+      .split(/\r?\n/)
+      .pop()
+      .trim();
   } catch {
     version = "";
   }
@@ -84,6 +93,7 @@ if (process.argv.includes("--func")) {
     console.error("Install or upgrade it globally, then retry:");
     console.error("  brew tap azure/functions && brew install azure-functions-core-tools@4   # macOS");
     console.error("  npm i -g azure-functions-core-tools@4 --unsafe-perm true               # other platforms");
+    console.error("  (Windows: the MSI installer from https://aka.ms/func-install also works)");
     process.exit(1);
   }
 }
