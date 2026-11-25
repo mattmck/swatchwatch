@@ -18,7 +18,7 @@ concurrency:
 # instead `changes` classifies the PR and the jobs below are skipped by `if:`, which
 # GitHub counts as passing for required checks.
 #
-# Lint, Build, Test and Mobile run in parallel after `changes`; each restores the same cached
+# Lint, Build, Test, Mobile and API E2E run in parallel after `changes`; each restores the same cached
 # node_modules (see .github/actions/setup-deps; Mobile restores its own cache that also
 # holds apps/mobile), so none waits on the others.
 jobs:
@@ -150,3 +150,117 @@ jobs:
 
       - name: Shared unit tests
         run: npm run test --workspace=swatchwatch-shared
+
+  # The API end-to-end suites (npm run test:e2e: api, access-control, capture-replay) against a
+  # real Functions host: Postgres with the migrated dev seed, Azurite for the host's own storage
+  # (timer/queue triggers need AzureWebJobsStorage), dev-bypass auth, the bottle flow on, and every
+  # AI call answered from the committed eval/ai-replay fixtures (placeholder Azure settings on the
+  # never-resolving ai-replay.invalid, so nothing leaves the runner). No AZURE_STORAGE_CONNECTION:
+  # the app's own blob storage stays off, as the tests expect. E2E_REQUIRE_HOST makes the suites
+  # fail instead of skipping when the host or one of its settings is missing.
+  api-e2e:
+    name: API E2E
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        # Same image as docker-compose.yml (pgvector; pg_trgm ships with Postgres contrib).
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: swatchwatch
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: swatchwatch_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d swatchwatch"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGDATABASE: swatchwatch
+      PGUSER: postgres
+      PGPASSWORD: swatchwatch_ci
+      E2E_API_BASE: http://localhost:7071/api
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-deps
+
+      - name: Build shared types and functions
+        run: |
+          npm run build:shared
+          npm run build --workspace=packages/functions
+
+      - name: Migrate the database (schema + dev seed)
+        run: npm run migrate --workspace=packages/functions
+
+      # Started with docker run (not a service container) because it needs command-line flags.
+      - name: Start Azurite
+        run: >
+          docker run -d --name azurite -p 10000:10000 -p 10001:10001 -p 10002:10002
+          mcr.microsoft.com/azure-storage/azurite
+          azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --skipApiVersionCheck --loose
+
+      # The Function App runs Node 22, so the host does here too (setup-deps installs Node 24
+      # for the build; the compiled output is the same).
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install Azure Functions Core Tools
+        run: |
+          npm i -g azure-functions-core-tools@4 --unsafe-perm true
+          func --version
+
+      - name: Start the Functions host
+        working-directory: packages/functions
+        env:
+          FUNCTIONS_WORKER_RUNTIME: node
+          AzureWebJobsStorage: UseDevelopmentStorage=true
+          AUTH_DEV_BYPASS: 'true'
+          BOTTLE_CAPTURE_ENABLED: 'true'
+          AI_REPLAY_MODE: replay
+          AZURE_OPENAI_ENDPOINT: https://ai-replay.invalid
+          AZURE_OPENAI_KEY: replay
+          AZURE_OPENAI_DEPLOYMENT: gpt-4o-mini
+          AZURE_OPENAI_DEPLOYMENT_HEX: gpt-4o-mini
+          AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT: https://ai-replay.invalid
+          AZURE_DOCUMENT_INTELLIGENCE_KEY: replay
+        run: |
+          nohup func start --port 7071 > "$RUNNER_TEMP/func-host.log" 2>&1 &
+          echo "Functions host starting (pid $!)"
+
+      - name: Wait for the host
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf "$E2E_API_BASE/reference/finishes" > /dev/null; then
+              echo "Host is up after ~$((i * 2))s"
+              curl -s "$E2E_API_BASE/config/flags"; echo
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Functions host did not answer GET /api/reference/finishes within 180s"
+          tail -n 100 "$RUNNER_TEMP/func-host.log"
+          exit 1
+
+      - name: API end-to-end tests
+        env:
+          E2E_REQUIRE_HOST: 'true'
+        run: npm run test:e2e --workspace=swatchwatch-functions
+
+      - name: Upload the Functions host log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: func-host-log
+          path: ${{ runner.temp }}/func-host.log
+          if-no-files-found: ignore

@@ -70,7 +70,7 @@ npm run migrate          # Run Postgres migrations
 npm run test --workspace=swatchwatch-functions      # Functions unit tests (no DB)
 npm run test --workspace=swatchwatch-shared         # Shared unit tests
 npm run test --workspace=apps/mobile                 # Mobile unit tests
-npm run test:e2e --workspace=swatchwatch-functions  # E2E API tests against a running local host
+npm run test:e2e --workspace=swatchwatch-functions  # E2E API tests (api, access control, Rapid Add capture) against a running local host; CI's "API E2E" job runs them on every PR (E2E_REQUIRE_HOST=true fails instead of skipping)
 ```
 
 Every other script (`build:*`, `migrate:down`, `migrate:create`, `sync:design-tokens`, `generate:*`, `eval:*`, `backfill:*`, `dedupe:*`, `remove:source-images`, `roster:*`, the web and devtools tests, lifecycle hooks) is in `docs/agents/dev-commands.md`.

@@ -89,10 +89,21 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   user 2 (the upload part is skipped when the host has no blob storage, i.e. answers 503). It
   skips itself when the host is unreachable. Override with `E2E_API_BASE` (honored by both files),
   `E2E_OWNER_TOKEN`, `E2E_ATTACKER_TOKEN`, and `E2E_OWNER_ID` (the owner's `app_user` id; needed for the
-  `userId`-spoofing cases when the owner token isn't `dev:<id>`, otherwise those cases skip). Note that `GET /polishes/{id}` and the default list are
+  `userId`-spoofing cases when the owner token isn't `dev:<id>`, otherwise those cases skip). `E2E_SCANNER_TOKEN` (default `dev:2`) is the Rapid Add scanner in the capture suite, and `E2E_REQUIRE_HOST=true` turns every "host not ready" skip into a failure. Note that `GET /polishes/{id}` and the default list are
   catalog views joined to the caller's own inventory, so cross-user isolation means "no other user's
   inventory fields", not a 404; `scope=collection` restricts the list to owned items.
-- **Capture on recorded AI responses** (`tests/capture-replay.e2e.test.cjs`, part of `npm run test:e2e`):
+- **Rapid Add end to end** (`tests/capture-replay.e2e.test.cjs`, part of `npm run test:e2e`, #526):
+  *barcode → add*: links a catalog GTIN (restricted-circulation prefix 200) to the seed shade
+  Butter London — Teddy Girl with the production `upsertShadeBarcodes` on a direct Postgres
+  connection (no API writes catalog barcodes; PG* / `DATABASE_URL` from the environment, else
+  `local.settings.json`), then as `dev:2` (no seed inventory) posts a `barcode` frame with that
+  `quality.gtin` (its `check` is matched, not owned), `PUT /api/polishes/{shadeId}` owned (marked
+  with a note, removed afterwards), finds it in `GET /api/polishes?status=owned`, and a second scan
+  reports it owned. *Create card* (needs `BOTTLE_CAPTURE_ENABLED=true`): as `dev:1` scans a fresh
+  unknown GTIN with a typed test brand, skips every photo the flow asks for, checks `unmatched`
+  with a `suggestedShade`, `POST /api/polishes` with `captureId`, then the session is `matched`
+  with the new shade and the learned GTIN finds it, owned, on the next scan.
+- **Capture on recorded AI responses** (same file):
   against a host running `AI_REPLAY_MODE=replay` and `BOTTLE_CAPTURE_ENABLED=true`, starts a
   capture with the brand hint `OPI`, posts the label PNG (bottom sticker: Document Intelligence OCR →
   label parse → closed-set sticker read) and the glass PNG (palette pick) from
@@ -102,8 +113,16 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   Azure credentials. It skips itself unless `GET /api/config/flags` reports `aiReplayMode: "replay"` (or
   `"record"`, which runs it against Azure and stores the fixtures) and `bottleCapture: true`. The sticker-read prompt lists OPI's catalog shades, so it expects the
   dev seed catalog (migration 003). See [AI record/replay](#ai-recordreplay-srclibai-replayts).
-  **CI does not run it:** no CI job starts a Functions host (Postgres + Azurite + `func`); run the
-  sequence below locally.
+  **Marked `todo` (runs, reports, does not fail the suite):** the committed fixtures predate the
+  sticker-read rework (#508) and miss on a freshly migrated database; re-record them against one
+  (sequence below) and drop the `todo`.
+- **CI** (`.github/workflows/ci.yml`, job "API E2E"): every non-docs PR runs `npm run test:e2e`
+  against a host it starts itself: `pgvector/pgvector:pg17` service + `npm run migrate` (dev seed),
+  Azurite for `AzureWebJobsStorage` only (no `AZURE_STORAGE_CONNECTION`), Core Tools v4 on Node 22,
+  `AUTH_DEV_BYPASS=true`, `BOTTLE_CAPTURE_ENABLED=true`, `AI_REPLAY_MODE=replay` with placeholder
+  Azure settings on `ai-replay.invalid`. It sets `E2E_REQUIRE_HOST=true`, which makes the
+  access-control and capture suites fail instead of skipping when the host or a setting is
+  missing, and uploads the host log as the `func-host-log` artifact when it fails.
 
 - **Hex-detection eval** (`npm run eval:hex -- --strategy <name>`): not a test — a ground-truth
   harness that scores detection strategies against a fixture (see
@@ -1322,7 +1341,7 @@ AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://ai-replay.invalid AZURE_DOCUMENT_IN
 npm run test:e2e --workspace=swatchwatch-functions
 ```
 
-With the endpoints pointing at `ai-replay.invalid` (a reserved name that never resolves) any call that is not answered from a fixture fails, which proves a replay run makes no network calls. CI does not run this: no CI job starts a Functions host.
+With the endpoints pointing at `ai-replay.invalid` (a reserved name that never resolves) any call that is not answered from a fixture fails, which proves a replay run makes no network calls. CI's "API E2E" job starts the host the same way (see Testing).
 
 ## Migrations
 
