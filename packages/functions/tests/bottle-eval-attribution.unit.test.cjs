@@ -178,6 +178,19 @@ describe("attributeFailure", () => {
     assert.equal(got.stage, "color_vetoed");
   });
 
+  it("name_weak: a match-band name read only in part (the incomplete-name veto), not color", () => {
+    const st = status({ top5: [top(42, 1, 0.38), top(9, 0.2, 0.4)], evidence: { shadeName: "The Right Way", shadeNameIncomplete: true } });
+    const got = attribute(LABEL, check("needs_question", [42, 9]), st);
+    assert.equal(got.stage, "name_weak");
+    assert.match(got.detail, /read only in part/);
+  });
+
+  it("name_ambiguous: the label ranked first but tied with another match-band name", () => {
+    const got = attribute(LABEL, check("needs_question", [42, 9]), status({ top5: [top(42, 1, 0.02), top(9, 1, 0.4)] }));
+    assert.equal(got.stage, "name_ambiguous");
+    assert.match(got.detail, /tied in the match band/);
+  });
+
   it("color_tie_broke_wrong: a name tie ordered by color put another shade first", () => {
     const got = attribute(LABEL, check("matched", [9, 42]), status({ step: "matched_by_name", top5: [top(9, 1, 0.03), top(42, 1, 0.06)] }));
     assert.equal(got.outcome, "matched_wrong");
