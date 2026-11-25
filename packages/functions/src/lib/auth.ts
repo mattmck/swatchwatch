@@ -470,34 +470,75 @@ async function getOrCreateUserWithLinkedIdentities(
       }
     }
 
-    const createdUser = await (async () => {
-      try {
-        return await client.query<{ userId: number; role: string | null }>(
-          `INSERT INTO app_user (external_id, email, handle, role)
-           VALUES ($1, $2, $3, $4)
-           RETURNING user_id AS "userId", role`,
-          [externalId, email, email || externalId, role]
-        );
-      } catch (error: any) {
-        if (error?.code === "42703") {
-          return client.query<{ userId: number; role: string | null }>(
-            `INSERT INTO app_user (external_id, email, handle)
-             VALUES ($1, $2, $3)
-             RETURNING user_id AS "userId", 'user'::text AS role`,
-            [externalId, email, email || externalId]
-          );
-        }
-        throw error;
+    const created = await insertNewUser();
+    if (!created) {
+      // Lost the race to create this external id (#525): a brand-new user's first page fires
+      // several API calls at once and each one runs this transaction. The winner's row is
+      // committed by now (ON CONFLICT waits for it), so read it and continue as a returning user.
+      const raced = await client.query<{ userId: number }>(
+        `SELECT user_id AS "userId"
+         FROM app_user
+         WHERE external_id = $1
+         LIMIT 1`,
+        [externalId]
+      );
+      if (raced.rows.length === 0) {
+        throw new Error("app_user insert conflicted but no row exists for the external id");
       }
-    })();
+      trackEvent("auth.user_create_race", {});
+      return updateUserAndTouchIdentity(raced.rows[0].userId, externalId, email, role);
+    }
 
-    const created = createdUser.rows[0];
     await upsertExternalIdentity(created.userId, externalId, email);
 
     return {
       userId: created.userId,
       role: created.role || role,
     };
+
+    /**
+     * Insert the app_user row, or return null when a concurrent request for the same external
+     * id created it first. `ON CONFLICT (external_id) DO NOTHING` covers the usual case; the
+     * savepoint also absorbs a 23505 raised by another unique index (`handle` defaults to the
+     * same value) when both inserts pass the conflict pre-check together, and lets the
+     * pre-`role`-column fallback (42703) retry without aborting the transaction.
+     */
+    async function insertNewUser(): Promise<{ userId: number; role: string | null } | null> {
+      await client.query("SAVEPOINT app_user_insert");
+      try {
+        const inserted = await (async () => {
+          try {
+            return await client.query<{ userId: number; role: string | null }>(
+              `INSERT INTO app_user (external_id, email, handle, role)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (external_id) DO NOTHING
+               RETURNING user_id AS "userId", role`,
+              [externalId, email, email || externalId, role]
+            );
+          } catch (error: any) {
+            if (error?.code === "42703") {
+              await client.query("ROLLBACK TO SAVEPOINT app_user_insert");
+              return client.query<{ userId: number; role: string | null }>(
+                `INSERT INTO app_user (external_id, email, handle)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (external_id) DO NOTHING
+                 RETURNING user_id AS "userId", 'user'::text AS role`,
+                [externalId, email, email || externalId]
+              );
+            }
+            throw error;
+          }
+        })();
+        await client.query("RELEASE SAVEPOINT app_user_insert");
+        return inserted.rows[0] ?? null;
+      } catch (error: any) {
+        if (error?.code === "23505") {
+          await client.query("ROLLBACK TO SAVEPOINT app_user_insert");
+          return null;
+        }
+        throw error;
+      }
+    }
 
     async function updateUserAndTouchIdentity(
       userId: number,

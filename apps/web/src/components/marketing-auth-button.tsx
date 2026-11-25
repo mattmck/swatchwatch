@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
+import { postSignInStartPage, useAuth, useDevAuth, useUnconfiguredAuth } from "@/hooks/use-auth";
 import { buildMsalConfig } from "@/lib/msal-config";
 
 const IS_DEV_BYPASS = process.env.NEXT_PUBLIC_AUTH_DEV_BYPASS === "true";
@@ -50,7 +50,8 @@ function B2CButton() {
   }
 
   return (
-    <Button variant="brand" onClick={login}>
+    // Land on the dashboard after sign-in instead of back on the landing page (#525).
+    <Button variant="brand" onClick={() => login({ redirectStartPage: postSignInStartPage() })}>
       Sign In
     </Button>
   );
