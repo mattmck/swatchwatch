@@ -36,5 +36,7 @@ Documentation files listed here instead of in `CLAUDE.md` to keep it short (plan
 - `docs/plan-catalog-hygiene.md` — #347/#348/#349 catalog hygiene plan behind D23 (product categories, non-polish cleanup)
 - `docs/superpowers/specs/2026-10-24-multi-color-shades-design.md` — plan (not built) for thermal / magnetic / multichrome shades with 2–4 color stops rendered as a gradient, kept additive to the single display hex
 - `docs/roadmap-2026-10-to-12.md` — Oct–Dec 2026 roadmap: research, the four M2 sprints with status lines, §4 success metrics, §5 deferrals, §6 decisions
+- `docs/ship-plan-2026-11-25.md` — current plan: Ship 1 (in Angela's hands), Ship 2 (bin run), Ship 3 (out the door) with their issues, what is parked, and the state of prod, sign-up, Rapid Add tests and catalog coverage on 2026-11-25
+- `docs/plan-2026-11-10-rapid-add-and-catalog.md` — the two-goals plan (Rapid Add on real bottle photos, ingestion for every vendor) and its progress log
 - `docs/retro-m2.md` — M2 retro (#274): what shipped in release #340, #365, #411 and the `dev` work after them, the M2 / M3 open sets, decisions, §4 metric readings, open issues, Q1 candidates
 - `docs/azure-iac-bom.md` — per-environment Azure resource bill of materials
