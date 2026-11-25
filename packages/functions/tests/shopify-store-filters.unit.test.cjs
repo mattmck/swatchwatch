@@ -408,6 +408,7 @@ describe("store-filters — shopifyStoreProductVerdict", () => {
       "CoteShopify",
       "HarlowAndCoShopify",
       "HypnoticPolishShopify",
+      "KbshimmerWooCommerce",
       "LeMiniMacaronShopify",
       "LemmingLacquerShopify",
       "LondontownShopify",

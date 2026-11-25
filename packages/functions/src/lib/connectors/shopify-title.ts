@@ -8,6 +8,7 @@ import {
 } from "./store-filters/brand-store-titles.js";
 import { parseChinaGlazeTitle } from "./store-filters/china-glaze.js";
 import { parseCrackedPolishTitle } from "./store-filters/cracked-polish.js";
+import { parseKbshimmerTitle } from "./store-filters/kbshimmer.js";
 import { parseLeMiniMacaronTitle, parseLeMiniMacaronTitleParts } from "./store-filters/le-mini-macaron.js";
 import { parsePaintedPolishTitle } from "./store-filters/painted-polish.js";
 import { parsePicturePolishTitle } from "./store-filters/picture-polish.js";
@@ -23,6 +24,7 @@ export {
   parseChinaGlazeTitle,
   parseCoteTitle,
   parseCrackedPolishTitle,
+  parseKbshimmerTitle,
   parseLeMiniMacaronTitle,
   parsePaintedPolishTitle,
   parsePicturePolishTitle,
@@ -40,7 +42,7 @@ export { parseLineAndShadeTitle } from "./store-filters/brand-store-titles.js";
  * suffix (wet n wild, Barry M, Piggy Paint, Côte, Alchemy Lacquers). Keyed by
  * `data_source.name`, so the non-Shopify connectors use it too: the WooCommerce and Big Cartel
  * gates ask `shopifyStoreShadeName` before their own title parsing (Picture Polish, Painted
- * Polish, Potion Polish). The raw title is always kept as `normalized.rawTitle`.
+ * Polish, Potion Polish, KBShimmer). The raw title is always kept as `normalized.rawTitle`.
  */
 export const SHOPIFY_STORE_TITLE_PARSERS: Readonly<Record<string, StoreTitleParser>> = {
   PolishPickupShopify: parsePolishPickupTitle,
@@ -60,6 +62,7 @@ export const SHOPIFY_STORE_TITLE_PARSERS: Readonly<Record<string, StoreTitlePars
   PicturePolishWooCommerce: parsePicturePolishTitle,
   PaintedPolishBigCartel: parsePaintedPolishTitle,
   PotionPolishBigCartel: parsePotionPolishTitle,
+  KbshimmerWooCommerce: parseKbshimmerTitle,
 };
 
 /**

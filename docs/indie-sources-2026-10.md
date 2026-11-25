@@ -184,6 +184,21 @@ catalogs: see `docs/data-sources-research.md`).
 
 ILNP and KBShimmer, the two most-requested indies, can only come in with the store's cooperation.
 
+**Update 2026-11-11 (ILNP, KBShimmer, Girly Bits):** the owner contacted all three, and each is
+temporarily allowing SwatchWatch to read its catalog (who, channel and end date still to be recorded
+in each source's `metadata.notes`). Probes that day, a few requests per store, spaced out:
+
+| Store | Platform | Plain request | Through the Bright Data Web Unlocker / an anti-detect browser | Outcome |
+|---|---|---|---|---|
+| ILNP (www.ilnp.com) | WooCommerce behind Cloudflare, no challenge | Store API 200, 738 products (categories, ~7 images each, descriptions, USD prices; empty tags, collections mixed in) | not needed | `IlnpWooCommerce` enabled with `metadata.robotsOverride` (robots.txt still disallows `/wp-json/`) |
+| KBShimmer (www.kbshimmer.com) | WooCommerce (WordPress), Cloudflare challenge on every path, images included | 403 `cf-mitigated: challenge` | both passed: Store API 200, 371 products (useful categories and tags, up to 10 images, USD prices), product pages carry JSON-LD, image bytes intact | `KbshimmerWooCommerce` enabled with `metadata.fetchVia: "brightdata-unlocker"`; a Cloudflare skip rule from KBShimmer for our Function App would make the unlocker unnecessary |
+| Girly Bits (girlybitscosmetics.com) | BigCommerce | home 503, `xmlsitemap.php` 200 | same page | **Closed**: "Down for Maintenance" since 2023-09-06, sales directed to stockists. Nothing to ingest |
+
+Both sources were enabled by migration `20261111060000000_allow-ilnp-kbshimmer-woocommerce`; disable them
+when the temporary access ends. KBShimmer needed a store filter and title parser (`store-filters/kbshimmer.ts`): its merch (tumblers,
+sweatshirts) passed the generic gate, and its "<Shade> <Finish> Nail Polish" titles did not match the shades
+resellers had created, which made 135 duplicates on the first local run (cleaned up before the re-run).
+
 ## Exact `data_source.metadata.notes` text
 
 The rows below are already in `docs/seed_data_sources.sql` (and, for Emily de Molly and Cirque, the

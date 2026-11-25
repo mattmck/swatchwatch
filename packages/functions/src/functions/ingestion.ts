@@ -962,6 +962,7 @@ export async function processIngestionJobQueueMessage(
               detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
               overwriteDetectedHex,
               storeImages: imageWork.storeImages,
+              imageFetchVia: sourceSettings.fetchVia,
               sourceKind: sourceSettings.kind,
               sourceName: payload.request.source,
               // Audit actor of brand-store corrections (moved / merged shades).

@@ -67,6 +67,7 @@ import {
 } from "./gallery-dedupe";
 import { getSourceImageMaxPerProduct, planProductImageDownloads } from "./product-image-cap";
 import { trackEvent } from "./telemetry";
+import type { FetchVia } from "./brightdata-unlocker";
 import {
   catalogAuthorityForKind,
   isBrandSourceSql,
@@ -213,6 +214,8 @@ export interface HoloTacoMaterializationOptions {
    * is downloaded, stored or linked and no AI hex detection runs. Default true.
    */
   storeImages?: boolean;
+  /** The source's `SourceSettings.fetchVia`: image downloads go through the Bright Data Web Unlocker when set. */
+  imageFetchVia?: FetchVia | null;
   /**
    * Source the records come from. A record without a brand is skipped unless this is
    * `HoloTacoShopify` (or unset), which falls back to the "Holo Taco" brand.
@@ -1405,6 +1408,7 @@ async function prepareHoloTacoImageData(
       source: sourceName,
       externalId,
       skipContainerEnsure: true,
+      fetchVia: options?.imageFetchVia ?? null,
     });
     return {
       image: {

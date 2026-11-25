@@ -41,14 +41,10 @@ export const CONNECTOR_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // OPI brand store via sitemap + JSON-LD: no terms page at /terms-of-use on 2026-11-08; the
   // owner locates and reads the site terms and asks for the OK (brand sources plan, Task 15).
   "OpiSitemap",
-  // WooCommerce Store API stores (brand sources plan, Task 16). ILNP (robots.txt disallows the
-  // Store API) and KBShimmer (Cloudflare challenge) are known-blocked: `metadata.blocked` makes the
-  // run endpoints answer 409 `source_blocked` and the worker refuse a queued job
-  // (lib/ingestion-run-guard.ts), even if the row is enabled; they are registered so the admin
-  // console lists them. Picture Polish left this set on 2026-11-10 (enabled by the owner's
-  // decision without a store OK, migration 20261110120000000, decision D27).
-  "IlnpWooCommerce",
-  "KbshimmerWooCommerce",
+  // WooCommerce Store API stores (brand sources plan, Task 16). Picture Polish left this set on
+  // 2026-11-10 (enabled by the owner's decision without a store OK, migration 20261110120000000,
+  // decision D27). ILNP and KBShimmer, registered known-blocked here, left it on 2026-11-11 with the
+  // stores' temporary OK (migration 20261111060000000).
   // Big Cartel stores through the v0 API (brand sources plan, Task 17): products.json answered 200
   // for all five on 2026-11-08. The rest wait for the owner (Big Cartel's API License Agreement and
   // each store's terms). Painted Polish and Potion Polish left this set on 2026-11-10 (enabled by

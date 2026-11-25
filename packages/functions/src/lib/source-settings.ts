@@ -14,7 +14,11 @@
  *   and `maxPages` are read by the connectors; so are the connector keys `feedUrl`,
  *   `feedAuthEnv`, `sitemapUrl`, `productUrlPrefixes` and `subdomain`, passed through as-is.
  * - `currency`: the raw `metadata.currency` (connectors validate it with `normalizeCurrencyCode`).
+ * - `fetchVia` (`"brightdata-unlocker"` or absent) and `robotsOverride` (the owner's recorded OK
+ *   to read a robots.txt-disallowed path): only for a store that allowed us in writing.
  */
+
+import { readFetchVia, type FetchVia } from "./brightdata-unlocker";
 
 export const SOURCE_KINDS = ["brand", "retailer", "feed"] as const;
 
@@ -41,6 +45,17 @@ export interface SourceSettings {
   sitemapUrl: string | null;
   productUrlPrefixes: string[];
   subdomain: string | null;
+  /**
+   * `metadata.fetchVia`: how the connector and image downloads reach the store; null = direct
+   * requests, `"brightdata-unlocker"` = through the Bright Data Web Unlocker (lib/brightdata-unlocker.ts).
+   */
+  fetchVia: FetchVia | null;
+  /**
+   * `metadata.robotsOverride`: the store owner's written OK to read a path its robots.txt
+   * disallows (who, when, how). When set, a connector that checks robots.txt logs the disallow and
+   * reads the store anyway; null = robots.txt is obeyed.
+   */
+  robotsOverride: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -156,6 +171,8 @@ export function readSourceSettings(metadata: unknown, sourceName?: string): Sour
     sitemapUrl: nonEmptyString(meta.sitemapUrl),
     productUrlPrefixes: readStringList(meta.productUrlPrefixes),
     subdomain: nonEmptyString(meta.subdomain),
+    fetchVia: readFetchVia(meta.fetchVia),
+    robotsOverride: nonEmptyString(meta.robotsOverride),
   };
 }
 

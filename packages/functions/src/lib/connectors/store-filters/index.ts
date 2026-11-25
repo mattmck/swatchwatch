@@ -7,6 +7,7 @@ import { isCndPolish } from "./cnd.js";
 import { isCotePolish } from "./cote.js";
 import { isHarlowAndCoPolish } from "./harlow-and-co.js";
 import { isHypnoticPolishPolish } from "./hypnotic-polish.js";
+import { isKbshimmerPolish } from "./kbshimmer.js";
 import { isLemmingLacquerPolish } from "./lemming-lacquer.js";
 import { isLeMiniMacaronPolish } from "./le-mini-macaron.js";
 import { isLondontownPolish } from "./londontown.js";
@@ -66,6 +67,7 @@ export const SHOPIFY_STORE_PRODUCT_FILTERS: Readonly<Record<string, StoreProduct
   PicturePolishWooCommerce: isPicturePolishPolish,
   PaintedPolishBigCartel: isPaintedPolishPolish,
   PotionPolishBigCartel: isPotionPolishPolish,
+  KbshimmerWooCommerce: isKbshimmerPolish,
 };
 
 /** The store filter's verdict for `product`, or null when `source` has none. */

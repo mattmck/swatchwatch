@@ -26,7 +26,10 @@ const INSERTED_BY = {
   PotionPolishBigCartel: "20261108190000000_add-big-cartel-sources.sql",
 };
 const ENABLED = Object.keys(INSERTED_BY);
-const STILL_PENDING = ["OpiSitemap", "IlnpWooCommerce", "KbshimmerWooCommerce", "ColoresDeCarolBigCartel", "GlistenAndGlowBigCartel", "PoetryCowgirlBigCartel"];
+const STILL_PENDING = ["OpiSitemap", "ColoresDeCarolBigCartel", "GlistenAndGlowBigCartel", "PoetryCowgirlBigCartel"];
+// Untouched here; enabled later with the stores' temporary OK (20261111060000000,
+// tests/woocommerce-sources.unit.test.cjs).
+const ENABLED_LATER = ["IlnpWooCommerce", "KbshimmerWooCommerce"];
 const DECISION = "Enabled on 2026-11-10 by the owner's decision without a store OK; ask the maker for the record.";
 
 function seedTuple(sql, name) {
@@ -127,6 +130,7 @@ describe("enable migration 20261110120000000 (owner decision, no store OK)", () 
       assert.equal(CONNECTOR_SOURCES_PENDING_APPROVAL.has(name), true, name);
       assert.equal(metadataOf(SEED_SQL, name).pendingApproval, true, name);
     }
+    for (const name of ENABLED_LATER) assert.ok(!MIGRATION.includes(`'${name}'`), name);
     assert.doesNotMatch(UP, /INSERT|DELETE/);
     assert.equal((UP.match(/UPDATE data_source/g) ?? []).length, ENABLED.length);
   });

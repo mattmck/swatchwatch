@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { fetchForSource, type FetchVia } from "./brightdata-unlocker";
 import { describeFetchError, fetchWithRetry } from "./fetch-retry";
 export { SourceImageUploadError, describeImageStoreFailure, type SourceImageUploadStep } from "./image-store-error";
 import { computeImageFingerprintSafely, type ImageFingerprint } from "./gallery-dedupe";
@@ -55,6 +56,8 @@ interface UploadSourceImageOptions {
   source: string;
   externalId: string;
   includeBase64DataUri?: boolean;
+  /** The source's `SourceSettings.fetchVia`: download through the Bright Data Web Unlocker when set. */
+  fetchVia?: FetchVia | null;
 }
 
 function normalizeImageContentType(contentType: string): string {
@@ -922,12 +925,13 @@ export async function uploadSourceImageToBlob(
   const limits = resolveSourceImageLimits();
   let sourceType = "";
   let bytes: Buffer = Buffer.alloc(0);
+  const sourceFetch = fetchForSource(params.fetchVia ?? null);
   // Each attempt gets its own REQUEST_TIMEOUT_MS; transient network errors (also while reading the
   // body, which is why the capped read happens inside the attempt) and 429/5xx are retried.
   const sourceResponse = await atUploadStep("source_download", sourceHost, () => fetchWithRetry(
     async () => {
       const response = await runWithTimeout(
-        fetch(params.sourceImageUrl, {
+        sourceFetch(params.sourceImageUrl, {
           method: "GET",
           headers: { "User-Agent": "SwatchWatch/source-image-ingestion" },
         }),
