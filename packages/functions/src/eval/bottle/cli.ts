@@ -288,7 +288,14 @@ export async function main(argv: string[]): Promise<number> {
   try {
     let samples: EvalSample[];
     try {
-      samples = await loadEvalSamples({ limit: args.limit, only: args.only });
+      const loaded = await loadEvalSamples({ limit: args.limit, only: args.only });
+      samples = loaded.samples;
+      if (loaded.relabelled > 0 || loaded.ambiguous > 0) {
+        console.error(
+          `Text labels re-checked against the catalog: ${loaded.relabelled} now match one catalog shade` +
+            (loaded.ambiguous > 0 ? `, ${loaded.ambiguous} match several (kept as not in catalog)` : "")
+        );
+      }
     } catch (error) {
       console.error(`eval:bottle: could not load samples from Postgres: ${errorMessage(error)}`);
       return 1;

@@ -56,7 +56,7 @@ Admin authorization note:
 
 - **Node.js ≥ 22.13** (see `engines` in `package.json`; Expo SDK 58 and React Native 0.88 need it)
 - **Docker** — for local Postgres (pgvector)
-- **Azure Functions Core Tools v4** — for local functions development (`brew install azure-functions-core-tools@4`)
+- **Azure Functions Core Tools v4 (>= 4.16)** — for local functions development, installed globally (`brew tap azure/functions && brew install azure-functions-core-tools@4`; elsewhere `npm i -g azure-functions-core-tools@4`). Not an npm dependency of the repo; `npm run dev` checks for it
 - **Terraform ≥ 1.5** — for infrastructure provisioning
 - **Expo CLI** — for mobile development (`npx expo`)
 
