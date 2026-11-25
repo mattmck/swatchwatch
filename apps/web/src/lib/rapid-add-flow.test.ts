@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { EMPTY_STICKY_HINTS, type CaptureQuestion, type StickyHints } from "swatchwatch-shared";
 import type { ScannedBarcode } from "./barcode-scan";
 import {
+  actionFailureMessage,
   buildFrameQuality,
   buildQuestionView,
   buildStartMetadata,
@@ -538,5 +539,24 @@ describe("resolveCaptureMode", () => {
       resolveCaptureMode({ ...base, flagsLoaded: false, bottleCaptureFlag: false, lockedBottleCapture: true }),
       { ready: true, bottleCapture: true, bottleSequence: true },
     );
+  });
+});
+
+describe("actionFailureMessage", () => {
+  it("says what failed, why, and to try again", () => {
+    assert.equal(
+      actionFailureMessage("add", new Error("Service unavailable.")),
+      "Couldn't add it to your collection: Service unavailable. Try again.",
+    );
+    assert.equal(
+      actionFailureMessage("create_wishlist", new Error("Brand is required")),
+      "Couldn't add it to your wishlist: Brand is required. Try again.",
+    );
+    assert.equal(actionFailureMessage("skip", new Error("Conflict")), "Couldn't skip that photo: Conflict. Try again.");
+  });
+
+  it("falls back to a network error when the failure has no message", () => {
+    assert.equal(actionFailureMessage("wishlist", "boom"), "Couldn't add it to your wishlist: network error. Try again.");
+    assert.equal(actionFailureMessage("undo", new Error("  ")), "Couldn't update the quantity: network error. Try again.");
   });
 });

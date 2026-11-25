@@ -370,6 +370,40 @@ export function canCheck(input: {
 }
 
 // ---------------------------------------------------------------------------
+// Failed actions (#527)
+// ---------------------------------------------------------------------------
+
+/** A tap on the verdict card, the bottle prompt or the shelf that saves something. */
+export type RapidAddAction =
+  | "add"
+  | "create_owned"
+  | "create_wishlist"
+  | "wishlist"
+  | "skip"
+  | "undo"
+  | "bought_another";
+
+const ACTION_FAILURE_COPY: Record<RapidAddAction, string> = {
+  add: "Couldn't add it to your collection",
+  create_owned: "Couldn't add it to your collection",
+  create_wishlist: "Couldn't add it to your wishlist",
+  wishlist: "Couldn't add it to your wishlist",
+  skip: "Couldn't skip that photo",
+  undo: "Couldn't update the quantity",
+  bought_another: "Couldn't save the extra bottle",
+};
+
+/**
+ * What a failed action shows: what failed, why (the API's message, else "network error") and
+ * "Try again". The action's own button stays enabled and the page offers the same retry.
+ */
+export function actionFailureMessage(action: RapidAddAction, error: unknown): string {
+  const reason =
+    error instanceof Error && error.message.trim() ? error.message.trim().replace(/[.!]+$/, "") : "network error";
+  return `${ACTION_FAILURE_COPY[action]}: ${reason}. Try again.`;
+}
+
+// ---------------------------------------------------------------------------
 // Capture mode (#527)
 // ---------------------------------------------------------------------------
 

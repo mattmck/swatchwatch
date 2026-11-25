@@ -83,6 +83,7 @@ import {
 } from "@/lib/add-guard";
 import { trackDupeWarningOutcome, trackDupeWarningShown } from "@/lib/metrics-events";
 import {
+  actionFailureMessage,
   buildFrameQuality,
   buildStartMetadata,
   canAddFrame,
@@ -102,6 +103,7 @@ import {
   summarizeFrames,
   type CaptureFrameEntry,
   type QuestionAction,
+  type RapidAddAction,
 } from "@/lib/rapid-add-flow";
 import { guideRegionForFrame } from "@/lib/guide-region";
 import { assessFrameQuality, FRAME_QUALITY_WARNING_COPY } from "@/lib/camera";
@@ -218,6 +220,8 @@ export default function RapidAddPage() {
 
   const [session, dispatch] = useReducer(sessionReducer, INITIAL_SESSION_STATE);
   const [frames, dispatchFrames] = useReducer(framesReducer, []);
+  /** The last action that failed and how to run it again; shown while its message is the error. */
+  const [failedAction, setFailedAction] = useState<{ message: string; retry: () => void } | null>(null);
   const phase = rapidAddPhase(session);
   const frameSummary = summarizeFrames(frames);
   const hasHints = Boolean(brandHint.trim() || shadeHint.trim());
@@ -258,6 +262,13 @@ export default function RapidAddPage() {
     bottleRef.current = next;
     setBottle(next);
     return next;
+  }, []);
+
+  /** A save failed: say what and why, keep its buttons usable and offer "Try again" (#527). */
+  const failAction = useCallback((action: RapidAddAction, error: unknown, retry: () => void) => {
+    const message = actionFailureMessage(action, error);
+    setFailedAction({ message, retry });
+    dispatch({ type: "failed", error: message });
   }, []);
 
   /** Sticky hints in state and ref; `persist` also stores them for this user. */
@@ -742,7 +753,7 @@ export default function RapidAddPage() {
       dispatch({ type: "verdict_resolved", verdict: verdictAfterBottleAdd(verdict, updated.inventoryItemId) });
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it to your collection.") });
+      failAction("add", error, () => void handleBottleAdd(verdict));
     }
   }
 
@@ -756,7 +767,9 @@ export default function RapidAddPage() {
       dispatch({ type: "verdict_resolved", verdict: verdictAfterCreate(created, verdict.card, edits, status) });
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it. Try again.") });
+      failAction(status === "owned" ? "create_owned" : "create_wishlist", error, () =>
+        void handleCreate(verdict, edits, status),
+      );
     }
   }
 
@@ -780,6 +793,7 @@ export default function RapidAddPage() {
   function resetScan() {
     scanRef.current += 1;
     sessionPromiseRef.current = null;
+    setFailedAction(null);
     dispatch({ type: "reset" });
     dispatchFrames({ type: "reset" });
     sessionRef.current = INITIAL_SESSION_STATE;
@@ -839,7 +853,7 @@ export default function RapidAddPage() {
       if (shouldAutoCheck(next, uploaded) && !sessionRef.current.verdict) await runBottleCheck();
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't skip that photo. Try again.") });
+      failAction("skip", error, () => void handleSkipSurface());
     }
   }
 
@@ -855,7 +869,7 @@ export default function RapidAddPage() {
       dispatch({ type: "verdict_resolved", verdict: { ...checked, relationship: "wishlisted", wishlistedNow: true } });
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it to your wishlist.") });
+      failAction("wishlist", error, () => void handleAddToWishlist(verdict));
     }
   }
 
@@ -888,7 +902,7 @@ export default function RapidAddPage() {
       }
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't update the quantity.") });
+      failAction("undo", error, () => void handleUndoQuantity());
     }
   }
 
@@ -916,7 +930,8 @@ export default function RapidAddPage() {
       // Keep the ownership snapshot right for the next label scan.
       void loadSnapshot();
     } catch (error) {
-      setShelfError(errorMessage(error, "Couldn't save that. Try again."));
+      // The entry's buttons stay enabled, so tapping the same one again retries.
+      setShelfError(actionFailureMessage(action, error));
     } finally {
       setShelfPendingKey(null);
     }
@@ -986,6 +1001,31 @@ export default function RapidAddPage() {
           ? { tone: "warning", text: session.error }
           : null);
 
+  const retryAction = failedAction && failedAction.message === session.error && !busy ? failedAction : null;
+  const errorAlert = session.error ? (
+    <div role="alert" className="flex flex-wrap items-start gap-2 text-sm text-destructive">
+      <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1">{session.error}</span>
+      {phase === "resolving" && !busy && session.captureId ? (
+        <Button type="button" variant="outline" size="sm" onClick={() => void handleRetryResolve()}>
+          Try again
+        </Button>
+      ) : retryAction ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setFailedAction(null);
+            retryAction.retry();
+          }}
+        >
+          Try again
+        </Button>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-16">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1029,6 +1069,8 @@ export default function RapidAddPage() {
           }
           onScanNext={handleScanNext}
         />
+        {/* A failed Add / Wishlist / create shows right under the card whose buttons retry it. */}
+        {errorAlert && <div className="mt-3">{errorAlert}</div>}
         </div>
       )}
 
@@ -1154,17 +1196,7 @@ export default function RapidAddPage() {
         </div>
       )}
 
-      {session.error && (
-        <div role="alert" className="flex flex-wrap items-start gap-2 text-sm text-destructive">
-          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1">{session.error}</span>
-          {phase === "resolving" && !busy && session.captureId && (
-            <Button type="button" variant="outline" size="sm" onClick={() => void handleRetryResolve()}>
-              Try again
-            </Button>
-          )}
-        </div>
-      )}
+      {phase !== "verdict" && errorAlert}
 
       <ShelfList
         entries={shelf.entries}
