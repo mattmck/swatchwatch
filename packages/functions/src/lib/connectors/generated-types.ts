@@ -88,6 +88,7 @@ export type SupportedConnectorSource =
   | "StaticNailsShopify"
   | "StellaChromaShopify"
   | "SundaysShopify"
+  | "SwampGlossShopify"
   | "SweetAndSourLacquerShopify"
   | "TenovertenShopify"
   | "TylerStrinketsShopify"
@@ -180,6 +181,7 @@ export const SOURCE_PROTOCOL_MAP: Record<SupportedConnectorSource, ConnectorProt
   StaticNailsShopify: "Shopify",
   StellaChromaShopify: "Shopify",
   SundaysShopify: "Shopify",
+  SwampGlossShopify: "Shopify",
   SweetAndSourLacquerShopify: "Shopify",
   TenovertenShopify: "Shopify",
   TylerStrinketsShopify: "Shopify",
@@ -273,6 +275,7 @@ export const SUPPORTED_SOURCES: SupportedConnectorSource[] = [
   "StaticNailsShopify",
   "StellaChromaShopify",
   "SundaysShopify",
+  "SwampGlossShopify",
   "SweetAndSourLacquerShopify",
   "TenovertenShopify",
   "TylerStrinketsShopify",
