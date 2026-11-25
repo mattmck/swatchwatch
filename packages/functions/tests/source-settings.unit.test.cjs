@@ -33,6 +33,7 @@ const DEFAULTS = {
   sitemapUrl: null,
   productUrlPrefixes: [],
   subdomain: null,
+  robotsOverride: null,
 };
 
 describe("readSourceSettings", () => {

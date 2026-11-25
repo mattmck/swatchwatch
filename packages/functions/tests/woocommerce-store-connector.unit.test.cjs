@@ -149,6 +149,26 @@ describe("WooCommerceStoreConnector: fixture", () => {
     assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`]);
   });
 
+  it("reads past a robots.txt disallow when metadata.robotsOverride records the owner's OK", async () => {
+    const { fetchImpl, log } = stubFetch({
+      [`${BASE}/robots.txt`]: "User-agent: *\nDisallow: /wp-json/\n",
+      [pageUrl(1)]: JSON.stringify(SAMPLE),
+    });
+    const settings = readSourceSettings(
+      { brand: "Picture Polish", currency: "AUD", robotsOverride: "Written OK from the store, 2026-11-11" },
+      SOURCE
+    );
+    const result = await connector(fetchImpl, { settings }).instance.pullProducts(PULL);
+    assert.equal(result.records.length, 3);
+    assert.deepEqual(log.map((entry) => entry.url), [`${BASE}/robots.txt`, pageUrl(1)]);
+  });
+
+  it("an empty robotsOverride does not override", async () => {
+    const { fetchImpl } = stubFetch({ [`${BASE}/robots.txt`]: "User-agent: *\nDisallow: /wp-json/\n" });
+    const settings = readSourceSettings({ brand: "Picture Polish", robotsOverride: "  " }, SOURCE);
+    await assert.rejects(connector(fetchImpl, { settings }).instance.pullProducts(PULL), /disallowed by robots\.txt/);
+  });
+
   it("treats a missing robots.txt (404) as allowed", async () => {
     const { fetchImpl, log } = stubFetch({ [pageUrl(1)]: JSON.stringify(SAMPLE) });
     const result = await connector(fetchImpl).instance.pullProducts(PULL);

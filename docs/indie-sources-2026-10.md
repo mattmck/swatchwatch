@@ -184,6 +184,15 @@ catalogs: see `docs/data-sources-research.md`).
 
 ILNP and KBShimmer, the two most-requested indies, can only come in with the store's cooperation.
 
+**Update 2026-11-25 (ILNP):** the owner reported on 2026-11-11 that ILNP is temporarily allowing
+SwatchWatch to read its catalog. Its Store API answers plain requests (200, 745 products on
+2026-11-25) but robots.txt still disallows `/wp-json/`, so migration `20261125120000000_unblock-ilnp-woocommerce`
+lifted the known-blocked state and set `metadata.robotsOverride`. The source stays pending until the
+OK (who, channel, end date) is recorded in the admin Sources tab. KBShimmer is still known-blocked:
+Cloudflare challenges every path (robots.txt included), so it needs either a Cloudflare skip rule
+from KBShimmer or a third-party unlocker; the unlocker work is parked on branch
+`feat/kbshimmer-brightdata-unlocker`.
+
 ## Exact `data_source.metadata.notes` text
 
 The rows below are already in `docs/seed_data_sources.sql` (and, for Emily de Molly and Cirque, the
