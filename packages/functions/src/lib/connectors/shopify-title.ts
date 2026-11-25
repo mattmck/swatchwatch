@@ -14,6 +14,7 @@ import { parsePicturePolishTitle } from "./store-filters/picture-polish.js";
 import { parsePolishPickupTitle } from "./store-filters/polish-pickup-title.js";
 import { parsePotionPolishTitle } from "./store-filters/potion-polish.js";
 import { parseStarrilyTitle } from "./store-filters/starrily.js";
+import { parseSwampGlossTitle } from "./store-filters/swamp-gloss.js";
 import type { LineAndShadeTitle } from "./store-filters/brand-store-titles.js";
 import type { StoreFilterProduct, StoreTitleParser } from "./store-filters/types.js";
 
@@ -30,6 +31,7 @@ export {
   parsePolishPickupTitle,
   parsePotionPolishTitle,
   parseStarrilyTitle,
+  parseSwampGlossTitle,
   parseWetNWildTitle,
 };
 export { parseLineAndShadeTitle } from "./store-filters/brand-store-titles.js";
@@ -60,6 +62,8 @@ export const SHOPIFY_STORE_TITLE_PARSERS: Readonly<Record<string, StoreTitlePars
   PicturePolishWooCommerce: parsePicturePolishTitle,
   PaintedPolishBigCartel: parsePaintedPolishTitle,
   PotionPolishBigCartel: parsePotionPolishTitle,
+  // Brand store enabled 2026-11-13: trailing charity notes.
+  SwampGlossShopify: parseSwampGlossTitle,
 };
 
 /**

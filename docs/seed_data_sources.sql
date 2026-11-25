@@ -169,6 +169,15 @@ VALUES
     '{"priority":"medium","mvp":"no","notes":"Rogue Lacquer Shopify store. Color names only."}'::jsonb
   ),
   (
+    'SwampGlossShopify',
+    'api',
+    'https://swampgloss.com',
+    'Storefront terms apply (verify metadata/image usage obligations)',
+    'https://swampgloss.com/policies/terms-of-service',
+    true,
+    '{"currency": "USD", "vendorAliases": {"swampgloss.com": "Swamp Gloss"}, "priority": "medium", "mvp": "no", "notes": "Swamp Gloss Shopify store (US indie, USD). Verified 2026-11-13: /products.json returns 200 with Shopify products (178 on one page: product_type empty 98, Cosmetics 27, Nail Polish 25, Nail Polishes 8, the rest body care, wax melts, perfume, stickers, tumblers and a gift card; vendor ''Swamp Gloss'' or ''swampgloss.com''). Store filter connectors/store-filters/swamp-gloss.ts keeps 139 (single shades and coats) and drops mystery and overpour listings, oops batches, trios, quads, refills, magnets, stickers and the non-polish types; the title parser drops a trailing charity note. robots.txt does not disallow products.json. The terms of service (Shopify template) forbid using the site to ''spider, crawl, or scrape''. Registered as a brand store (no metadata.kind). Enabled on 2026-11-13 by the owner''s decision without a store OK; ask the maker for the record.", "verification": {"checkedAt": "2026-11-13", "productsJson": true, "products": 178, "robotsTxt": "products-json-not-disallowed", "termsScrapingClause": true}}'::jsonb
+  ),
+  (
     'RedEyedLacquerShopify',
     'api',
     'https://redeyedlacquer.com',
@@ -730,11 +739,11 @@ VALUES
   (
     'IlnpWooCommerce',
     'api',
-    'https://ilnp.com',
+    'https://www.ilnp.com',
     'Storefront terms apply (verify metadata/image usage obligations)',
     NULL,
     false,
-    '{"brand": "ILNP", "currency": "USD", "priority": "high", "mvp": "no", "pendingApproval": true, "blocked": "robots", "notes": "ILNP brand store (US, USD) on WooCommerce. KNOWN BLOCKED: its robots.txt disallows /wp-json/ and /wc/store/v1/ (October 2026 survey; the Store API itself answered 200), so the WooCommerce connector refuses to run it (WooCommerce Store API disallowed by robots.txt). Registered disabled so the admin console lists it as a known-blocked source; ILNP is reached through resellers instead (Harlow & Co, Hypnotic Polish; docs/brand-sources-evaluation-2026-11.md). Enable only with ILNP''s written OK recorded here as ''Acceptable use confirmed by <name, role> at ILNP on <date> via <channel>: <summary>'' and a robots.txt that allows the Store API.", "verification": {"checkedAt": "2026-11-08", "storeApi": true, "robotsTxt": "store-api-disallowed", "termsScrapingClause": null}}'::jsonb
+    '{"brand": "ILNP", "currency": "USD", "priority": "high", "mvp": "no", "pendingApproval": true, "notes": "ILNP brand store (US, USD) on WooCommerce. KNOWN BLOCKED: its robots.txt disallows /wp-json/ and /wc/store/v1/ (October 2026 survey; the Store API itself answered 200), so the WooCommerce connector refuses to run it (WooCommerce Store API disallowed by robots.txt). Registered disabled so the admin console lists it as a known-blocked source; ILNP is reached through resellers instead (Harlow & Co, Hypnotic Polish; docs/brand-sources-evaluation-2026-11.md). Enable only with ILNP''s written OK recorded here as ''Acceptable use confirmed by <name, role> at ILNP on <date> via <channel>: <summary>'' and a robots.txt that allows the Store API. Update 2026-11-25: the owner reports ILNP is temporarily allowing SwatchWatch to read its catalog (reported 2026-11-11). The known-blocked state was lifted and metadata.robotsOverride lets the connector read the Store API although robots.txt still disallows it; the KNOWN BLOCKED wording above no longer applies. The Store API answered 200 with 745 products. The source stays pending until the OK is recorded in the admin Sources tab (Record OK & turn on); disable it when the temporary access ends.", "verification": {"checkedAt": "2026-11-25", "storeApi": true, "robotsTxt": "store-api-disallowed", "termsScrapingClause": null, "products": 745}, "robotsOverride": "The SwatchWatch owner reported on 2026-11-11 that ILNP is temporarily allowing SwatchWatch to read its catalog, including its WooCommerce Store API although robots.txt disallows /wp-json/. The permission record (admin Sources tab) holds who, channel and end date."}'::jsonb
   ),
   (
     'KbshimmerWooCommerce',

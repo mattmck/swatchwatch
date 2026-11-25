@@ -41,11 +41,13 @@ export const CONNECTOR_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // OPI brand store via sitemap + JSON-LD: no terms page at /terms-of-use on 2026-11-08; the
   // owner locates and reads the site terms and asks for the OK (brand sources plan, Task 15).
   "OpiSitemap",
-  // WooCommerce Store API stores (brand sources plan, Task 16). ILNP (robots.txt disallows the
-  // Store API) and KBShimmer (Cloudflare challenge) are known-blocked: `metadata.blocked` makes the
-  // run endpoints answer 409 `source_blocked` and the worker refuse a queued job
-  // (lib/ingestion-run-guard.ts), even if the row is enabled; they are registered so the admin
-  // console lists them. Picture Polish left this set on 2026-11-10 (enabled by the owner's
+  // WooCommerce Store API stores (brand sources plan, Task 16). KBShimmer (Cloudflare challenge) is
+  // known-blocked: `metadata.blocked` makes the run endpoints answer 409 `source_blocked` and the
+  // worker refuse a queued job (lib/ingestion-run-guard.ts), even if the row is enabled; it is
+  // registered so the admin console lists it. ILNP was known-blocked too (robots.txt disallows the
+  // Store API) until 2026-11-25: the store temporarily allowed us, so migration 20261125120000000
+  // lifted the block and set `metadata.robotsOverride`; it stays pending until the owner records the
+  // OK in the admin Sources tab. Picture Polish left this set on 2026-11-10 (enabled by the owner's
   // decision without a store OK, migration 20261110120000000, decision D27).
   "IlnpWooCommerce",
   "KbshimmerWooCommerce",

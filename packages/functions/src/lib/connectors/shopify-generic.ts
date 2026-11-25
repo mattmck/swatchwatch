@@ -790,6 +790,7 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   SassysaucePolishShopify: "https://sassysaucepolish.com",
   ColorClubShopify: "https://colorclub.com",
   RogueLacquerShopify: "https://roguelacquer.com",
+  SwampGlossShopify: "https://swampgloss.com",
   RedEyedLacquerShopify: "https://redeyedlacquer.com",
   CupcakePolishShopify: "https://www.cupcakepolish.com",
   LoudBabbsShopify: "https://loudbabbs.com",

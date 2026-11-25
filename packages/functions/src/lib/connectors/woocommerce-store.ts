@@ -7,8 +7,9 @@
  * (default 30) were read, 1 s apart (`SHOPIFY_CONNECTOR_PAGE_DELAY_MS`, never below 1000).
  * Before any product request the pull reads `{base}/robots.txt` once: when it disallows the Store
  * API path for us (`lib/robots.ts`: our `SwatchWatch` group, else the `*` group; Disallow prefix
- * rule) the pull throws `WooCommerce Store API disallowed by robots.txt`; a missing robots.txt
- * (any 4xx) allows, a 5xx or network failure after retries fails the pull.
+ * rule) the pull throws `WooCommerce Store API disallowed by robots.txt`, unless the source records
+ * the owner's OK in `metadata.robotsOverride`, which logs the disallow and reads on; a missing
+ * robots.txt (any 4xx) allows, a 5xx or network failure after retries fails the pull.
  *
  * Redirects are followed by hand (`redirect: "manual"`, at most `WOOCOMMERCE_MAX_REDIRECTS`
  * hops, each paced): a destination must be on the `base_url` origin and, after robots.txt was
@@ -477,13 +478,20 @@ export class WooCommerceStoreConnector implements ProductConnector {
     return { products, complete: false, pagesFetched: maxPages };
   }
 
-  /** Reads robots.txt (same-origin redirects only) and returns its body; null when missing. */
+  /**
+   * Reads robots.txt (same-origin redirects only) and returns its body; null when missing or when
+   * `robotsOverride` records the owner's OK to read past a disallow.
+   */
   private async assertRobotsAllow(): Promise<string | null> {
     const response = await this.requestFollowingRedirects(`${this.baseUrl}/robots.txt`, "text/plain, */*;q=0.5", null);
     // A missing robots.txt (404, or any other 4xx) allows everything (RFC 9309).
     if (!response.ok) return null;
     if (isPathDisallowed(response.body, ROBOTS_AGENT_TOKEN, WOOCOMMERCE_STORE_API_PATH)) {
-      throw new Error("WooCommerce Store API disallowed by robots.txt");
+      if (!this.settings.robotsOverride) throw new Error("WooCommerce Store API disallowed by robots.txt");
+      console.warn(`${this.source}: robots.txt disallows the Store API; reading it under metadata.robotsOverride`, {
+        robotsOverride: this.settings.robotsOverride,
+      });
+      return null;
     }
     return response.body;
   }
