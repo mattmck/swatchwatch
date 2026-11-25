@@ -17,8 +17,22 @@ export interface UseAuthReturn {
   user: AuthUser | null;
   role: "admin" | "user" | null;
   isAdmin: boolean;
-  login: () => void;
+  login: (options?: LoginOptions) => void;
   logout: () => void;
+}
+
+export interface LoginOptions {
+  /**
+   * Absolute URL MSAL returns to after sign-in (MSAL `redirectStartPage`). Defaults to the page
+   * that started the sign-in. The registered redirect URI (the app root) is unchanged: MSAL lands
+   * there first and `handleRedirectPromise` then navigates here.
+   */
+  redirectStartPage?: string;
+}
+
+/** Where a sign-in started from the marketing pages lands (#525). */
+export function postSignInStartPage(): string {
+  return `${window.location.origin}/dashboard/`;
 }
 
 /**
@@ -47,10 +61,11 @@ export function useAuth(): UseAuthReturn {
       }
     : null;
 
-  const login = () => {
+  const login = (options?: LoginOptions) => {
     instance.loginRedirect({
       scopes: buildLoginRequestScopes(),
       extraQueryParameters: buildPolicyQueryParameters(),
+      ...(options?.redirectStartPage ? { redirectStartPage: options.redirectStartPage } : {}),
     });
   };
 

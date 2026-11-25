@@ -19,6 +19,9 @@ import {
 import { clearApiCache, setApiCacheUser } from "@/lib/api-cache";
 import { isOfflineRenewalFailure } from "@/lib/offline";
 import { claimTokenRedirect, createAccessTokenProvider } from "@/lib/token-renewal";
+import { toast } from "sonner";
+
+const SIGN_IN_FAILED_MESSAGE = "Sign-in was cancelled or failed. Please try again.";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const msalConfig = useMemo(() => buildMsalConfig(), []);
@@ -50,6 +53,15 @@ function MsalAuthProvider({
   );
 
   const [isInitialized, setIsInitialized] = useState(false);
+  const [redirectFailed, setRedirectFailed] = useState(false);
+
+  // Shown once the app (and its <Toaster>, a child of this provider) has rendered: child effects
+  // run before this one, so the toaster is already listening. Both flags only ever turn true once,
+  // so this fires at most once per page load; the fixed id dedupes it regardless.
+  useEffect(() => {
+    if (!isInitialized || !redirectFailed) return;
+    toast.error(SIGN_IN_FAILED_MESSAGE, { id: "sign-in-redirect-failed", duration: Infinity });
+  }, [isInitialized, redirectFailed]);
 
   useEffect(() => {
     let redirecting = false;
@@ -108,8 +120,19 @@ function MsalAuthProvider({
     const init = async () => {
       await msalInstance.initialize();
 
-      // Handle redirect response if returning from B2C
-      const response = await msalInstance.handleRedirectPromise();
+      // Handle redirect response if returning from B2C. A failed or cancelled sign-in (the user
+      // backs out of sign-up, the identity provider returns an error) rejects here; that must not
+      // abort init, or the token provider and event callbacks are never registered and the user
+      // is left on a page that does nothing (#525). Report it and carry on signed out.
+      let response: Awaited<ReturnType<typeof msalInstance.handleRedirectPromise>> = null;
+      try {
+        response = await msalInstance.handleRedirectPromise();
+      } catch (error) {
+        console.warn("[Auth] sign-in redirect failed", error);
+        if (window.self === window.top) {
+          setRedirectFailed(true);
+        }
+      }
       if (response?.accessToken) {
         setAccessToken(response.accessToken);
       }
