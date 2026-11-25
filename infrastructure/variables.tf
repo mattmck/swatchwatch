@@ -206,6 +206,12 @@ variable "bottle_capture_enabled" {
   default     = false
 }
 
+variable "catalog_refresh_enabled" {
+  description = "Enable the nightly catalog-refresh timer (CATALOG_REFRESH_ENABLED, #532): one ingestion job per enabled, unblocked catalog source each night. Off by default; measure one full pass on dev before prod."
+  type        = bool
+  default     = false
+}
+
 variable "ingestion_job_queue_name" {
   description = "Azure Storage Queue name for ingestion jobs"
   type        = string
@@ -479,6 +485,34 @@ variable "capture_frame_sweep_max_per_run" {
   description = "Capture frames examined per sweep run, 1-20000 (CAPTURE_FRAME_SWEEP_MAX_PER_RUN)"
   type        = number
   default     = 2000
+}
+
+variable "catalog_refresh_schedule" {
+  description = "NCRONTAB schedule (UTC) of the catalog-refresh timer (CATALOG_REFRESH_SCHEDULE); default 07:30 UTC, quiet hours in the US"
+  type        = string
+  default     = "0 30 7 * * *"
+}
+
+variable "catalog_refresh_stagger_seconds" {
+  description = "Seconds between the start of consecutive catalog-refresh jobs (queue visibility delay), 0-3600 (CATALOG_REFRESH_STAGGER_SECONDS)"
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = var.catalog_refresh_stagger_seconds >= 0 && var.catalog_refresh_stagger_seconds <= 3600 && floor(var.catalog_refresh_stagger_seconds) == var.catalog_refresh_stagger_seconds
+    error_message = "catalog_refresh_stagger_seconds must be a whole number between 0 and 3600."
+  }
+}
+
+variable "catalog_refresh_max_sources_per_run" {
+  description = "Most sources one catalog-refresh run queues, stalest first; 0 = no cap, at most 1000 (CATALOG_REFRESH_MAX_SOURCES_PER_RUN)"
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.catalog_refresh_max_sources_per_run >= 0 && var.catalog_refresh_max_sources_per_run <= 1000 && floor(var.catalog_refresh_max_sources_per_run) == var.catalog_refresh_max_sources_per_run
+    error_message = "catalog_refresh_max_sources_per_run must be a whole number between 0 and 1000."
+  }
 }
 
 variable "cors_allowed_methods" {

@@ -27,6 +27,7 @@ infrastructure/    → Terraform (azurerm ~4.50) for all Azure resources
 - **Color:** use OKLAB for color matching and sorting; never rank a fetched page by color on the client (ask the API with `nearHex=`; client ranking only for the fully loaded owned collection). → `docs/agents/color.md`
 - **Retailers and feeds are fill-only** on brand-store shades; every listing write goes through `planListingWrites`. → `docs/agents/ingestion-sources.md`
 - **Ingestion** writes catalog rows only, never inventory, and never replaces a `manual_label` vendor hex (`planIngestedVendorHex`). → `docs/agents/ingestion-sources.md`, `docs/agents/hexes-and-images.md`
+- **Nightly catalog refresh** (#532, `CATALOG_REFRESH_ENABLED`, default off): the `catalog-refresh` timer queues one bulk-default job per runnable, enabled, unblocked catalog source with none queued/running, staggered by queue visibility delay. → `docs/agents/ingestion-sources.md`
 - **Prompt versions:** bump `PROMPT_VERSION` (and `GLASS_PROMPT_VERSION` / `STICKER_READ_PROMPT_VERSION`) whenever a vision prompt changes. → `docs/agents/hexes-and-images.md`
 - **Migrations:** never edit a committed migration; add a new one (`/create-migration`).
 - **Store permission:** never enable a pending source or claim a store's OK that was not recorded (`data_source.metadata.permission`, admin Sources tab). → `docs/agents/ingestion-sources.md`

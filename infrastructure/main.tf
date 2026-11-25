@@ -981,6 +981,7 @@ resource "azurerm_linux_function_app" "main" {
     SHAREABLE_WISHLIST_ENABLED           = var.shareable_wishlist_enabled ? "true" : "false" # #268; off until roadmap section 6 decision 2
     SHAREABLE_LOOKS_ENABLED              = var.shareable_looks_enabled ? "true" : "false"    # saved-look share links; off until the owner turns them on
     BOTTLE_CAPTURE_ENABLED               = var.bottle_capture_enabled ? "true" : "false"     # guided bottle recognition flow; off until the owner turns it on
+    CATALOG_REFRESH_ENABLED              = var.catalog_refresh_enabled ? "true" : "false"    # nightly catalog-refresh timer (#532); off until measured on dev
     IMAGE_PROXY_SIGNING_KEY              = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.image_proxy_signing_key.versionless_id})"
     CORS_ALLOWED_ORIGINS                 = join(",", local.function_cors_allowed_origins)
     # Entrypoint/import failures hard-fail host startup instead of surfacing as
@@ -997,6 +998,9 @@ resource "azurerm_linux_function_app" "main" {
     CAPTURE_FRAME_RETENTION_SECONDS       = tostring(var.capture_frame_retention_seconds)
     CAPTURE_FRAME_SWEEP_BATCH_SIZE        = tostring(var.capture_frame_sweep_batch_size)
     CAPTURE_FRAME_SWEEP_MAX_PER_RUN       = tostring(var.capture_frame_sweep_max_per_run)
+    CATALOG_REFRESH_SCHEDULE              = var.catalog_refresh_schedule
+    CATALOG_REFRESH_STAGGER_SECONDS       = tostring(var.catalog_refresh_stagger_seconds)
+    CATALOG_REFRESH_MAX_SOURCES_PER_RUN   = tostring(var.catalog_refresh_max_sources_per_run)
     CORS_ALLOWED_METHODS                  = var.cors_allowed_methods
     CORS_ALLOWED_HEADERS                  = var.cors_allowed_headers
     CORS_SUPPORT_CREDENTIALS              = var.cors_support_credentials ? "true" : "false"
