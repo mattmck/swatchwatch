@@ -110,7 +110,7 @@ npm run test:e2e --workspace=swatchwatch-functions  # E2E tests against the runn
   [Hex detection evaluation harness](#hex-detection-evaluation-harness)). The pixel baseline runs
   offline; Azure strategies are skipped when Azure OpenAI is not configured.
 
-Requires **Azure Functions Core Tools v4** (`npm i -g azure-functions-core-tools@4`).
+Requires **Azure Functions Core Tools v4 (>= 4.16)** installed globally: `brew tap azure/functions && brew install azure-functions-core-tools@4` on macOS, `npm i -g azure-functions-core-tools@4 --unsafe-perm true` elsewhere. It is not a workspace dependency (its postinstall downloads ~1.5 GB of host binaries into every checkout); `npm run dev` / `dev:functions` check that `func` is on PATH and new enough.
 
 ## API Routes
 
@@ -1190,7 +1190,7 @@ truth as "pending" until reviewed.
 
 ### Bottle recognition eval (`src/eval/bottle/`)
 
-`npm run eval:bottle` replays every bottle eval sample (admin console → bottle eval capture, tables `bottle_eval_sample` / `bottle_eval_frame`) through the live capture API and scores the answers against the labels. With the bottle flow off the resolver reads label text only, so those numbers are the baseline that the bottle recognition slices are measured against.
+`npm run eval:bottle` replays every bottle eval sample (admin console → bottle eval capture, tables `bottle_eval_sample` / `bottle_eval_frame`) through the live capture API and scores the answers against the labels. With the bottle flow off the resolver reads label text only, so those numbers are the baseline that the bottle recognition slices are measured against. A sample labelled by brand and shade text (not in the catalog when it was labelled) is re-checked against the catalog at every run (`resolveTextLabels` in `src/eval/bottle/samples.ts`): when exactly one live shade of that brand (name or alias) has the same name (`normalizeMatchText`, so case and apostrophes never matter), the sample is scored as that catalog shade, and the run prints how many labels were re-checked; several matching shades leave it as not in the catalog. Ingesting a brand after its photos were labelled therefore never shows its correct matches as `matched_wrong`.
 
 ```bash
 # From repo root, with Postgres, Azurite and a Functions host running
