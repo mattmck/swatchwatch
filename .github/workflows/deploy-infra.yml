@@ -156,6 +156,7 @@ jobs:
       TF_VAR_orphan_media_sweep_batch_size: ${{ vars.ORPHAN_MEDIA_SWEEP_BATCH_SIZE || '100' }}
       TF_VAR_orphan_media_sweep_max_per_run: ${{ vars.ORPHAN_MEDIA_SWEEP_MAX_PER_RUN || '2000' }}
       TF_VAR_pg_pool_max: ${{ vars.PG_POOL_MAX || '10' }}
+      TF_VAR_function_app_scale_limit: ${{ vars.FUNCTION_APP_SCALE_LIMIT || '3' }}
       TF_VAR_pg_idle_timeout_ms: ${{ vars.PG_IDLE_TIMEOUT_MS || '30000' }}
       TF_VAR_pg_connection_timeout_ms: ${{ vars.PG_CONNECTION_TIMEOUT_MS || '15000' }}
       TF_VAR_pg_query_max_retries: ${{ vars.PG_QUERY_MAX_RETRIES || '2' }}
