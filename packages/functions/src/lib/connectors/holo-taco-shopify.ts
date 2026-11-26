@@ -6,7 +6,7 @@ import {
   ProductConnector,
 } from "./types";
 import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images";
-import { detectShopifyStoreClosed, isStoreClosedError, StoreClosedError } from "./store-closed";
+import { detectShopifyStoreClosed, isStoreClosedError, releaseResponseBody, StoreClosedError } from "./store-closed";
 import { shopifyProductText } from "../product-text";
 import { classifyIngestedProduct } from "../product-category";
 import {
@@ -482,6 +482,8 @@ export class HoloTacoShopifyConnector implements ProductConnector {
         // A password-locked storefront is closed, not broken: stop here (no retry, no bypass).
         const closedReason = detectShopifyStoreClosed(response);
         if (closedReason) {
+          // The body is never read: release the connection before stopping.
+          await releaseResponseBody(response);
           throw new StoreClosedError({
             source: "HoloTacoShopify",
             reason: closedReason,

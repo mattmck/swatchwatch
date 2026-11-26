@@ -82,6 +82,9 @@ registerMock("ingestion-repo", {
     job.metrics = clone(metrics);
     events.push({ type: "succeeded", metrics: clone(metrics) });
   },
+  trackIngestionStoreClosed: (_id, closed) => {
+    events.push({ type: "store_closed_event", closed });
+  },
   markIngestionJobStoreClosed: async (_id, closed, metrics) => {
     job.status = "succeeded";
     job.metrics = clone(metrics);
@@ -1314,6 +1317,34 @@ describe("processIngestionJobQueueMessage — store closed", () => {
     assert.deepEqual(materializeCalls(), [], "no catalog rows touched");
     assert.equal(freshnessCalls.length, 0, "no listing marked missing");
     assert.deepEqual(enqueued(), [], "no continuation or retry queued");
+  });
+
+  it("hands pending AI batches to the poller instead of stranding them", async () => {
+    process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    pages[1] = { records: makeRecords(1, 100), metadata: {} };
+    pages[2] = async () => {
+      throw closedError();
+    };
+    let batchNumber = 0;
+    materializeMock = async (records) => ({
+      processed: records.length,
+      aiBatch: { batchId: `batch-${++batchNumber}`, status: "submitted", requestCount: records.length },
+    });
+
+    await processIngestionJobQueueMessage(makePayload({ request: { exhaustive: true, pageSize: 100 } }), context);
+
+    // Running at awaiting_ai with nothing to resume: the poller applies the batches, then
+    // completes the job at store_closed (it reads metrics.storeClosed).
+    assert.equal(job.status, "running");
+    assert.equal(job.metrics.pipeline.stage, "awaiting_ai");
+    assert.equal(job.metrics.resumeMessage, undefined);
+    assert.deepEqual(job.metrics.aiBatches.map((b) => b.batchId), ["batch-1", "batch-2"]);
+    assert.equal(job.metrics.storeClosed.reason, "password_page");
+    assert.equal(events.filter((e) => e.type === "failed").length, 0);
+    assert.equal(events.filter((e) => e.type === "store_closed").length, 0, "not finished yet");
+    assert.equal(events.filter((e) => e.type === "store_closed_event").length, 1, "ingestion.store_closed emitted once");
+    assert.equal(freshnessCalls.length, 0);
+    assert.deepEqual(enqueued(), []);
   });
 
   it("a later run of a store-closed source starts normally", async () => {

@@ -8,7 +8,7 @@
 
 import type { SupportedConnectorSource } from "./types.js";
 import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images.js";
-import { detectShopifyStoreClosed, isStoreClosedError, StoreClosedError } from "./store-closed.js";
+import { detectShopifyStoreClosed, isStoreClosedError, releaseResponseBody, StoreClosedError } from "./store-closed.js";
 import {
   ConnectorPullOptions,
   ConnectorPullResult,
@@ -709,6 +709,8 @@ export class ShopifyGenericConnector implements ProductConnector {
         // A password-locked storefront is closed, not broken: stop here (no retry, no bypass).
         const closedReason = detectShopifyStoreClosed(response);
         if (closedReason) {
+          // The body is never read: release the connection before stopping.
+          await releaseResponseBody(response);
           throw new StoreClosedError({
             source: this.source,
             reason: closedReason,

@@ -66,6 +66,18 @@ export interface StoreClosedResponseLike {
   headers?: { get(name: string): string | null } | null;
 }
 
+/**
+ * Cancels a response body the caller will not read (a password page, a 401), so undici frees the
+ * connection now instead of holding it until the body is garbage-collected. Never throws.
+ */
+export async function releaseResponseBody(response: { body?: { cancel(): Promise<void> } | null }): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Already consumed, locked or errored: nothing left to release.
+  }
+}
+
 /** True when Cloudflare answered with a challenge (bot check); never treated as a closed store. */
 export function isCloudflareChallenge(response: Pick<StoreClosedResponseLike, "headers">): boolean {
   const mitigated = response.headers?.get("cf-mitigated");

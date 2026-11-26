@@ -24,6 +24,8 @@ function headers(map = {}) {
   return { get: (name) => lower[name.toLowerCase()] ?? null };
 }
 
+let cancelledBodies = 0;
+
 /** A fetch Response stand-in; `url` is the final URL after redirects. */
 function response({ status, url, redirected = false, body = "", headerMap = {} }) {
   return {
@@ -33,6 +35,11 @@ function response({ status, url, redirected = false, body = "", headerMap = {} }
     url,
     redirected,
     headers: headers(headerMap),
+    body: {
+      cancel: async () => {
+        cancelledBodies += 1;
+      },
+    },
     text: async () => body,
   };
 }
@@ -85,6 +92,18 @@ describe("detectBigCartelMaintenance", () => {
   });
 });
 
+describe("releaseResponseBody", () => {
+  it("cancels the body and never throws", async () => {
+    const { releaseResponseBody } = require("../dist/lib/connectors/store-closed");
+    let cancelled = false;
+    await releaseResponseBody({ body: { cancel: async () => { cancelled = true; } } });
+    assert.equal(cancelled, true);
+    await releaseResponseBody({ body: { cancel: async () => { throw new TypeError("locked"); } } });
+    await releaseResponseBody({ body: null });
+    await releaseResponseBody({});
+  });
+});
+
 describe("isStoreClosedError", () => {
   it("recognizes the typed error and nothing else", () => {
     const error = new StoreClosedError({ source: "X", reason: "maintenance", httpStatus: 403, url: "u", detail: "d" });
@@ -102,6 +121,7 @@ describe("Shopify connectors stop on a locked store", () => {
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     requests = [];
+    cancelledBodies = 0;
     globalThis.fetch = async (url, init) => {
       requests.push({ url, init });
       return answer(url);
@@ -124,6 +144,7 @@ describe("Shopify connectors stop on a locked store", () => {
       return true;
     });
     assert.equal(requests.length, 1, "a locked store is not retried");
+    assert.equal(cancelledBodies, 1, "the unread body is released");
     assert.equal(requests[0].init.headers["User-Agent"], "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)");
   });
 
@@ -135,6 +156,7 @@ describe("Shopify connectors stop on a locked store", () => {
       return true;
     });
     assert.equal(requests.length, 1);
+    assert.equal(cancelledBodies, 1);
   });
 
   it("ShopifyGenericConnector: a Cloudflare challenge stays an ordinary failure", async () => {

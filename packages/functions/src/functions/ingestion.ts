@@ -30,6 +30,7 @@ import {
   markIngestionJobFailed,
   markIngestionJobRunning,
   markIngestionJobStoreClosed,
+  trackIngestionStoreClosed,
   markIngestionJobSucceeded,
   materializeHoloTacoRecords,
   materializeMakeupApiRecords,
@@ -498,15 +499,24 @@ async function enqueueIngestionJob(
  * `ingestion.job_failed`). If even that write fails the message is not retried into a failure:
  * the error is logged and the job is left for the admin to see.
  */
-async function finishStoreClosedJob(
-  payload: IngestionJobQueueMessage,
-  requestedMetrics: Record<string, unknown>,
-  stage: string,
-  logger: JobLogger,
-  error: StoreClosedError
-): Promise<void> {
-  const closedAt = new Date().toISOString();
-  logger.warn(`Job ${payload.jobId} stopped: ${error.message}. The catalog is unchanged; the next run tries again.`, {
+/** `metrics.storeClosed`: why and where the store was found closed. */
+function buildStoreClosedMetrics(error: StoreClosedError, stage: string): Record<string, unknown> {
+  return {
+    reason: error.reason,
+    httpStatus: error.httpStatus,
+    url: error.url,
+    detail: error.detail,
+    detectedAt: new Date().toISOString(),
+    detectedStage: stage,
+  };
+}
+
+function storeClosedEventDetails(error: StoreClosedError) {
+  return { source: error.source, reason: error.reason, httpStatus: error.httpStatus, detail: error.detail };
+}
+
+function logStoreClosed(logger: JobLogger, jobId: number, error: StoreClosedError, stage: string): void {
+  logger.warn(`Job ${jobId} stopped: ${error.message}. The catalog is unchanged; the next run tries again.`, {
     source: error.source,
     reason: error.reason,
     httpStatus: error.httpStatus,
@@ -514,24 +524,24 @@ async function finishStoreClosedJob(
     ...(error.detail ? { detail: error.detail } : {}),
     stage,
   });
+}
+
+async function finishStoreClosedJob(
+  payload: IngestionJobQueueMessage,
+  requestedMetrics: Record<string, unknown>,
+  stage: string,
+  logger: JobLogger,
+  error: StoreClosedError
+): Promise<void> {
+  logStoreClosed(logger, payload.jobId, error, stage);
   try {
+    const storeClosed = buildStoreClosedMetrics(error, stage);
     logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "succeeded", INGESTION_STORE_CLOSED_STAGE, {
       queuedAt: payload.queuedAt,
-      workerCompletedAt: closedAt,
-      storeClosed: {
-        reason: error.reason,
-        httpStatus: error.httpStatus,
-        url: error.url,
-        detail: error.detail,
-        detectedAt: closedAt,
-        detectedStage: stage,
-      },
+      workerCompletedAt: storeClosed.detectedAt,
+      storeClosed,
     }));
-    await markIngestionJobStoreClosed(
-      payload.jobId,
-      { source: error.source, reason: error.reason, httpStatus: error.httpStatus, detail: error.detail },
-      logger.getMetricsWithLogs()
-    );
+    await markIngestionJobStoreClosed(payload.jobId, storeClosedEventDetails(error), logger.getMetricsWithLogs());
   } catch (markError) {
     logger.error("Failed to record the store-closed outcome", {
       originalError: error.message,
@@ -1148,6 +1158,18 @@ export async function processIngestionJobQueueMessage(
         if (pullError instanceof ConnectorCheckpointSupersededError) {
           context.warn(`Job ${payload.jobId} ${pullError.message}; stopping worker without updating it`);
           await logger.dispose({ flush: false });
+          return;
+        }
+        // The store closed after earlier chunks submitted AI batches that are still pending.
+        // Ending the job now would strand them (the poller only reads awaiting_ai jobs), so
+        // record the closure and hand the job to the poller with nothing left to resume: it
+        // applies the batches, then completes the job at stage store_closed.
+        if (isStoreClosedError(pullError) && aiBatches.some(isAiBatchPending)) {
+          const storeClosed = buildStoreClosedMetrics(pullError, stage);
+          logStoreClosed(logger, payload.jobId, pullError, stage);
+          logger.updateBaseMetrics({ storeClosed });
+          trackIngestionStoreClosed(payload.jobId, storeClosedEventDetails(pullError));
+          await pauseForAiBatches(null);
           return;
         }
         throw pullError;

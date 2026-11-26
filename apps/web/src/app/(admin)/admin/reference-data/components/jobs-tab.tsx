@@ -114,6 +114,8 @@ export function JobsTab() {
         const haystack = [
           job.jobType,
           job.status,
+          // The label shown in the table ("Store closed"), so searching for it finds the row.
+          ingestionJobStatusLabel(job),
           job.dataSourceName ?? "",
           String(job.dataSourceId),
           String(job.ingestionJobId),

@@ -290,6 +290,18 @@ describe("ingestion-ai-batch-poller completed batch", () => {
     assert.equal(done.aiBatchApplyTotals.applied, 1);
   });
 
+  it("completes a job whose store closed mid-run at stage store_closed", async () => {
+    seedJob(makeAwaitingMetrics({ extra: { storeClosed: { reason: "password_page", httpStatus: 401 } } }));
+
+    await runPoller();
+
+    assert.deepEqual(calls.map((c) => c.type), ["apply", "succeeded"]);
+    const done = calls[1].metrics;
+    assert.equal(done.pipeline.status, "succeeded");
+    assert.equal(done.pipeline.stage, "store_closed");
+    assert.equal(done.storeClosed.reason, "password_page");
+  });
+
   it("marks the job failed at continuation_enqueue when enqueue throws", async () => {
     seedJob(makeAwaitingMetrics({ resumeMessage: makeResumeMessage() }));
     enqueueMock = async () => {

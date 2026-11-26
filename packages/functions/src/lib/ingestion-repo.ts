@@ -2469,10 +2469,25 @@ export async function markIngestionJobSucceeded(
  */
 export async function markIngestionJobStoreClosed(
   jobId: number,
-  closed: { source: string; reason: string; httpStatus: number | null; detail: string | null },
+  closed: StoreClosedEventDetails,
   metrics: Record<string, unknown>
 ): Promise<void> {
   await markIngestionJobSucceeded(jobId, metrics);
+  trackIngestionStoreClosed(jobId, closed);
+}
+
+export interface StoreClosedEventDetails {
+  source: string;
+  reason: string;
+  httpStatus: number | null;
+  detail: string | null;
+}
+
+/**
+ * Emits `ingestion.store_closed`. Called by `markIngestionJobStoreClosed`, and by the worker
+ * directly when a closed store's job first hands pending AI batches to the poller.
+ */
+export function trackIngestionStoreClosed(jobId: number, closed: StoreClosedEventDetails): void {
   trackEvent("ingestion.store_closed", {
     jobId,
     source: closed.source,
