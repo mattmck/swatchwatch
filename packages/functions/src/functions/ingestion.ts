@@ -516,7 +516,7 @@ function storeClosedEventDetails(error: StoreClosedError) {
 }
 
 function logStoreClosed(logger: JobLogger, jobId: number, error: StoreClosedError, stage: string): void {
-  logger.warn(`Job ${jobId} stopped: ${error.message}. The catalog is unchanged; the next run tries again.`, {
+  logger.warn(`Job ${jobId} stopped: ${error.message}. Nothing more is pulled or written for this run; the next run tries again.`, {
     source: error.source,
     reason: error.reason,
     httpStatus: error.httpStatus,
