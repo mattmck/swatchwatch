@@ -28,6 +28,7 @@ import {
   type QueueStatsResponse,
 } from "@/lib/api";
 import { BrandSpinner } from "@/components/brand-spinner";
+import { bulkRunErrorMessage, bulkRunSuccessMessage } from "@/lib/bulk-ingestion-message";
 import { ErrorState } from "@/components/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -538,7 +539,9 @@ export function AdminJobsContent() {
       setPurgeError(null);
       setPurgeMessage(null);
       await purgeQueue();
-      setPurgeMessage("Queue purged successfully");
+      setPurgeMessage(
+        "Queue purged. Purged jobs stay queued: use Cancel Job on each before its source can run again."
+      );
       setPurgeDialogOpen(false);
       await refreshQueueStats();
     } catch (error: unknown) {
@@ -562,10 +565,10 @@ export function AdminJobsContent() {
           overwriteDetectedHex: bulkOverwriteHex === "true",
         },
       });
-      setBulkMessage(`${response.enqueued} job${response.enqueued !== 1 ? "s" : ""} queued.`);
+      setBulkMessage(bulkRunSuccessMessage(response));
       await refreshJobs();
     } catch (error: unknown) {
-      setBulkError(error instanceof Error ? error.message : "Failed to queue bulk run");
+      setBulkError(bulkRunErrorMessage(error));
     } finally {
       setBulkBusy(false);
     }
@@ -1028,7 +1031,8 @@ export function AdminJobsContent() {
             <DialogTitle>Purge Queue</DialogTitle>
             <DialogDescription>
               This will permanently delete all {queueStats?.messageCount || 0} message(s) from the ingestion queue.
-              This action cannot be undone.
+              This action cannot be undone. The jobs those messages belonged to stay &ldquo;queued&rdquo;: use Cancel Job
+              on each of them before that source can be run again by a bulk run or the nightly refresh.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -233,8 +233,9 @@ async function ingestionJobWorker(
     return;
   }
 
-  const userId = parsePositiveInt(rawPayload.userId);
-  if (userId === null) {
+  // Explicit null = a system-started run (nightly catalog refresh, #532): no admin, no audit actor.
+  const userId = rawPayload.userId === null ? null : parsePositiveInt(rawPayload.userId);
+  if (userId === null && rawPayload.userId !== null) {
     await markQueuePayloadInvalid(context, rawPayload, jobId, "userId is required");
     return;
   }

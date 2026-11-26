@@ -113,6 +113,8 @@ export interface BulkIngestionRequest {
 export interface BulkIngestionResponse {
   enqueued: number;
   jobs: IngestionJobRecord[];
+  /** Sources not queued because a job of theirs is still queued or running (#532). */
+  skipped?: Array<{ source: string; reason: "already_running"; jobId: string }>;
 }
 
 export interface IngestionJobRecord {

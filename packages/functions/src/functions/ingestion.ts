@@ -24,6 +24,7 @@ import {
   getIngestionJobById,
   listDataSources,
   listDataSourcesWithSettings,
+  admitIngestionJob,
   listIngestionJobs,
   markIngestionJobFailed,
   markIngestionJobRunning,
@@ -66,16 +67,19 @@ import {
   readCatalogSnapshotFromMetrics,
 } from "../lib/ingestion-catalog-cache";
 import { JobLogger } from "../lib/job-logger";
+import {
+  buildBulkRunRequest,
+  buildRequestedMetrics,
+  DEFAULT_MAX_RECORDS,
+  DEFAULT_PAGE,
+  DEFAULT_PAGE_SIZE,
+  DEFAULT_SEARCH_TERM,
+  JOB_TYPE_CONNECTOR_VERIFY,
+  MAX_PAGE_SIZE,
+  withPipelineMetrics,
+} from "../lib/ingestion-job-request";
 import { markExternalProductsMissing } from "../lib/listing-freshness";
 import { transaction } from "../lib/db";
-import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
-import { MakeupApiConnector } from "../lib/connectors/makeup-api";
-import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
-import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
-import { assertAuthedFeedUsesHttps, ProductFeedConnector } from "../lib/connectors/product-feed";
-import { WooCommerceStoreConnector } from "../lib/connectors/woocommerce-store";
-import { SitemapJsonLdConnector } from "../lib/connectors/sitemap-jsonld";
-import { BigCartelConnector } from "../lib/connectors/big-cartel";
 import { isFeatureEnabled } from "../lib/feature-flags";
 import {
   ConnectorCheckpointSupersededError,
@@ -84,7 +88,16 @@ import {
   SupportedConnectorSource,
   SUPPORTED_SOURCES,
 } from "../lib/connectors/types";
-import { materializesShadeProducts, protocolOf } from "../lib/connectors/registry";
+import { materializesShadeProducts } from "../lib/connectors/registry";
+import {
+  createConnector,
+  hasRunnableConnector,
+  isRunnableConnectorSource,
+  isSupportedSource,
+} from "../lib/connectors/factories";
+
+// Re-exported for tests that build connectors through the ingestion module.
+export { createConnector, createConnectorForProtocol } from "../lib/connectors/factories";
 import {
   planSourceImageWork,
   readIngestionSwitches,
@@ -92,16 +105,10 @@ import {
   type SourceSettings,
 } from "../lib/source-settings";
 
-const DEFAULT_PAGE = 1;
-const DEFAULT_PAGE_SIZE = 20;
-const DEFAULT_MAX_RECORDS = 20;
 const DEFAULT_RECENT_DAYS = 120;
-const MAX_PAGE_SIZE = 100;
 const MAX_RECORDS = 200;
 const MAX_RECENT_DAYS = 3650;
 const MAX_BULK_SOURCES = SUPPORTED_SOURCES.length;
-const DEFAULT_SEARCH_TERM = "nail polish";
-const JOB_TYPE_CONNECTOR_VERIFY = "connector_verify";
 // Queue bindings resolve this to the AzureWebJobsStorage app setting.
 const INGESTION_QUEUE_CONNECTION_SETTING = "Storage";
 
@@ -162,87 +169,6 @@ function getHexBatchRuntimeConfig(): HexBatchRuntimeConfig {
       1000
     ),
   };
-}
-
-function isSupportedSource(value: string): value is SupportedConnectorSource {
-  return (SUPPORTED_SOURCES as readonly string[]).includes(value);
-}
-
-type ConnectorFactory = (
-  source: SupportedConnectorSource,
-  baseUrl: string | null | undefined,
-  settings: SourceSettings
-) => ProductConnector;
-
-/**
- * One factory per protocol that has a connector today. A runnable protocol without an entry
- * (see `isRunnableProtocol` in lib/connectors/registry.ts) is not queueable yet.
- */
-const CONNECTOR_FACTORIES: Partial<Record<ConnectorProtocol, ConnectorFactory>> = {
-  OpenBeautyFacts: (_source, baseUrl) => new OpenBeautyFactsConnector(baseUrl),
-  MakeupAPI: (_source, baseUrl) => new MakeupApiConnector(baseUrl),
-  HoloTaco: (_source, baseUrl, settings) => new HoloTacoShopifyConnector(baseUrl, { currency: settings.currency }),
-  Shopify: (source, baseUrl, settings) =>
-    new ShopifyGenericConnector(source, baseUrl, { currency: settings.currency, settings }),
-  // The feed URL is data_source.base_url unless metadata.feedUrl overrides it.
-  ProductFeed: (source, baseUrl, settings) => {
-    const feedUrl = settings.feedUrl ?? baseUrl?.trim();
-    if (!feedUrl) {
-      throw new Error(`${source}: no feed URL (set data_source.base_url or metadata.feedUrl)`);
-    }
-    assertAuthedFeedUsesHttps(source, feedUrl, settings);
-    return new ProductFeedConnector(source, feedUrl, settings);
-  },
-  // metadata.sitemapUrl + metadata.productUrlPrefixes; the crawl is checkpointed in the job's
-  // catalog cache, which must be durable (CONNECTOR_RAW_CONTAINER).
-  SitemapJsonLd: (source, baseUrl, settings) => {
-    if (!settings.sitemapUrl || settings.productUrlPrefixes.length === 0) {
-      throw new Error(`${source}: metadata.sitemapUrl and metadata.productUrlPrefixes are required`);
-    }
-    return new SitemapJsonLdConnector(source, baseUrl, settings, {
-      sitemapUrl: settings.sitemapUrl,
-      productUrlPrefixes: settings.productUrlPrefixes,
-    });
-  },
-  // The Store API under data_source.base_url; robots.txt is checked before any product request.
-  WooCommerce: (source, baseUrl, settings) => new WooCommerceStoreConnector(source, baseUrl, settings),
-  // The v0 API at api.bigcartel.com/{metadata.subdomain}. A Big Cartel product names no maker, so
-  // metadata.brand is required: a record is never given another brand (no Holo Taco fallback).
-  BigCartel: (source, baseUrl, settings) => {
-    if (!settings.brand) throw new Error(`BigCartel source ${source} has no metadata.brand`);
-    return new BigCartelConnector(source, baseUrl, settings);
-  },
-};
-
-function hasRunnableConnector(source: SupportedConnectorSource): boolean {
-  return protocolOf(source) in CONNECTOR_FACTORIES;
-}
-
-function isRunnableConnectorSource(value: string): value is SupportedConnectorSource {
-  return isSupportedSource(value) && hasRunnableConnector(value);
-}
-
-/** The connector for a source (exported for tests); throws when its protocol has none or its settings are incomplete. */
-export function createConnector(
-  source: SupportedConnectorSource,
-  baseUrl: string | null | undefined,
-  settings: SourceSettings
-): ProductConnector {
-  return createConnectorForProtocol(protocolOf(source), source, baseUrl, settings);
-}
-
-/** `createConnector` for an explicit protocol (exported for tests of protocols no seeded source uses yet). */
-export function createConnectorForProtocol(
-  protocol: ConnectorProtocol,
-  source: SupportedConnectorSource,
-  baseUrl: string | null | undefined,
-  settings: SourceSettings
-): ProductConnector {
-  const factory = CONNECTOR_FACTORIES[protocol];
-  if (!factory) {
-    throw new Error(`No connector available for source: ${source}`);
-  }
-  return factory(source, baseUrl, settings);
 }
 
 function getErrorMessage(error: unknown): string {
@@ -416,41 +342,6 @@ function toMetricsRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? { ...(value as Record<string, unknown>) }
     : {};
-}
-
-function buildRequestedMetrics(
-  request: NormalizedIngestionJobRequest,
-  userId: number
-): Record<string, unknown> {
-  return {
-    searchTerm: request.searchTerm,
-    requestedPage: request.page,
-    requestedPageSize: request.pageSize,
-    maxRecords: request.maxRecords,
-    recentDays: request.recentDays || null,
-    materializeToInventory: request.materializeToInventory,
-    detectHexFromImage: request.detectHexFromImage,
-    detectHexOnSuspiciousOnly: request.detectHexOnSuspiciousOnly,
-    overwriteDetectedHex: request.overwriteDetectedHex,
-    triggeredByUserId: userId,
-  };
-}
-
-function withPipelineMetrics(
-  baseMetrics: Record<string, unknown>,
-  status: "queued" | "running" | "succeeded" | "failed",
-  stage: string,
-  extra?: Record<string, unknown>
-): Record<string, unknown> {
-  return {
-    ...baseMetrics,
-    ...(extra || {}),
-    pipeline: {
-      status,
-      stage,
-      updatedAt: new Date().toISOString(),
-    },
-  };
 }
 
 /** The job's `metrics.pipeline.stage` (e.g. `awaiting_ai`), or null when unset or blank. */
@@ -1886,6 +1777,9 @@ async function bulkIngestionHandler(
       },
     };
   }
+  // Same-source guard (#532): each source is admitted atomically (`admitIngestionJob`: advisory
+  // lock, active-job check and insert in one transaction); a busy source is skipped, not queued twice.
+  const skipped: NonNullable<BulkIngestionResponse["skipped"]> = [];
   const options = body.options ?? {};
   const queuedAt = new Date().toISOString();
   const queueMessages: string[] = [];
@@ -1898,19 +1792,7 @@ async function bulkIngestionHandler(
 
   try {
     for (const source of sources) {
-      const normalizedRequest: NormalizedIngestionJobRequest = {
-        source,
-        page: DEFAULT_PAGE,
-        pageSize: MAX_PAGE_SIZE,
-        maxRecords: DEFAULT_MAX_RECORDS,
-        searchTerm: DEFAULT_SEARCH_TERM,
-        materializeToInventory: options.materializeToInventory !== false,
-        detectHexFromImage: options.detectHexFromImage !== false,
-        detectHexOnSuspiciousOnly: false,
-        overwriteDetectedHex: options.overwriteDetectedHex === true,
-        collectTrainingData: false,
-        exhaustive: true,
-      };
+      const normalizedRequest: NormalizedIngestionJobRequest = buildBulkRunRequest(source, options);
 
       const requestedMetrics = buildRequestedMetrics(normalizedRequest, userId);
 
@@ -1926,12 +1808,16 @@ async function bulkIngestionHandler(
         bulkRun: true,
       });
 
-      const job = await createIngestionJob(
-        dataSource.dataSourceId,
+      const admission = await admitIngestionJob(
+        Number(dataSource.dataSourceId),
         JOB_TYPE_CONNECTOR_VERIFY,
-        queuedMetrics,
-        "queued"
+        queuedMetrics
       );
+      if (!admission.admitted) {
+        skipped.push({ source, reason: "already_running", jobId: String(admission.activeJobId) });
+        continue;
+      }
+      const job = admission.job;
       createdJobs.push({ jobId: job.jobId, requestedMetrics, source });
 
       const queueMessage: IngestionJobQueueMessage = {
@@ -1950,6 +1836,16 @@ async function bulkIngestionHandler(
     }
 
     if (queueMessages.length === 0) {
+      if (skipped.length > 0) {
+        return {
+          status: 409,
+          jsonBody: {
+            error: "source_busy",
+            message: `Every source already has a job queued or running: ${skipped.map((s) => s.source).join(", ")}`,
+            skipped,
+          },
+        };
+      }
       return { status: 400, jsonBody: { error: "No valid sources could be queued" } };
     }
 
@@ -1958,7 +1854,11 @@ async function bulkIngestionHandler(
 
     return {
       status: 202,
-      jsonBody: { enqueued: queueMessages.length, jobs } satisfies BulkIngestionResponse,
+      jsonBody: {
+        enqueued: queueMessages.length,
+        jobs,
+        ...(skipped.length > 0 ? { skipped } : {}),
+      } satisfies BulkIngestionResponse,
     };
   } catch (error: unknown) {
     const message = getErrorMessage(error);

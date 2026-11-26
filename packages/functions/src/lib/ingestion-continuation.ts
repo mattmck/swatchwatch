@@ -135,7 +135,11 @@ export interface IngestionCheckpoint {
 
 export interface IngestionJobQueueMessage {
   jobId: number;
-  userId: number;
+  /**
+   * Admin who queued the job (audit actor of brand-store corrections), or null for a
+   * system-started run (the nightly catalog refresh, #532), which writes no audit row.
+   */
+  userId: number | null;
   queuedAt: string;
   request: IngestionJobRequest;
   requestedMetrics: Record<string, unknown>;
@@ -195,8 +199,8 @@ export function readResumeMessageFromMetrics(
     // message the worker would reject.
     !isNonNegativeInt(candidate.jobId) ||
     candidate.jobId < 1 ||
-    !isNonNegativeInt(candidate.userId) ||
-    candidate.userId < 1 ||
+    // A positive admin id, or explicit null for a system-started run (catalog refresh).
+    (candidate.userId !== null && (!isNonNegativeInt(candidate.userId) || candidate.userId < 1)) ||
     typeof candidate.queuedAt !== "string" ||
     !isRecord(candidate.request) ||
     !isRecord(candidate.requestedMetrics)
@@ -212,7 +216,7 @@ export function readResumeMessageFromMetrics(
 
   return {
     jobId: candidate.jobId,
-    userId: candidate.userId,
+    userId: candidate.userId as number | null,
     queuedAt: candidate.queuedAt,
     request: candidate.request as unknown as IngestionJobRequest,
     requestedMetrics: candidate.requestedMetrics,
@@ -241,6 +245,18 @@ export function getWorkerTimeBudgetMs(): number {
 export async function enqueueIngestionContinuation(
   message: IngestionJobQueueMessage
 ): Promise<void> {
+  await sendIngestionQueueMessage(message);
+}
+
+/**
+ * Send one ingestion queue message from code without an output binding. With
+ * `visibilityTimeoutSeconds` the message stays invisible that long before a worker can pick it
+ * up (the catalog refresh staggers its jobs this way; Azure caps it at 7 days).
+ */
+export async function sendIngestionQueueMessage(
+  message: IngestionJobQueueMessage,
+  options: { visibilityTimeoutSeconds?: number } = {}
+): Promise<void> {
   const connectionString = process.env[AZURE_STORAGE_CONNECTION_SETTING];
   if (!connectionString) {
     throw new Error(`${AZURE_STORAGE_CONNECTION_SETTING} environment variable not configured`);
@@ -250,5 +266,11 @@ export async function enqueueIngestionContinuation(
     INGESTION_JOB_QUEUE_NAME
   );
   await queueClient.createIfNotExists();
-  await queueClient.sendMessage(Buffer.from(JSON.stringify(message), "utf8").toString("base64"));
+  const body = Buffer.from(JSON.stringify(message), "utf8").toString("base64");
+  const visibilityTimeout = options.visibilityTimeoutSeconds;
+  if (visibilityTimeout !== undefined && visibilityTimeout > 0) {
+    await queueClient.sendMessage(body, { visibilityTimeout: Math.floor(visibilityTimeout) });
+  } else {
+    await queueClient.sendMessage(body);
+  }
 }

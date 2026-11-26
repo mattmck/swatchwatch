@@ -136,6 +136,15 @@ describe("readResumeMessageFromMetrics", () => {
     assert.equal(readResumeMessageFromMetrics({ resumeMessage: { ...validMessage(), userId: 0 } }), null);
   });
 
+  it("keeps an explicit null userId (system-started catalog refresh, #532) and rejects a missing one", () => {
+    assert.deepEqual(
+      readResumeMessageFromMetrics({ resumeMessage: validMessage({ userId: null }) }),
+      validMessage({ userId: null })
+    );
+    const { userId: _unused, ...withoutUser } = validMessage();
+    assert.equal(readResumeMessageFromMetrics({ resumeMessage: withoutUser }), null);
+  });
+
   it("returns the stored message with a parsed checkpoint", () => {
     assert.deepEqual(readResumeMessageFromMetrics({ resumeMessage: validMessage() }), validMessage());
   });
