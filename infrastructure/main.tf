@@ -930,6 +930,12 @@ resource "azurerm_linux_function_app" "main" {
       node_version = "22"
     }
 
+    # #548: each instance keeps its own Postgres pool (PG_POOL_MAX), so instances x pool size
+    # must stay under the server's connection limit (see the precondition below). Without a
+    # cap the Consumption plan adds instances for a long ingestion queue until Postgres
+    # refuses connections.
+    app_scale_limit = var.function_app_scale_limit
+
     # Keep this block. The Functions host reserves the CORS_ALLOWED_ORIGINS setting (it
     # JSON-parses it as the host CORS origin list); with platform CORS configured Azure supplies
     # that value itself, without it the host reads the app's comma-separated list below and fails
@@ -1047,6 +1053,11 @@ resource "azurerm_linux_function_app" "main" {
       tags["hidden-link: /app-insights-instrumentation-key"],
       tags["hidden-link: /app-insights-conn-string"],
     ]
+
+    precondition {
+      condition     = var.function_app_scale_limit * var.pg_pool_max <= var.pg_app_connection_limit
+      error_message = "function_app_scale_limit x pg_pool_max must not exceed pg_app_connection_limit (the Postgres connections left for the app)."
+    }
   }
 }
 

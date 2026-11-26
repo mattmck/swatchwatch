@@ -251,6 +251,8 @@ The preflight should return 204 with the app's fixed `Access-Control-Allow-Metho
 | `orphan_media_sweep_batch_size` | `100` | Function App setting `ORPHAN_MEDIA_SWEEP_BATCH_SIZE` — Orphan media sweep rows per scan query, 1-1000 |
 | `orphan_media_sweep_max_per_run` | `2000` | Function App setting `ORPHAN_MEDIA_SWEEP_MAX_PER_RUN` — Orphan media assets swept per run, 1-20000 |
 | `pg_pool_max` | `10` | Function App setting `PG_POOL_MAX` — Postgres pool size per Function instance, 1-100 |
+| `function_app_scale_limit` | `3` | Most Function App instances at once (`app_scale_limit`; GitHub variable `FUNCTION_APP_SCALE_LIMIT`). The plan fails unless this × `pg_pool_max` ≤ `pg_app_connection_limit` (#548) |
+| `pg_app_connection_limit` | `35` | Postgres connections left for the app (B1ms: 50 minus 15 reserved). Raise it when the server SKU changes |
 | `pg_idle_timeout_ms` | `30000` | Function App setting `PG_IDLE_TIMEOUT_MS` — Postgres pool idle client timeout |
 | `pg_connection_timeout_ms` | `15000` | Function App setting `PG_CONNECTION_TIMEOUT_MS` — Postgres connection timeout |
 | `pg_query_max_retries` | `2` | Function App setting `PG_QUERY_MAX_RETRIES` — Retries for retry-safe queries on connection timeouts |

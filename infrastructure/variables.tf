@@ -601,6 +601,23 @@ variable "pg_pool_max" {
   default     = 10
 }
 
+variable "function_app_scale_limit" {
+  description = "Most Function App instances the Consumption plan may run at once, 1-200. Each instance holds up to pg_pool_max Postgres connections (#548)"
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.function_app_scale_limit >= 1 && var.function_app_scale_limit <= 200 && floor(var.function_app_scale_limit) == var.function_app_scale_limit
+    error_message = "function_app_scale_limit must be a whole number between 1 and 200."
+  }
+}
+
+variable "pg_app_connection_limit" {
+  description = "Postgres connections available to the app: the server's max_connections minus the reserved ones. B_Standard_B1ms allows 50 and reserves 15. Raise it when the server SKU changes"
+  type        = number
+  default     = 35
+}
+
 variable "pg_idle_timeout_ms" {
   description = "Postgres pool idle client timeout (PG_IDLE_TIMEOUT_MS)"
   type        = number
