@@ -599,6 +599,13 @@ variable "pg_pool_max" {
   description = "Postgres pool size per Function instance, 1-100 (PG_POOL_MAX)"
   type        = number
   default     = 10
+
+  # The code clamps PG_POOL_MAX to 1-100, so a value outside that range would make the
+  # scale-limit precondition on the Function App check a pool size the app does not use.
+  validation {
+    condition     = var.pg_pool_max >= 1 && var.pg_pool_max <= 100 && floor(var.pg_pool_max) == var.pg_pool_max
+    error_message = "pg_pool_max must be a whole number between 1 and 100."
+  }
 }
 
 variable "function_app_scale_limit" {
