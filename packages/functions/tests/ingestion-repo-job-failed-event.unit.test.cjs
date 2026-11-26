@@ -28,7 +28,7 @@ mockDistModule("telemetry.js", {
   trackException: () => {},
 });
 
-const { markIngestionJobFailed } = require("../dist/lib/ingestion-repo");
+const { markIngestionJobFailed, markIngestionJobStoreClosed } = require("../dist/lib/ingestion-repo");
 
 describe("markIngestionJobFailed", () => {
   it("marks the job failed, then emits ingestion.job_failed with a truncated error", async () => {
@@ -43,5 +43,31 @@ describe("markIngestionJobFailed", () => {
     assert.equal(events[0].name, "ingestion.job_failed");
     assert.equal(events[0].properties.jobId, 42);
     assert.equal(events[0].properties.error.length, 500);
+  });
+});
+
+describe("markIngestionJobStoreClosed", () => {
+  it("marks the job succeeded and emits ingestion.store_closed, never ingestion.job_failed", async () => {
+    queries.length = 0;
+    events.length = 0;
+    await markIngestionJobStoreClosed(
+      43,
+      { source: "ColoresDeCarolBigCartel", reason: "maintenance", httpStatus: 403, detail: "Store is under maintenance" },
+      { pipeline: { status: "succeeded", stage: "store_closed" } }
+    );
+
+    assert.equal(queries.length, 1);
+    assert.match(queries[0].sql, /SET status = 'succeeded'/);
+    assert.doesNotMatch(queries[0].sql, /error =/);
+    assert.equal(queries[0].params[0], 43);
+
+    assert.deepEqual(events.map((e) => e.name), ["ingestion.store_closed"]);
+    assert.deepEqual(events[0].properties, {
+      jobId: 43,
+      source: "ColoresDeCarolBigCartel",
+      reason: "maintenance",
+      httpStatus: 403,
+      detail: "Store is under maintenance",
+    });
   });
 });

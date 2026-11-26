@@ -472,6 +472,7 @@ describe("toAdminSourceListItem", () => {
       startedAt: "2026-11-10T10:00:00.000Z",
       finishedAt: "2026-11-10T10:05:00.000Z",
       recordsProcessed: 120,
+      stage: null,
     });
   });
 
@@ -487,6 +488,12 @@ describe("toAdminSourceListItem", () => {
     assert.equal(item.permission.status, "not_needed");
     assert.equal(item.onWithoutOk, false);
     assert.equal(toAdminSourceListItem(sourceRow()).needsStoreOk, true);
+  });
+
+  it("carries the last job's pipeline stage, so a store-closed run can be told apart", () => {
+    const item = toAdminSourceListItem(sourceRow({ lastJobStage: "store_closed" }));
+    assert.equal(item.lastJob.stage, "store_closed");
+    assert.equal(item.lastJob.status, "succeeded");
   });
 
   it("a source without jobs has lastJob null", () => {

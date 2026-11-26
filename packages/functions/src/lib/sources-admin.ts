@@ -378,6 +378,8 @@ export interface SourceAdminRow {
   lastJobStartedAt: string | null;
   lastJobFinishedAt: string | null;
   lastJobProcessed: number | string | null;
+  /** `metrics_json.pipeline.stage` of the last job (e.g. `store_closed`); absent in older callers. */
+  lastJobStage?: string | null;
   liveListings: number | string | null;
   shades: number | string | null;
 }
@@ -394,6 +396,7 @@ export function sourcesAdminSql(byId: boolean): string {
        ${isoUtcSql("lj.started_at")} AS "lastJobStartedAt",
        ${isoUtcSql("lj.finished_at")} AS "lastJobFinishedAt",
        (lj.metrics_json->>'processed')::int AS "lastJobProcessed",
+       lj.metrics_json->'pipeline'->>'stage' AS "lastJobStage",
        (SELECT count(*) FROM external_product ep
          WHERE ep.data_source_id = ds.data_source_id AND ep.missing_since IS NULL) AS "liveListings",
        (SELECT count(DISTINCT s.shade_id)
@@ -455,6 +458,7 @@ export function toAdminSourceListItem(row: SourceAdminRow): AdminSourceListItem 
             startedAt: row.lastJobStartedAt,
             finishedAt: row.lastJobFinishedAt,
             recordsProcessed: processed === null || processed === undefined ? null : Number(processed),
+            stage: typeof row.lastJobStage === "string" && row.lastJobStage.trim() ? row.lastJobStage : null,
           },
     liveListings: Number(row.liveListings ?? 0),
     shades: Number(row.shades ?? 0),

@@ -7,6 +7,7 @@ import {
   IngestionJobRecord,
   IngestionJobRunRequest,
   IngestionJobRunResponse,
+  INGESTION_STORE_CLOSED_STAGE,
 } from "swatchwatch-shared";
 import { saveConnectorRawSnapshot } from "../lib/connector-raw-storage";
 import { withAdmin } from "../lib/auth";
@@ -28,6 +29,8 @@ import {
   listIngestionJobs,
   markIngestionJobFailed,
   markIngestionJobRunning,
+  markIngestionJobStoreClosed,
+  trackIngestionStoreClosed,
   markIngestionJobSucceeded,
   materializeHoloTacoRecords,
   materializeMakeupApiRecords,
@@ -80,6 +83,7 @@ import {
 } from "../lib/ingestion-job-request";
 import { markExternalProductsMissing } from "../lib/listing-freshness";
 import { transaction } from "../lib/db";
+import { isStoreClosedError, type StoreClosedError } from "../lib/connectors/store-closed";
 import { isFeatureEnabled } from "../lib/feature-flags";
 import {
   ConnectorCheckpointSupersededError,
@@ -487,6 +491,64 @@ async function enqueueIngestionJob(
 
     return internalServerError(context, error, "Failed to enqueue ingestion job", "ingestion.enqueue");
   }
+}
+
+/**
+ * Ends a job whose connector found the store closed: `succeeded`, stage `store_closed`, the
+ * reason in `metrics.storeClosed` and the job log, and `ingestion.store_closed` (never
+ * `ingestion.job_failed`). If even that write fails the message is not retried into a failure:
+ * the error is logged and the job is left for the admin to see.
+ */
+/** `metrics.storeClosed`: why and where the store was found closed. */
+function buildStoreClosedMetrics(error: StoreClosedError, stage: string): Record<string, unknown> {
+  return {
+    reason: error.reason,
+    httpStatus: error.httpStatus,
+    url: error.url,
+    detail: error.detail,
+    detectedAt: new Date().toISOString(),
+    detectedStage: stage,
+  };
+}
+
+function storeClosedEventDetails(error: StoreClosedError) {
+  return { source: error.source, reason: error.reason, httpStatus: error.httpStatus, detail: error.detail };
+}
+
+function logStoreClosed(logger: JobLogger, jobId: number, error: StoreClosedError, stage: string): void {
+  logger.warn(`Job ${jobId} stopped: ${error.message}. Nothing more is pulled or written for this run; the next run tries again.`, {
+    source: error.source,
+    reason: error.reason,
+    httpStatus: error.httpStatus,
+    url: error.url,
+    ...(error.detail ? { detail: error.detail } : {}),
+    stage,
+  });
+}
+
+async function finishStoreClosedJob(
+  payload: IngestionJobQueueMessage,
+  requestedMetrics: Record<string, unknown>,
+  stage: string,
+  logger: JobLogger,
+  error: StoreClosedError
+): Promise<void> {
+  logStoreClosed(logger, payload.jobId, error, stage);
+  try {
+    const storeClosed = buildStoreClosedMetrics(error, stage);
+    logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "succeeded", INGESTION_STORE_CLOSED_STAGE, {
+      queuedAt: payload.queuedAt,
+      workerCompletedAt: storeClosed.detectedAt,
+      storeClosed,
+    }));
+    await markIngestionJobStoreClosed(payload.jobId, storeClosedEventDetails(error), logger.getMetricsWithLogs());
+  } catch (markError) {
+    logger.error("Failed to record the store-closed outcome", {
+      originalError: error.message,
+      markError: getErrorMessage(markError),
+    });
+  }
+  await logger.dispose();
 }
 
 /** Runs one ingestion queue message within the worker time budget, checkpointing and enqueuing a continuation when it is spent. */
@@ -1098,6 +1160,18 @@ export async function processIngestionJobQueueMessage(
           await logger.dispose({ flush: false });
           return;
         }
+        // The store closed after earlier chunks submitted AI batches that are still pending.
+        // Ending the job now would strand them (the poller only reads awaiting_ai jobs), so
+        // record the closure and hand the job to the poller with nothing left to resume: it
+        // applies the batches, then completes the job at stage store_closed.
+        if (isStoreClosedError(pullError) && aiBatches.some(isAiBatchPending)) {
+          const storeClosed = buildStoreClosedMetrics(pullError, stage);
+          logStoreClosed(logger, payload.jobId, pullError, stage);
+          logger.updateBaseMetrics({ storeClosed });
+          trackIngestionStoreClosed(payload.jobId, storeClosedEventDetails(pullError));
+          await pauseForAiBatches(null);
+          return;
+        }
         throw pullError;
       }
       const records = pageResult.records;
@@ -1302,6 +1376,13 @@ export async function processIngestionJobQueueMessage(
     await markIngestionJobSucceeded(payload.jobId, logger.getMetricsWithLogs());
     await logger.dispose();
   } catch (error: unknown) {
+    if (isStoreClosedError(error)) {
+      // A locked store (password page, maintenance) is not a failure (#529): end the job
+      // `succeeded` at stage `store_closed`, leave the catalog as it is (nothing is pruned or
+      // marked missing, since the pull never returned), and let the next run try again.
+      await finishStoreClosedJob(payload, requestedMetrics, stage, logger, error);
+      return;
+    }
     const message = getErrorMessage(error);
     const errorData = error instanceof Error ? { stack: error.stack } : undefined;
     logger.error(`Job ${payload.jobId} failed: ${message}`, errorData);

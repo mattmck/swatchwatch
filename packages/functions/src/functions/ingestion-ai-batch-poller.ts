@@ -1,4 +1,5 @@
 import { app, InvocationContext, Timer } from "@azure/functions";
+import { INGESTION_STORE_CLOSED_STAGE } from "swatchwatch-shared";
 import {
   applyAiBatchShadeDetections,
   getIngestionJobById,
@@ -677,7 +678,13 @@ async function processAwaitingAiBatchJob(
     return;
   }
 
-  const completionMetrics = withPipelineMetrics(appliedBatchMetrics, "succeeded", "completed", {
+  // A job whose store closed mid-run (the worker recorded `storeClosed` and handed over its
+  // pending batches) keeps its store_closed outcome once the batches are applied.
+  const completedStage =
+    appliedBatchMetrics.storeClosed && typeof appliedBatchMetrics.storeClosed === "object"
+      ? INGESTION_STORE_CLOSED_STAGE
+      : "completed";
+  const completionMetrics = withPipelineMetrics(appliedBatchMetrics, "succeeded", completedStage, {
     workerCompletedAt: polledAt,
   });
 
