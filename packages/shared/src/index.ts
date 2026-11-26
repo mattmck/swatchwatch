@@ -13,6 +13,8 @@ export * from "./constants/design-tokens";
 export * from "./barcode/gtin";
 export * from "./capture/frame-quality";
 export * from "./capture/bottle-flow";
+export * from "./capture/guide-region";
+export * from "./capture/read-panel";
 export * from "./capture/sticky-hints";
 export * from "./capture/create-card";
 export * from "./constants/product-categories";

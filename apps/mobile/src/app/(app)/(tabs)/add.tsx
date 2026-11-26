@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { Linking, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Linking, Platform, Pressable, ScrollView, TextInput, View, type LayoutChangeEvent } from "react-native";
 import {
   bottleFlowReducer,
   createPolishRequestFromCard,
@@ -19,6 +19,7 @@ import {
   type CaptureCheckCandidate,
   type CaptureCheckResponse,
   type CaptureFrameType,
+  type CaptureReadSummary,
   type CreateCardEdits,
   type CreateCardModel,
   type StickyHints,
@@ -36,6 +37,7 @@ import {
 } from "@/api/client";
 import { useAuth } from "@/auth/auth-provider";
 import { BatchBrandBar, BottlePrompt } from "@/components/bottle-prompt";
+import { BottleReadPanel } from "@/components/bottle-read-panel";
 import { FrameStrip } from "@/components/frame-strip";
 import { AppText, Button, Card, Chip, ErrorBanner } from "@/components/ui";
 import { ShelfList } from "@/components/shelf-list";
@@ -44,6 +46,7 @@ import { fetchOwnedDupes } from "@/lib/add-guard";
 import { readCache, writeCache } from "@/lib/api-cache";
 import { notifyCollectionChanged } from "@/lib/collection-events";
 import { useFeatureFlags } from "@/lib/feature-flags";
+import { guideOutlineRect, nativeGuideRegion } from "@/lib/guide-outline";
 import { prepareJpeg } from "@/lib/image-prep";
 import {
   buildFrameQuality,
@@ -64,6 +67,7 @@ import {
   verdictForCandidate,
   withDupes,
   type CaptureFrameEntry,
+  type NativeShotTrigger,
   type RapidAddVerdict,
   type ScannedBarcode,
 } from "@/lib/rapid-add";
@@ -89,6 +93,15 @@ const FRAME_TYPES: { type: CaptureFrameType; label: string }[] = [
 ];
 
 type Busy = "checking" | "capturing" | null;
+
+/** The outline on the preview when a photo was taken, for its `quality.guideRegion`. */
+interface ShotGuide {
+  trigger: NativeShotTrigger;
+  /** The surface whose outline was drawn, or null. */
+  drawn: BottleSurface | null;
+  /** The preview's size in points, or null before it was laid out. */
+  preview: { width: number; height: number } | null;
+}
 
 function newLocalId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -157,6 +170,10 @@ export default function RapidAddScreen() {
   const lastCheckRef = useRef<CaptureCheckResponse | null>(null);
   /** Set when a check has started since the last photo, so the auto-check runs once per photo. */
   const checkedRef = useRef(false);
+  /** "What we've read": the latest `readSoFar` from a frame, check or skip response. */
+  const [readSoFar, setReadSoFar] = useState<CaptureReadSummary | null>(null);
+  /** The camera preview's size, to draw the outline and map it into the photo. */
+  const [previewSize, setPreviewSize] = useState<{ width: number; height: number } | null>(null);
 
   const updateSticky = useCallback(
     (next: StickyHints) => {
@@ -276,6 +293,7 @@ export default function RapidAddScreen() {
           });
           dispatchFrames({ type: "upload_succeeded", localId: frame.localId, frameId: res.frameId });
           if (bottle && generation === scanGeneration.current) {
+            if (res.readSoFar) setReadSoFar(res.readSoFar);
             checkedRef.current = false;
             dispatchFlow({ type: "frame_uploaded", surface: surfaceFromQuality(frame.quality), nextFrame: res.nextFrame });
           }
@@ -307,6 +325,7 @@ export default function RapidAddScreen() {
       source: "mobile-camera" | "mobile-library";
       scanned: ScannedBarcode | null;
       surface?: BottleSurface | null;
+      guide: ShotGuide;
     }) => {
       if (frameCount.current >= MAX_CAPTURE_FRAMES) {
         setError(`That's the most photos for one scan (${MAX_CAPTURE_FRAMES}). Tap Check, or remove a failed one.`);
@@ -332,13 +351,21 @@ export default function RapidAddScreen() {
           sourceHeight: input.height,
           barcode: input.scanned,
           surface: input.surface,
+          guideRegion: nativeGuideRegion({
+            bottleSequence: bottle,
+            drawn: input.guide.drawn,
+            surface: input.surface ?? null,
+            trigger: input.guide.trigger,
+            preview: input.guide.preview,
+            frame: { width: prepared.width, height: prepared.height },
+          }),
         }),
       };
       dispatchFrames({ type: "added", frame });
       // Wrapped so callers can await the photo being queued without waiting for the upload.
       return { upload: uploadFrame(frame, input.scanned) };
     },
-    [uploadFrame],
+    [uploadFrame, bottle],
   );
 
   const runCheck = useCallback(
@@ -356,6 +383,7 @@ export default function RapidAddScreen() {
         if (generation !== scanGeneration.current) return;
         lastCheckRef.current = res;
         if (bottle) dispatchFlow({ type: "check_received", nextFrame: res.nextFrame, brandConflict: res.brandConflict });
+        if (bottle && res.readSoFar) setReadSoFar(res.readSoFar);
         setVerdict(next);
         recordVerdict(next, scanned?.gtin);
         void Haptics.notificationAsync(
@@ -374,14 +402,28 @@ export default function RapidAddScreen() {
 
   const takeFrame = useCallback(
     /** Resolves once the photo is taken and its upload has finished (or failed). */
-    async (type: CaptureFrameType, scanned: ScannedBarcode | null, surface: BottleSurface | null = null): Promise<void> => {
+    async (
+      type: CaptureFrameType,
+      scanned: ScannedBarcode | null,
+      surface: BottleSurface | null,
+      guide: ShotGuide,
+    ): Promise<void> => {
       const camera = cameraRef.current;
       if (!camera) return;
       setBusy((b) => b ?? "capturing");
       let upload: Promise<void> = Promise.resolve();
       try {
         const picture = await camera.takePictureAsync({ quality: 0.8, shutterSound: false });
-        ({ upload } = await addFrame({ uri: picture.uri, width: picture.width, height: picture.height, type, source: "mobile-camera", scanned, surface }));
+        ({ upload } = await addFrame({
+          uri: picture.uri,
+          width: picture.width,
+          height: picture.height,
+          type,
+          source: "mobile-camera",
+          scanned,
+          surface,
+          guide,
+        }));
       } catch (err) {
         setError(errorMessage(err, "Couldn't take the photo."));
       } finally {
@@ -405,17 +447,17 @@ export default function RapidAddScreen() {
         // decides whether to ask for another photo; a catalog match asks for none, so the
         // auto-check below matches it.
         const target = nativeShotTarget({ bottleSequence: true, chipType: "barcode", manualType: null, view: null, barcode: scanned, trigger: "live-scan" });
-        void takeFrame(target.frameType, scanned, target.surface);
+        void takeFrame(target.frameType, scanned, target.surface, { trigger: "live-scan", drawn: null, preview: null });
         return;
       }
       if (sessionPromise.current) {
         // A session already exists (started by an earlier photo) without this GTIN: it only
         // reaches the resolver through the barcode frame's quality, so check after that upload.
-        void takeFrame("barcode", scanned).then(() => runCheck(scanned));
+        void takeFrame("barcode", scanned, null, { trigger: "live-scan", drawn: null, preview: null }).then(() => runCheck(scanned));
       } else {
         // A new session carries the GTIN in its start metadata, so check right away; the
         // photo is uploaded alongside as evidence for the resolver.
-        void takeFrame("barcode", scanned);
+        void takeFrame("barcode", scanned, null, { trigger: "live-scan", drawn: null, preview: null });
         void runCheck(scanned);
       }
     },
@@ -439,7 +481,10 @@ export default function RapidAddScreen() {
       const captureId = await ensureSession(barcode);
       if (generation !== scanGeneration.current) return;
       const res = await answerCaptureQuestion(captureId, { skipSurface: surface });
-      if (generation === scanGeneration.current) dispatchFlow({ type: "surface_skipped", surface, nextFrame: res.nextFrame });
+      if (generation === scanGeneration.current) {
+        dispatchFlow({ type: "surface_skipped", surface, nextFrame: res.nextFrame });
+        if (res.readSoFar) setReadSoFar(res.readSoFar);
+      }
     } catch (err) {
       if (generation === scanGeneration.current) setError(errorMessage(err, "Couldn't skip that photo. Try again."));
     }
@@ -491,6 +536,7 @@ export default function RapidAddScreen() {
         source: "mobile-library",
         scanned: barcode,
         surface: shot.surface,
+        guide: { trigger: "file", drawn: null, preview: null },
       });
       setManualType(null);
     } catch (err) {
@@ -625,6 +671,7 @@ export default function RapidAddScreen() {
     dispatchFlow({ type: "reset" });
     lastCheckRef.current = null;
     checkedRef.current = false;
+    setReadSoFar(null);
     setManualType(null);
     setSessionStarted(false);
     setBrandHint("");
@@ -643,6 +690,9 @@ export default function RapidAddScreen() {
   const checkEnabled = canCheck({ frames, hasBarcode: Boolean(barcode), hasHints, busy: busy === "checking" });
   const cameraAllowed = permission?.granted === true;
   const showCamera = focused && cameraAllowed && !verdict && Platform.OS !== "web";
+  /** The prompted surface's outline is drawn over the preview (not for a "More options" photo). */
+  const outlineSurface = bottle && view && !manualType ? view.surface : null;
+  const outline = showCamera && outlineSurface && previewSize ? guideOutlineRect(outlineSurface, previewSize) : null;
 
   // Once the server asks for nothing more and a photo is in, the check runs without a tap.
   const autoCheckReady = bottle && !verdict && busy === null && summary.uploading === 0 && shouldAutoCheck(flow, summary.uploaded);
@@ -700,6 +750,11 @@ export default function RapidAddScreen() {
           )}
 
           <View
+            testID="camera-preview"
+            onLayout={(e: LayoutChangeEvent) => {
+              const { width, height } = e.nativeEvent.layout;
+              setPreviewSize((prev) => (prev && prev.width === width && prev.height === height ? prev : { width, height }));
+            }}
             style={{
               height: 360,
               borderRadius: theme.radius.xl,
@@ -728,6 +783,25 @@ export default function RapidAddScreen() {
                 onRequest={() => void requestPermission()}
               />
             )}
+            {/* Under the shutter, which the front outline reaches. */}
+            {outline && (
+              <View
+                pointerEvents="none"
+                testID="guide-outline"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={{
+                  position: "absolute",
+                  left: outline.left,
+                  top: outline.top,
+                  width: outline.width,
+                  height: outline.height,
+                  borderWidth: 2,
+                  borderColor: "rgba(255,255,255,0.9)",
+                  borderRadius: theme.radius.xl,
+                }}
+              />
+            )}
             {showCamera && (
               <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: theme.spacing(3), gap: theme.spacing(3) }}>
                 {!bottle && (
@@ -745,7 +819,7 @@ export default function RapidAddScreen() {
                     onPress={() => {
                       const shot = nextShot("shutter");
                       setManualType(null);
-                      void takeFrame(shot.type, barcode, shot.surface);
+                      void takeFrame(shot.type, barcode, shot.surface, { trigger: "shutter", drawn: outlineSurface, preview: previewSize });
                     }}
                     style={({ pressed }) => ({
                       width: 68,
@@ -768,6 +842,8 @@ export default function RapidAddScreen() {
           </View>
 
           {cameraError && <ErrorBanner message={`${cameraError} You can still pick a photo.`} />}
+
+          {bottle && <BottleReadPanel summary={readSoFar} liveBarcode={barcode?.gtin ?? null} />}
 
           {barcode && (
             <Card style={{ paddingVertical: theme.spacing(3) }}>

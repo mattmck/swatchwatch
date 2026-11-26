@@ -8,7 +8,7 @@
  * sampling glue (a ~160px luminance thumbnail every `sampleIntervalMs`, cropped with
  * `cropLuminance`) lives in `components/rapid-add/camera-capture.tsx`.
  */
-import type { BottleSurface, CaptureFrameType } from "swatchwatch-shared";
+import { DEFAULT_GUIDE_REGIONS, type BottleSurface, type CaptureFrameType } from "swatchwatch-shared";
 import { FRAME_QUALITY_THRESHOLDS, type FrameQualityMetrics } from "./camera";
 
 export const AUTO_SHUTTER_SETTINGS = {
@@ -61,11 +61,9 @@ export interface NormalizedRegion {
  */
 export const AUTO_SHUTTER_REGIONS: Record<AutoShutterGuide, NormalizedRegion> = {
   barcode: { x: 0.15, y: 0.38, w: 0.7, h: 0.24 },
-  label: { x: 0.3, y: 0.15, w: 0.4, h: 0.7 },
-  front: { x: 0.3, y: 0.15, w: 0.4, h: 0.7 },
-  bottom: { x: 0.28, y: 0.25, w: 0.44, h: 0.5 },
-  glass: { x: 0.38, y: 0.38, w: 0.24, h: 0.24 },
-  box: { x: 0.22, y: 0.2, w: 0.56, h: 0.6 },
+  label: DEFAULT_GUIDE_REGIONS.front,
+  // The bottle surfaces' outlines are shared with the Expo app and the server's default region.
+  ...DEFAULT_GUIDE_REGIONS,
 };
 
 /** Copy the `region` of a `width`×`height` luminance buffer (at least 1×1). */

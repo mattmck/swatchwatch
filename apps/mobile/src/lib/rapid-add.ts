@@ -14,6 +14,7 @@ import type {
   CaptureCheckCandidate,
   CaptureCheckResponse,
   CaptureFrameType,
+  CaptureGuideRegion,
   CreateCardModel,
   NormalizedBarcode,
   PolishDupesResponse,
@@ -190,6 +191,8 @@ export interface FrameQualityInput {
   barcode?: ScannedBarcode | null;
   /** Which side of the bottle this photo shows (bottle flow). */
   surface?: BottleSurface | null;
+  /** The outline drawn over the preview, in fractions of this photo (`lib/guide-outline.ts`); bottle flow only. */
+  guideRegion?: CaptureGuideRegion | null;
 }
 
 /** The `quality` object sent with a frame; a scanned barcode rides along as `gtin` (web parity). */
@@ -207,6 +210,7 @@ export function buildFrameQuality(input: FrameQualityInput): Record<string, unkn
     quality.barcodeDecoder = input.barcode.engine;
   }
   if (input.surface) quality.surface = input.surface;
+  if (input.guideRegion) quality.guideRegion = { ...input.guideRegion };
   return quality;
 }
 

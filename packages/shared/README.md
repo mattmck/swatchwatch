@@ -443,6 +443,23 @@ Client-side state for the bottle photo flow (front, bottom, glass, optional box)
 | `shouldCheckBarcodeFrame(session, barcode, { bottleSequence })` | Whether a freshly decoded barcode is checked at once: never in the bottle sequence (the frame's `nextFrame` decides), nor while photographing the label or once a verdict shows (#553) |
 | `stillFrameTarget(event, view)` / `StillFrameTrigger` | The frame type and surface a photo is sent as: a shutter, auto-shutter or file photo is the prompted surface's frame even with a barcode in view; a live barcode read stays a barcode frame |
 
+### `capture/guide-region.ts`
+
+The bottle-flow outline and `quality.guideRegion`, shared by the web, the Expo app and the server's default region. Pure.
+
+| Export | Description |
+|--------|-------------|
+| `DEFAULT_GUIDE_REGIONS` | The outline per bottle surface as 0–1 fractions of the preview: what both clients draw, and the region the capture API measures when a frame has no `guideRegion` |
+| `GUIDE_REGION_MIN_SIDE` | 0.05: the server ignores a region with a smaller side |
+| `guideRegionInFrame({ guide, element, frame, mirrored? })` / `Size` / `ElementRect` | Where an outline drawn over a centred cover-crop preview lies in the camera frame, as fractions; `null` for anything it cannot map exactly |
+| `guideRegionForFrame({ bottleCapture, surface, trigger, shown })` / `ShownGuide` | The region to send: only a bottle-flow shutter or auto-shutter photo of the surface whose outline was drawn |
+
+### `capture/read-panel.ts`
+
+| Export | Description |
+|--------|-------------|
+| `readPanelRows(summary, liveBarcode)` / `ReadPanelRow` | "What we've read" rows (barcode, brand, shade name, color, finish) from a `CaptureReadSummary`, with what the latest photo added marked `isNew`; a barcode read on the device shows before the server answers |
+
 ### `capture/sticky-hints.ts`
 
 Rapid Add's remembered brand/finish/collection hints ("Going through: Loud Lacquer"). Pure: the apps own the storage (`stickyHintsStorageKey` is the per-user key).
@@ -478,7 +495,7 @@ The "add it as new" card for a bottle the catalog could not match. Pure.
 | `CaptureQuestion` | Open question payload used by status/finalize/answer responses |
 | `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads; the response's optional `brandHint?` (`CaptureBrandHintEcho`) and `nextFrame?` exist only while `BOTTLE_CAPTURE_ENABLED` is on |
 | `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`); the response's optional `check` is the read-only verdict for a `barcode` frame with a valid on-device decoded `quality.gtin` (#21), and `nextFrame?` the next photo ask (bottle flow) |
-| `CaptureGuideRegion` | `quality.guideRegion` on a bottle-flow surface frame: the preview outline the client drew as `{ x, y, w, h }` 0–1 fractions of the frame image as sent (not of the cropped preview); the server measures the glass color inside it and drops a printed name read far outside it. Web sends it for shutter/auto-shutter surface photos (`apps/web/src/lib/guide-region.ts`); uploads and mobile send none |
+| `CaptureGuideRegion` | `quality.guideRegion` on a bottle-flow surface frame: the preview outline the client drew as `{ x, y, w, h }` 0–1 fractions of the frame image as sent (not of the cropped preview); the server measures the glass color inside it and drops a printed name read far outside it. Web sends it for shutter/auto-shutter surface photos and the Expo app for shutter surface photos (`capture/guide-region.ts`); uploads send none |
 | `CaptureFinalizeResponse` | Finalize response with session status and optional question |
 | `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question, and `nextFrame?` (bottle flow; `null` on a terminal session) |
 | `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop: `answer` is optional (required unless `skipSurface?` is sent; `skipSurface` skips a bottle photo of that surface); the response's `nextFrame?` is returned for a `skipSurface` answer |

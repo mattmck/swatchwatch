@@ -1,13 +1,13 @@
 import sharp from "sharp";
-import type { BottleSurface } from "swatchwatch-shared";
+import { DEFAULT_GUIDE_REGIONS, GUIDE_REGION_MIN_SIDE, type BottleSurface } from "swatchwatch-shared";
 
 /**
  * Where the shown bottle is in a Rapid Add bottle frame (Bottle Flow slice A).
  *
  * A client may send the outline it showed as `quality.guideRegion` ({ x, y, w, h } as 0–1
  * fractions of the frame it sends, x/y = top-left); without one the server assumes the outline
- * the web client draws (`AUTO_SHUTTER_REGIONS` in `apps/web/src/lib/auto-shutter.ts`, centred in
- * the frame because the preview fills its box with `object-cover`). The glass color is measured
+ * the clients draw (`DEFAULT_GUIDE_REGIONS` in `swatchwatch-shared`, centred in the frame because
+ * both previews fill their box with a centred cover crop). The glass color is measured
  * on that region only, so the hand and the room around the bottle never become the lacquer.
  *
  * Sticker reads are not cropped: a held bottle's sticker often lies partly outside the outline
@@ -27,16 +27,9 @@ export interface NormalizedRegion {
 /** [left, top, right, bottom] as 0–1 fractions of the image. */
 export type NormalizedBox = readonly [number, number, number, number];
 
-/** The outline the web client draws per surface (`AUTO_SHUTTER_REGIONS`), the default guide. */
-export const DEFAULT_GUIDE_REGIONS: Readonly<Record<BottleSurface, NormalizedRegion>> = {
-  front: { x: 0.3, y: 0.15, w: 0.4, h: 0.7 },
-  bottom: { x: 0.28, y: 0.25, w: 0.44, h: 0.5 },
-  glass: { x: 0.38, y: 0.38, w: 0.24, h: 0.24 },
-  box: { x: 0.22, y: 0.2, w: 0.56, h: 0.6 },
-};
+/** The outline the clients draw per surface and the smallest usable region side, from `swatchwatch-shared`. */
+export { DEFAULT_GUIDE_REGIONS, GUIDE_REGION_MIN_SIDE };
 
-/** A guide region smaller than this (either side) is ignored: nothing could be measured in it. */
-export const GUIDE_REGION_MIN_SIDE = 0.05;
 /** How far (fraction of the image) a name may sit outside the reported bottle box and still be on it. */
 export const NAME_BOX_BOTTLE_MARGIN = 0.05;
 /** How far (fraction of the image) a name may sit outside the client's outline and still count. */

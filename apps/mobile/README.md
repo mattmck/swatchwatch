@@ -206,10 +206,13 @@ src/
   `nextFrame` ("Show the front of the bottle", "Now the bottom", "Turn it so we see the color",
   with a hint, "Step n of m" and **Can't see it**, which calls `POST /api/capture/{id}/answer`
   with `skipSurface`). The shutter and "Choose a photo" take the asked-for surface (sent as
-  `quality.surface`; no `quality.guideRegion` is sent: the native preview draws no outline and
-  the `expo-camera` preview-to-picture crop is not established per platform, so the server uses
-  its default outline); the Barcode / Label / Color chips move under **More options** and apply to
-  the next photo only. A barcode read off the preview never checks at once here (#553, web
+  `quality.surface`). The prompted surface's **outline** (the shared `DEFAULT_GUIDE_REGIONS`) is
+  drawn over the preview, and a shutter photo of that surface sends it as `quality.guideRegion`,
+  mapped through the preview's aspect-fill crop (`expo-camera` is `resizeAspectFill` on iOS and
+  `FILL_CENTER` on Android while no `ratio` is set) by the shared `guideRegionInFrame`
+  (`src/lib/guide-outline.ts`; library photos, live barcode reads and a landscape photo send none,
+  and the server falls back to its default outline). The Barcode / Label / Color chips move under
+  **More options** and apply to the next photo only, with no outline. A barcode read off the preview never checks at once here (#553, web
   parity): it is uploaded as a barcode frame and the server's `nextFrame` decides, so an unknown
   barcode goes on to the front / bottom / glass prompts while a catalog barcode match asks for
   nothing more and is matched by the auto-check. A shutter or library photo with the barcode in
@@ -217,7 +220,13 @@ src/
   in `quality.gtin`). Both decisions are `shouldCheckLiveBarcode` / `nativeShotTarget` in
   `src/lib/rapid-add.ts`, on the shared `shouldCheckBarcodeFrame` / `stillFrameTarget`.
   When the server asks for nothing more and a photo is in, the check runs on its own (read-only,
-  no `finalize`). The pure state is `bottleFlowReducer` / `deriveBottleCameraView` /
+  no `finalize`). **What we've read** under the camera (`components/bottle-read-panel.tsx`, rows
+  from the shared `readPanelRows`) shows the barcode, brand, shade name, color and finish from
+  the latest `readSoFar` of a frame, check or skip response, with what the last photo added
+  marked New. There is no **auto-shutter** (the web fires the shutter once the bottle is held
+  steady in the outline): `expo-camera` exposes no preview frames to measure, and polling
+  `takePictureAsync` for samples would be slow, noisy and battery-hungry; it needs a frame
+  processor (e.g. `react-native-vision-camera`), a new native dependency. The pure state is `bottleFlowReducer` / `deriveBottleCameraView` /
   `shouldAutoCheck` in `swatchwatch-shared`; the UI is `components/bottle-prompt.tsx`.
   - **Batch mode:** a brand field above the camera ("Going through one brand?") becomes
     "Going through: Loud Lacquer · **Done**". The brand is sent as the start hint of every scan
