@@ -56,7 +56,9 @@ import {
   isRetryableStatus,
   MAX_CAPTURE_FRAMES,
   NATIVE_BARCODE_TYPES,
+  nativeShotTarget,
   normalizeNativeBarcode,
+  shouldCheckLiveBarcode,
   summarizeFrames,
   UPLOAD_RETRY_DELAYS_MS,
   verdictForCandidate,
@@ -398,6 +400,14 @@ export default function RapidAddScreen() {
       barcodeLock.current = true;
       setBarcode(scanned);
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+      if (!shouldCheckLiveBarcode(scanned, { bottleSequence: bottle })) {
+        // Bottle sequence: the barcode is one more piece of evidence. Its frame's `nextFrame`
+        // decides whether to ask for another photo; a catalog match asks for none, so the
+        // auto-check below matches it.
+        const target = nativeShotTarget({ bottleSequence: true, chipType: "barcode", manualType: null, view: null, barcode: scanned, trigger: "live-scan" });
+        void takeFrame(target.frameType, scanned, target.surface);
+        return;
+      }
       if (sessionPromise.current) {
         // A session already exists (started by an earlier photo) without this GTIN: it only
         // reaches the resolver through the barcode frame's quality, so check after that upload.
@@ -409,14 +419,13 @@ export default function RapidAddScreen() {
         void runCheck(scanned);
       }
     },
-    [runCheck, takeFrame],
+    [runCheck, takeFrame, bottle],
   );
 
   /** The photo the shutter and "Choose a photo" take next: the prompt's, a "More options" pick, or the chip's. */
-  function nextShot(): { type: CaptureFrameType; surface: BottleSurface | null } {
-    if (!bottle) return { type: frameType, surface: null };
-    if (manualType) return { type: manualType, surface: null };
-    return view ? { type: view.frameType, surface: view.surface } : { type: "label", surface: null };
+  function nextShot(trigger: "shutter" | "file"): { type: CaptureFrameType; surface: BottleSurface | null } {
+    const target = nativeShotTarget({ bottleSequence: bottle, chipType: frameType, manualType, view, barcode, trigger });
+    return { type: target.frameType, surface: target.surface };
   }
 
   /** "Can't see it": skip the asked-for surface. Starts the session first when there is none yet, as the web does. */
@@ -473,12 +482,12 @@ export default function RapidAddScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
       const asset = result.canceled ? null : result.assets[0];
       if (!asset) return;
-      const shot = nextShot();
+      const shot = nextShot("file");
       await addFrame({
         uri: asset.uri,
         width: asset.width,
         height: asset.height,
-        type: shot.type === "barcode" ? "label" : shot.type,
+        type: shot.type,
         source: "mobile-library",
         scanned: barcode,
         surface: shot.surface,
@@ -629,7 +638,7 @@ export default function RapidAddScreen() {
 
   const summary = summarizeFrames(frames);
   const view = bottle ? deriveBottleCameraView(flow, { brandKnown: isBatchMode(sticky) }) : null;
-  const shotType = bottle ? nextShot().type : frameType;
+  const shotType = nextShot("shutter").type;
   const hasHints = Boolean(brandHint.trim() || shadeHint.trim());
   const checkEnabled = canCheck({ frames, hasBarcode: Boolean(barcode), hasHints, busy: busy === "checking" });
   const cameraAllowed = permission?.granted === true;
@@ -734,7 +743,7 @@ export default function RapidAddScreen() {
                     accessibilityLabel={`Take a ${shotType} photo`}
                     disabled={busy === "capturing" || summary.total >= MAX_CAPTURE_FRAMES}
                     onPress={() => {
-                      const shot = nextShot();
+                      const shot = nextShot("shutter");
                       setManualType(null);
                       void takeFrame(shot.type, barcode, shot.surface);
                     }}

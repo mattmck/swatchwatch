@@ -8,6 +8,8 @@ import {
   deriveBottleCameraView,
   INITIAL_BOTTLE_FLOW_STATE,
   shouldAutoCheck,
+  shouldCheckBarcodeFrame,
+  stillFrameTarget,
   surfaceFromQuality,
   type BottleFlowClientState,
 } from "./bottle-flow";
@@ -193,5 +195,55 @@ describe("shouldAutoCheck", () => {
 
   it("is false before the session started", () => {
     assert.equal(shouldAutoCheck(INITIAL_BOTTLE_FLOW_STATE, 1), false);
+  });
+});
+
+describe("shouldCheckBarcodeFrame", () => {
+  const barcode = { gtin: "012345678905" };
+  const idle = { labelRequested: false, verdict: null };
+
+  it("checks a decoded barcode at once outside the bottle sequence", () => {
+    assert.equal(shouldCheckBarcodeFrame(idle, barcode, { bottleSequence: false }), true);
+  });
+
+  it("never checks on a barcode in the bottle sequence: the server's nextFrame decides", () => {
+    // Regression (#553): the Expo app checked as soon as it read a barcode, so an unknown
+    // barcode ended at not-found while the server still asked for the front, bottom and glass.
+    assert.equal(shouldCheckBarcodeFrame(idle, barcode, { bottleSequence: true }), false);
+  });
+
+  it("not while photographing the label, after a verdict, or without a barcode", () => {
+    const opts = { bottleSequence: false };
+    assert.equal(shouldCheckBarcodeFrame({ ...idle, labelRequested: true }, barcode, opts), false);
+    assert.equal(shouldCheckBarcodeFrame({ ...idle, verdict: { kind: "owned" } }, barcode, opts), false);
+    assert.equal(shouldCheckBarcodeFrame(idle, null, opts), false);
+  });
+});
+
+describe("stillFrameTarget", () => {
+  const barcode = { gtin: "012345678905" };
+  const bottom = { surface: "bottom" as const, frameType: "label" as const };
+
+  it("a photo the user took stays the prompted surface's frame with a barcode in view", () => {
+    for (const trigger of ["shutter", "auto", "file"] as const) {
+      assert.deepEqual(stillFrameTarget({ frameType: "barcode", barcode, trigger }, bottom), {
+        frameType: "label",
+        surface: "bottom",
+      });
+    }
+  });
+
+  it("a live barcode read is a barcode frame with no surface", () => {
+    assert.deepEqual(stillFrameTarget({ frameType: "barcode", barcode, trigger: "live-scan" }, bottom), {
+      frameType: "barcode",
+      surface: null,
+    });
+  });
+
+  it("with no prompt shown the photo's own frame type is kept", () => {
+    assert.deepEqual(stillFrameTarget({ frameType: "color", barcode: null, trigger: "shutter" }, null), {
+      frameType: "color",
+      surface: null,
+    });
   });
 });

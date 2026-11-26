@@ -5,6 +5,7 @@
  */
 import {
   hintsToStartMetadata,
+  shouldCheckBarcodeFrame,
   type BottleSurface,
   type CaptureFrameType,
   type CaptureGuideRegion,
@@ -16,6 +17,9 @@ import type { ScannedBarcode } from "./barcode-scan";
 import type { FrameQualityMetrics } from "./camera";
 import type { CaptureOutcome, CaptureVerdict } from "./capture-verdict";
 import { candidateOptionLabel } from "./capture-verdict";
+
+/** The barcode-check and still-frame decisions are shared with the Expo app (`swatchwatch-shared`). */
+export { shouldCheckBarcodeFrame, stillFrameTarget } from "swatchwatch-shared";
 
 /** Matches the capture API's `guidanceConfig.maxFrames`. */
 export const MAX_CAPTURE_FRAMES = 6;
@@ -271,35 +275,6 @@ export function rapidAddPhase(
   if (isFinished(state.status)) return "resolving";
   if (state.status === "needs_question" && state.question) return "question";
   return "collecting";
-}
-
-/**
- * A freshly decoded barcode is checked right away (its frame's upload response carries the
- * verdict, no OCR; without a frame, one `check` call). Not once a verdict is showing or the
- * user is photographing the label for an unknown barcode, and never in the guided bottle
- * sequence: there the barcode is one more piece of evidence and the server's `nextFrame` decides
- * whether to ask for another photo or to check (a catalog match ends the sequence by itself).
- */
-export function shouldCheckBarcodeFrame(
-  session: Pick<RapidAddSessionState, "labelRequested" | "verdict">,
-  barcode: ScannedBarcode | null,
-  opts: { bottleSequence: boolean },
-): barcode is ScannedBarcode {
-  return Boolean(barcode) && !opts.bottleSequence && !session.labelRequested && !session.verdict;
-}
-
-/**
- * The frame type and bottle surface a captured photo is sent as. In the bottle sequence a photo
- * the user took (shutter, auto-shutter or an upload) is the prompted surface's frame even when a
- * barcode is in view (a bottle's bottom often has its sticker), so the label is still read; the
- * barcode rides along in its quality. A live read off the preview stays a barcode frame.
- */
-export function stillFrameTarget(
-  event: { frameType: CaptureFrameType; barcode: ScannedBarcode | null; trigger: "live-scan" | "shutter" | "auto" | "file" },
-  view: { surface: BottleSurface; frameType: CaptureFrameType } | null,
-): { frameType: CaptureFrameType; surface: BottleSurface | null } {
-  if (view && event.trigger !== "live-scan") return { frameType: view.frameType, surface: view.surface };
-  return { frameType: event.frameType, surface: event.barcode ? null : (view?.surface ?? null) };
 }
 
 /**

@@ -8,6 +8,7 @@
  * / "new to you" without anything being written, and only an explicit tap adds it.
  */
 import type {
+  BottleCameraView,
   BottleSurface,
   CaptureBrandConflict,
   CaptureCheckCandidate,
@@ -18,7 +19,13 @@ import type {
   PolishDupesResponse,
   StickyHints,
 } from "swatchwatch-shared";
-import { deriveCreateCard, hintsToStartMetadata, normalizeScannedBarcode } from "swatchwatch-shared";
+import {
+  deriveCreateCard,
+  hintsToStartMetadata,
+  normalizeScannedBarcode,
+  shouldCheckBarcodeFrame,
+  stillFrameTarget,
+} from "swatchwatch-shared";
 
 /** Matches the capture API's `guidanceConfig.maxFrames`. */
 export const MAX_CAPTURE_FRAMES = 6;
@@ -44,6 +51,51 @@ export function normalizeNativeBarcode(raw: { data: string; type: string }): Sca
   }
   const normalized = normalizeScannedBarcode({ rawValue, format });
   return normalized ? { ...normalized, engine: "expo-camera" } : null;
+}
+
+/**
+ * Whether a barcode read off the live preview is checked at once. Flag off it is (the one-round-trip
+ * barcode verdict, as before). In the guided bottle sequence it never is (web parity, #553): the
+ * barcode is uploaded as one more frame and the server's `nextFrame` decides; a catalog barcode
+ * match plans no further photo, so the auto-check (`shouldAutoCheck`) matches it straight away.
+ * The camera is hidden while a verdict shows, so there is never one here.
+ */
+export function shouldCheckLiveBarcode(scanned: ScannedBarcode, opts: { bottleSequence: boolean }): boolean {
+  return shouldCheckBarcodeFrame({ labelRequested: false, verdict: null }, scanned, opts);
+}
+
+export type NativeShotTrigger = "live-scan" | "shutter" | "file";
+
+/**
+ * The frame type and surface a photo is sent as (`stillFrameTarget`, shared with the web).
+ * Flag off: the photo-type chip. Bottle sequence: the prompt's surface, even with a barcode in
+ * view (the bottom's sticker is still read and the GTIN rides along in `quality.gtin`); a "More
+ * options" type is a plain frame with no surface; a live barcode read stays a barcode frame. A
+ * library photo is never a barcode frame (the decoder only reads the live preview).
+ */
+export function nativeShotTarget(input: {
+  bottleSequence: boolean;
+  /** The photo-type chip (flag off). */
+  chipType: CaptureFrameType;
+  /** A type picked under "More options", for the next photo only. */
+  manualType: CaptureFrameType | null;
+  /** The prompt shown, or null. */
+  view: Pick<BottleCameraView, "surface" | "frameType"> | null;
+  barcode: ScannedBarcode | null;
+  trigger: NativeShotTrigger;
+}): { frameType: CaptureFrameType; surface: BottleSurface | null } {
+  let target: { frameType: CaptureFrameType; surface: BottleSurface | null };
+  if (input.trigger === "live-scan") {
+    target = stillFrameTarget({ frameType: "barcode", barcode: input.barcode, trigger: "live-scan" }, input.bottleSequence ? input.view : null);
+  } else if (!input.bottleSequence) {
+    target = { frameType: input.chipType, surface: null };
+  } else if (input.manualType) {
+    target = stillFrameTarget({ frameType: input.manualType, barcode: input.barcode, trigger: input.trigger }, null);
+  } else {
+    target = stillFrameTarget({ frameType: input.view?.frameType ?? "label", barcode: input.barcode, trigger: input.trigger }, input.view);
+  }
+  if (input.trigger === "file" && target.frameType === "barcode") return { ...target, frameType: "label" };
+  return target;
 }
 
 // ---------------------------------------------------------------------------

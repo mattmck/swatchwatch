@@ -209,7 +209,13 @@ src/
   `quality.surface`; no `quality.guideRegion` is sent: the native preview draws no outline and
   the `expo-camera` preview-to-picture crop is not established per platform, so the server uses
   its default outline); the Barcode / Label / Color chips move under **More options** and apply to
-  the next photo only. The barcode scanner keeps running and still short-circuits to a verdict.
+  the next photo only. A barcode read off the preview never checks at once here (#553, web
+  parity): it is uploaded as a barcode frame and the server's `nextFrame` decides, so an unknown
+  barcode goes on to the front / bottom / glass prompts while a catalog barcode match asks for
+  nothing more and is matched by the auto-check. A shutter or library photo with the barcode in
+  view is still the prompted surface's frame (the bottom's sticker is read; the GTIN rides along
+  in `quality.gtin`). Both decisions are `shouldCheckLiveBarcode` / `nativeShotTarget` in
+  `src/lib/rapid-add.ts`, on the shared `shouldCheckBarcodeFrame` / `stillFrameTarget`.
   When the server asks for nothing more and a photo is in, the check runs on its own (read-only,
   no `finalize`). The pure state is `bottleFlowReducer` / `deriveBottleCameraView` /
   `shouldAutoCheck` in `swatchwatch-shared`; the UI is `components/bottle-prompt.tsx`.
