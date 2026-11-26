@@ -82,6 +82,11 @@ registerMock("ingestion-repo", {
     job.metrics = clone(metrics);
     events.push({ type: "succeeded", metrics: clone(metrics) });
   },
+  markIngestionJobStoreClosed: async (_id, closed, metrics) => {
+    job.status = "succeeded";
+    job.metrics = clone(metrics);
+    events.push({ type: "store_closed", closed, metrics: clone(metrics) });
+  },
   markIngestionJobFailed: async (_id, error, metrics) => {
     job.status = "failed";
     job.error = error;
@@ -160,6 +165,7 @@ const {
 const { planPoisonedIngestionMessage } = require("../dist/functions/ingestion-worker");
 const { readResumeMessageFromMetrics } = require("../dist/lib/ingestion-continuation");
 const { ConnectorCheckpointSupersededError } = require("../dist/lib/connectors/types");
+const { StoreClosedError } = require("../dist/lib/connectors/store-closed");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1268,5 +1274,71 @@ describe("processIngestionJobQueueMessage — listing freshness on the Shopify p
     await processIngestionJobQueueMessage(makePayload({ checkpoint: again }), context);
     assert.equal(events.filter((e) => e.type === "pull").length, 1);
     assert.equal(freshnessCalls.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Store closed (#529)
+// ---------------------------------------------------------------------------
+
+describe("processIngestionJobQueueMessage — store closed", () => {
+  const closedError = () =>
+    new StoreClosedError({
+      source: "HoloTacoShopify",
+      reason: "password_page",
+      httpStatus: 401,
+      url: "https://shop.example/products.json?limit=250&page=1",
+    });
+
+  it("ends the job succeeded at stage store_closed, without a failure, freshness marking or records", async () => {
+    pages[1] = async () => {
+      throw closedError();
+    };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(job.status, "succeeded");
+    assert.equal(events.filter((e) => e.type === "failed").length, 0, "never marked failed (no ingestion.job_failed)");
+    const closed = events.find((e) => e.type === "store_closed");
+    assert.ok(closed, "markIngestionJobStoreClosed was called");
+    assert.deepEqual(closed.closed, { source: "HoloTacoShopify", reason: "password_page", httpStatus: 401, detail: null });
+    assert.equal(job.metrics.pipeline.status, "succeeded");
+    assert.equal(job.metrics.pipeline.stage, "store_closed");
+    assert.equal(job.metrics.storeClosed.reason, "password_page");
+    assert.equal(job.metrics.storeClosed.httpStatus, 401);
+    assert.equal(job.metrics.storeClosed.detectedStage, "connector_pull");
+    assert.ok(
+      job.metrics.logs.some((entry) => entry.level === "warn" && /password-protected/.test(entry.msg)),
+      "the reason is in the job log"
+    );
+    assert.deepEqual(materializeCalls(), [], "no catalog rows touched");
+    assert.equal(freshnessCalls.length, 0, "no listing marked missing");
+    assert.deepEqual(enqueued(), [], "no continuation or retry queued");
+  });
+
+  it("a later run of a store-closed source starts normally", async () => {
+    pages[1] = async () => {
+      throw closedError();
+    };
+    await processIngestionJobQueueMessage(makePayload(), context);
+    assert.equal(job.metrics.pipeline.stage, "store_closed");
+
+    // The next run is a new job; the store has reopened.
+    events = [];
+    job = { status: "queued", metrics: {} };
+    pages = { 1: { records: makeRecords(1, 2), metadata: {} } };
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(job.status, "succeeded");
+    assert.equal(job.metrics.pipeline.stage, "completed");
+    assert.deepEqual(materializeCalls(), [["p1-0", "p1-1"]]);
+  });
+
+  it("a poisoned copy of the message never fails a store-closed job", () => {
+    const decision = planPoisonedIngestionMessage(
+      { status: "succeeded", metrics: { pipeline: { status: "succeeded", stage: "store_closed" } } },
+      undefined
+    );
+    assert.equal(decision.action, "ignore");
   });
 });

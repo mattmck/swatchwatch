@@ -322,7 +322,7 @@ Pure TypeScript (Hermes-safe, no dependencies) for the apps' on-device text reco
 | `SOURCE_PERMISSION_CHANNELS` / `SourcePermissionChannel` | How the OK was given: `email \| dm \| form \| phone \| other` |
 | `SourcePermission` | Stored `data_source.metadata.permission`: status, `askedAt`, `decidedAt`, `grantedBy`, `channel`, `summary`, `imagesGranted`, `recordedByUserId`, `recordedAt` |
 | `AdminSourceKind` | `brand \| retailer \| feed` (`sourceKindFromMetadata`) |
-| `AdminSourceLastJob` / `AdminSourceListItem` | One `data_source` row for `GET /api/sources-admin`: kind, connector, `needsStoreOk` (false for open-data sources), on/off, permission, verification summary, last job, listing and shade counts |
+| `AdminSourceLastJob` / `AdminSourceListItem` | One `data_source` row for `GET /api/sources-admin`: kind, connector, `needsStoreOk` (false for open-data sources), on/off, permission, verification summary, last job (with its pipeline `stage`), listing and shade counts |
 | `AdminSourceListResponse` / `AdminSourceDetailResponse` | List payload; one source with notes and its audit history (`GET /api/sources-admin/{id}`) |
 | `AdminSourcePermissionRequest` | `PUT /api/sources-admin/{id}/permission` body, discriminated by `action`: `asked`, `granted`, `declined` or `images` (toggle `imagesGranted` on a grant) |
 | `AdminSourceEnabledRequest` | `PUT /api/sources-admin/{id}/enabled` body: `enabled`, `override?` |
@@ -539,6 +539,7 @@ The "add it as new" card for a bottle the catalog could not match. Pure.
 | `IngestionSourceName` | Allowed generated source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, HoloTacoShopify, Shopify sources, CosIng, etc.) |
 | `ConnectorProtocol` | Connector protocol group: `"HoloTaco" \| "Shopify" \| "OpenBeautyFacts" \| "MakeupAPI" \| "GS1" \| "ProductFeed" \| "SitemapJsonLd" \| "WooCommerce" \| "BigCartel" \| "Custom"`; generated per source into `SOURCE_PROTOCOL_MAP` from the source-name suffix (`Shopify`, `Feed`, `Sitemap`, `WooCommerce`, `BigCartel`) |
 | `IngestionJobStatus` | Job lifecycle status: `queued \| running \| succeeded \| failed \| cancelled` |
+| `INGESTION_STORE_CLOSED_STAGE` / `isStoreClosedIngestionJob` | `metrics.pipeline.stage` (`store_closed`) of a job whose store was closed or locked (#529; status `succeeded`), and the check the admin views use to label it "Store closed" |
 | `IngestionLogLevel` | Job log level: `debug \| info \| warn \| error` |
 | `IngestionLogEntry` | One job log line in `metrics.logs`: `{ ts, level, msg, data? }`; the single omission marker also carries `omitted` |
 | `IngestionLogOmission` | Roll-up on the marker entry of a bounded job log: `{ count, byLevel, firstTs?, lastTs? }` for the lines dropped between the start of the run and the newest lines |
@@ -591,7 +592,7 @@ Admin bottle eval samples (`/api/bottle-eval-admin/*`): a labeled bottle (catalo
 | `FinishNormalizationListResponse` | Response wrapper for finish normalization list endpoint |
 | `FinishTypeListResponse` | Response wrapper for finish list endpoint |
 | `HarmonyTypeListResponse` | Response wrapper for harmony list endpoint |
-| `IngestionJob` | Jobs-tab oriented ingestion job row shape (status/timing/error/processed count) |
+| `IngestionJob` | Jobs-tab oriented ingestion job row shape (status/timing/error/processed count, pipeline `stage`) |
 | `AdminJobsListResponse` | Admin jobs page/list payload wrapper (`jobs`, `total`, `page`, `pageSize`) |
 
 Export note:

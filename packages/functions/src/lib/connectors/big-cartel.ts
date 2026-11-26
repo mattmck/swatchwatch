@@ -23,6 +23,7 @@ import type { SourceSettings } from "../source-settings.js";
 import { isRetailerSetSegment, parseConnectorTitle, type RetailerTitle } from "./retailer-title.js";
 import { isBundle, resolveConnectorBrand } from "./shopify-generic.js";
 import { classifyWithStoreShadeName, shopifyStoreShadeName } from "./shopify-title.js";
+import { detectBigCartelMaintenance, StoreClosedError } from "./store-closed.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
 import { MYSTERY_TITLE_REGEX } from "./store-filters/shared.js";
 import type { StoreFilterProduct } from "./store-filters/types.js";
@@ -381,7 +382,20 @@ export class BigCartelConnector implements ProductConnector {
   /** products.json (the whole catalog), then store.json once for the store URL and currency. */
   private async fetchCatalog(): Promise<{ entries: CachedProduct[]; storeJsonRead: boolean }> {
     const response = await this.request(`${this.apiBase}/products.json`);
-    if (!response.ok) throw new Error(`${this.source} Big Cartel API request failed: HTTP ${response.status}`);
+    if (!response.ok) {
+      // Maintenance mode is a closed store, not a failure: keep the catalog, try again next run.
+      const maintenance = detectBigCartelMaintenance(response.status, response.body);
+      if (maintenance) {
+        throw new StoreClosedError({
+          source: this.source,
+          reason: "maintenance",
+          httpStatus: response.status,
+          url: `${this.apiBase}/products.json`,
+          detail: maintenance,
+        });
+      }
+      throw new Error(`${this.source} Big Cartel API request failed: HTTP ${response.status}`);
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(response.body);
@@ -434,7 +448,9 @@ export class BigCartelConnector implements ProductConnector {
           signal: controller.signal,
         });
         if (response.ok || !isRetryableStatus(response.status)) {
-          return { ok: response.ok, status: response.status, body: response.ok ? await response.text() : "" };
+          // A 403 body is kept so maintenance mode can be told apart from other refusals.
+          const keepBody = response.ok || response.status === 403;
+          return { ok: response.ok, status: response.status, body: keepBody ? await response.text() : "" };
         }
         retryReason = `HTTP ${response.status}`;
         lastError = new Error(`${this.source} Big Cartel API request failed: HTTP ${response.status} ${response.statusText ?? ""}`.trim());

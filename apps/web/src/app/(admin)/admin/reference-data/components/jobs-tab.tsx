@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { IngestionJob } from "swatchwatch-shared";
+import { isStoreClosedIngestionJob, type IngestionJob } from "swatchwatch-shared";
 import { listAdminJobs } from "@/lib/api";
+import { ingestionJobStatusLabel, STORE_CLOSED_BADGE_CLASS, STORE_CLOSED_TITLE } from "@/lib/ingestion-job-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -205,8 +206,12 @@ export function JobsTab() {
                 <TableCell>{job.dataSourceName ?? `Source ${job.dataSourceId}`}</TableCell>
                 <TableCell>{job.jobType}</TableCell>
                 <TableCell>
-                  <Badge variant="outline" className={statusBadgeClass(job.status)}>
-                    {job.status}
+                  <Badge
+                    variant="outline"
+                    className={isStoreClosedIngestionJob(job) ? STORE_CLOSED_BADGE_CLASS : statusBadgeClass(job.status)}
+                    title={isStoreClosedIngestionJob(job) ? STORE_CLOSED_TITLE : undefined}
+                  >
+                    {ingestionJobStatusLabel(job)}
                   </Badge>
                 </TableCell>
                 <TableCell>{formatDateTime(job.startedAt)}</TableCell>

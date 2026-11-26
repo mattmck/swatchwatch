@@ -2462,6 +2462,26 @@ export async function markIngestionJobSucceeded(
   );
 }
 
+/**
+ * Ends a job whose store was closed or locked (#529): `succeeded` with the caller's
+ * `store_closed` metrics, no `error`, and `ingestion.store_closed` instead of
+ * `ingestion.job_failed`, so a locked indie store never trips the failure alert.
+ */
+export async function markIngestionJobStoreClosed(
+  jobId: number,
+  closed: { source: string; reason: string; httpStatus: number | null; detail: string | null },
+  metrics: Record<string, unknown>
+): Promise<void> {
+  await markIngestionJobSucceeded(jobId, metrics);
+  trackEvent("ingestion.store_closed", {
+    jobId,
+    source: closed.source,
+    reason: closed.reason,
+    httpStatus: closed.httpStatus ?? "",
+    ...(closed.detail ? { detail: closed.detail.slice(0, 200) } : {}),
+  });
+}
+
 /** Sets a job to `failed` with its error and metrics, and emits `ingestion.job_failed` for the alert. */
 export async function markIngestionJobFailed(
   jobId: number,

@@ -1,12 +1,19 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  BulkIngestionRequest,
-  IngestionJobRecord,
-  IngestionJobRunRequest,
-  IngestionLogLevel,
+import {
+  isStoreClosedIngestionJob,
+  type BulkIngestionRequest,
+  type IngestionJobRecord,
+  type IngestionJobRunRequest,
+  type IngestionLogLevel,
 } from "swatchwatch-shared";
+import {
+  ingestionJobStatusLabel,
+  pipelineStageOf,
+  STORE_CLOSED_BADGE_CLASS,
+  STORE_CLOSED_TITLE,
+} from "@/lib/ingestion-job-status";
 import {
   filterJobLog,
   formatJobLogCount,
@@ -184,12 +191,7 @@ function LogLevelIcon({ level }: { level: IngestionLogLevel }) {
 }
 
 function getPipelineStage(job: IngestionJobRecord): string | null {
-  if (!job.metrics || typeof job.metrics !== "object") return null;
-  const pipeline = job.metrics.pipeline;
-  if (!pipeline || typeof pipeline !== "object") return null;
-  return typeof (pipeline as Record<string, unknown>).stage === "string"
-    ? ((pipeline as Record<string, unknown>).stage as string)
-    : null;
+  return pipelineStageOf(job.metrics);
 }
 
 function getPipelineUpdatedAt(job: IngestionJobRecord): number {
@@ -910,6 +912,7 @@ export function AdminJobsContent() {
                 const logFilter: JobLogFilter = problemsOnlyLogJobIds.has(job.jobId) ? "problems" : "all";
                 const logTall = tallLogJobIds.has(job.jobId);
                 const isActive = job.status === "running" || job.status === "queued";
+                const storeClosed = isStoreClosedIngestionJob({ status: job.status, stage: getPipelineStage(job) });
 
                 return (
                   <Fragment key={job.jobId}>
@@ -927,8 +930,12 @@ export function AdminJobsContent() {
                       <TableCell className="font-medium">#{job.jobId}</TableCell>
                       <TableCell>{job.source}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={statusClassName(job.status)}>
-                          {job.status}
+                        <Badge
+                          variant="outline"
+                          className={storeClosed ? STORE_CLOSED_BADGE_CLASS : statusClassName(job.status)}
+                          title={storeClosed ? STORE_CLOSED_TITLE : undefined}
+                        >
+                          {ingestionJobStatusLabel({ status: job.status, stage: getPipelineStage(job) })}
                         </Badge>
                       </TableCell>
                       <TableCell>{formatDateTime(job.startedAt)}</TableCell>

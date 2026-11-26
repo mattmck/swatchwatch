@@ -34,6 +34,8 @@ export interface AdminSourceLastJob {
   startedAt: string | null;
   finishedAt: string | null;
   recordsProcessed: number | null;
+  /** `metrics.pipeline.stage` (e.g. `store_closed`), null when the job recorded none. */
+  stage: string | null;
 }
 
 export interface AdminSourceListItem {

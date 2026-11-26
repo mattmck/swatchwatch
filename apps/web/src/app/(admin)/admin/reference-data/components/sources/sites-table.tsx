@@ -1,7 +1,8 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
-import type { AdminSourceKind, AdminSourceLastJob, AdminSourceListItem, SourcePermission } from "swatchwatch-shared";
+import { AlertTriangle, CheckCircle2, Clock, Loader2, Lock, XCircle } from "lucide-react";
+import { isStoreClosedIngestionJob, type AdminSourceKind, type AdminSourceLastJob, type AdminSourceListItem, type SourcePermission } from "swatchwatch-shared";
+import { STORE_CLOSED_LABEL, STORE_CLOSED_TITLE } from "@/lib/ingestion-job-status";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
@@ -79,15 +80,18 @@ export function PermissionChip({ permission }: { permission: SourcePermission })
 
 export function LastJob({ job }: { job: AdminSourceLastJob | null }) {
   if (!job) return <span className="text-muted-foreground">never</span>;
+  const storeClosed = isStoreClosedIngestionJob(job);
   const icon =
-    job.status === "succeeded" ? <CheckCircle2 className="size-3.5 text-green-600" aria-label="Succeeded" />
+    storeClosed ? <Lock className="size-3.5 text-violet-600" aria-label={STORE_CLOSED_LABEL} />
+    : job.status === "succeeded" ? <CheckCircle2 className="size-3.5 text-green-600" aria-label="Succeeded" />
     : job.status === "failed" || job.status === "cancelled" ? <XCircle className="size-3.5 text-red-600" aria-label={job.status} />
     : job.status === "running" ? <Loader2 className="size-3.5 animate-spin text-blue-600" aria-label="Running" />
     : <Clock className="size-3.5 text-amber-600" aria-label="Queued" />;
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap" title={storeClosed ? STORE_CLOSED_TITLE : undefined}>
       {icon}
       {job.startedAt ? relativeTime(job.startedAt) : job.status}
+      {storeClosed && <span className="text-violet-700">· {STORE_CLOSED_LABEL}</span>}
       {job.recordsProcessed !== null && <span className="text-muted-foreground">· {job.recordsProcessed.toLocaleString()}</span>}
     </span>
   );

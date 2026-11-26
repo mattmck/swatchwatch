@@ -8,6 +8,7 @@
 
 import type { SupportedConnectorSource } from "./types.js";
 import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images.js";
+import { detectShopifyStoreClosed, isStoreClosedError, StoreClosedError } from "./store-closed.js";
 import {
   ConnectorPullOptions,
   ConnectorPullResult,
@@ -705,6 +706,17 @@ export class ShopifyGenericConnector implements ProductConnector {
           signal: controller.signal,
         });
 
+        // A password-locked storefront is closed, not broken: stop here (no retry, no bypass).
+        const closedReason = detectShopifyStoreClosed(response);
+        if (closedReason) {
+          throw new StoreClosedError({
+            source: this.source,
+            reason: closedReason,
+            httpStatus: response.status,
+            url,
+          });
+        }
+
         const bodyText = await response.text();
         if (!response.ok) {
           const bodyPreview = summarizeResponseBody(bodyText);
@@ -747,6 +759,7 @@ export class ShopifyGenericConnector implements ProductConnector {
           throw jsonError;
         }
       } catch (error) {
+        if (isStoreClosedError(error)) throw error;
         let normalizedError = error instanceof Error ? error : new Error(String(error));
         if (normalizedError.name === "AbortError") {
           normalizedError = new Error(

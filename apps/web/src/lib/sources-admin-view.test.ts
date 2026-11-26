@@ -32,7 +32,7 @@ function brand(id: number, o: Partial<AdminBrandListItem> = {}): AdminBrandListI
   };
 }
 
-const job = (startedAt: string | null) => ({ jobId: "j", status: "succeeded" as const, startedAt, finishedAt: null, recordsProcessed: 1 });
+const job = (startedAt: string | null) => ({ jobId: "j", status: "succeeded" as const, startedAt, finishedAt: null, recordsProcessed: 1, stage: null });
 
 describe("filterSites", () => {
   it("combines kind, enabled, permission and q", () => {
