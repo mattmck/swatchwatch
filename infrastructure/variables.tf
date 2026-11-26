@@ -620,9 +620,14 @@ variable "function_app_scale_limit" {
 }
 
 variable "pg_app_connection_limit" {
-  description = "Postgres connections available to the app: the server's max_connections minus the reserved ones. B_Standard_B1ms allows 50 and reserves 15. Raise it when the server SKU changes"
+  description = "Postgres connections available to the app: the server's max_connections minus the reserved ones. B_Standard_B1ms allows 50 and reserves 15. Update it with the Postgres sku_name in main.tf"
   type        = number
   default     = 35
+
+  validation {
+    condition     = var.pg_app_connection_limit >= 1 && floor(var.pg_app_connection_limit) == var.pg_app_connection_limit
+    error_message = "pg_app_connection_limit must be a whole number of at least 1."
+  }
 }
 
 variable "pg_idle_timeout_ms" {

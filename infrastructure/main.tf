@@ -309,6 +309,8 @@ resource "azurerm_postgresql_flexible_server" "main" {
   administrator_login    = var.pg_admin_username
   administrator_password = var.pg_admin_password
 
+  # Changing the SKU changes max_connections: update var.pg_app_connection_limit with it, or the
+  # Function App scale-limit precondition checks the old limit (#548).
   sku_name   = "B_Standard_B1ms"
   storage_mb = 32768
 

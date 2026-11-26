@@ -31,8 +31,10 @@ function isRetrySafeQuery(text: string): boolean {
 
 /**
  * Connection failures worth another attempt. Includes the server refusing a new connection
- * because it is full (SQLSTATE 53300, #548): another instance's pool usually frees a slot
- * within the retry window.
+ * because it is full (SQLSTATE 53300, #548). Retrying covers a brief spike only: the retries
+ * span well under a second, while other instances keep idle connections for
+ * PG_IDLE_TIMEOUT_MS (30 s). What keeps the server from filling up is the Function App
+ * scale limit (`function_app_scale_limit` x `pg_pool_max` <= `pg_app_connection_limit`).
  */
 export function isRetryableConnectionError(error: unknown): boolean {
   if (!(error instanceof Error)) {
