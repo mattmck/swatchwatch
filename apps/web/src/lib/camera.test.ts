@@ -7,6 +7,7 @@ import {
   classifyCameraError,
   computeFrameQuality,
   getCameraAvailability,
+  planCameraVisibility,
   rgbaToLuminance,
   shouldRetryWithoutConstraints,
 } from "./camera";
@@ -113,6 +114,44 @@ describe("computeFrameQuality / assessFrameQuality", () => {
       brightness: 0,
       contrast: 0,
       sharpness: 0,
+    });
+  });
+});
+
+describe("planCameraVisibility", () => {
+  it("releases a running or starting camera when the tab is hidden and remembers to resume", () => {
+    assert.deepEqual(planCameraVisibility({ visible: false, active: true, resumeOnVisible: false }), {
+      action: "release",
+      resumeOnVisible: true,
+    });
+  });
+
+  it("restarts the camera when the tab comes back after a hide released it", () => {
+    assert.deepEqual(planCameraVisibility({ visible: true, active: false, resumeOnVisible: true }), {
+      action: "resume",
+      resumeOnVisible: false,
+    });
+  });
+
+  it("leaves a camera the user stopped (or never started) off", () => {
+    assert.deepEqual(planCameraVisibility({ visible: false, active: false, resumeOnVisible: false }), {
+      action: "none",
+      resumeOnVisible: false,
+    });
+    assert.deepEqual(planCameraVisibility({ visible: true, active: false, resumeOnVisible: false }), {
+      action: "none",
+      resumeOnVisible: false,
+    });
+  });
+
+  it("does nothing when the camera is already running on show, and keeps a pending resume across a second hide", () => {
+    assert.deepEqual(planCameraVisibility({ visible: true, active: true, resumeOnVisible: true }), {
+      action: "none",
+      resumeOnVisible: false,
+    });
+    assert.deepEqual(planCameraVisibility({ visible: false, active: false, resumeOnVisible: true }), {
+      action: "none",
+      resumeOnVisible: true,
     });
   });
 });

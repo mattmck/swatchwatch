@@ -42,7 +42,11 @@ async function clientQuery(sql, params = []) {
     const user = db.users.find((u) => u.email && u.email.toLowerCase() === String(params[0]).toLowerCase());
     return { rows: user ? [{ userId: user.user_id }] : [] };
   }
+  if (/^\s*(SAVEPOINT|RELEASE\s+SAVEPOINT|ROLLBACK\s+TO\s+SAVEPOINT)\b/i.test(text)) return { rows: [] };
   if (/INSERT\s+INTO\s+app_user/i.test(text)) {
+    if (/ON\s+CONFLICT\s*\(external_id\)\s*DO\s+NOTHING/i.test(text) && db.users.some((u) => u.external_id === params[0])) {
+      return { rows: [] };
+    }
     const user = { user_id: db.nextUserId++, external_id: params[0], email: params[1], role: params[3] || "user" };
     db.users.push(user);
     return { rows: [{ userId: user.user_id, role: user.role }] };

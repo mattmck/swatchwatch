@@ -86,3 +86,20 @@ export function buildNearHexDistanceSql(
   });
   return { sql: terms.length === 1 ? terms[0] : `LEAST(${terms.join(", ")})`, params };
 }
+
+/**
+ * `buildNearHexDistanceSql`, but NULL for a shade whose display hex is only estimated (no vendor
+ * or detected hex, so `oklab_*` come from `name_hex`, a guess from the color name; tier 1 of
+ * `NEAR_HEX_TIER_SQL`). For callers that treat the distance as evidence about the bottle, such
+ * as the bottle resolver: a guessed color must neither confirm nor reject a match.
+ */
+export function buildMeasuredHexDistanceSql(
+  targets: string[],
+  firstParamIndex: number
+): { sql: string; params: number[] } {
+  const distance = buildNearHexDistanceSql(targets, firstParamIndex);
+  return {
+    sql: `CASE WHEN NULLIF(s.vendor_hex, '') IS NULL AND NULLIF(s.detected_hex, '') IS NULL THEN NULL ELSE ${distance.sql} END`,
+    params: distance.params,
+  };
+}

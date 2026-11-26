@@ -124,6 +124,48 @@ describe("selectBuyFromBrandUrl", () => {
     );
   });
 
+  it("prefers a brand-store link over a feed or retailer link, however recent", () => {
+    const today = T("2026-11-08T00:00:00Z");
+    const lastYear = T("2025-11-08T00:00:00Z");
+    const retailer = (seen) => ({ ...base, url: "https://retailer.example/p", sourceKind: "retailer", lastSeenAt: seen, fetchedAt: seen });
+    const feed = (seen) => ({ ...base, url: "https://feed.example/p", sourceKind: "feed", lastSeenAt: seen, fetchedAt: seen });
+    const brand = (seen) => ({ ...base, url: "https://brand.example/p", sourceKind: "brand", lastSeenAt: seen, fetchedAt: seen });
+
+    assert.equal(selectBuyFromBrandLink([retailer(today), brand(lastYear)]).url, brand(lastYear).url);
+    assert.equal(selectBuyFromBrandLink([retailer(today), feed(lastYear)]).url, feed(lastYear).url);
+    assert.equal(selectBuyFromBrandLink([feed(today), brand(lastYear)]).url, brand(lastYear).url);
+    // Same kind: the existing recency rule still decides.
+    assert.equal(
+      selectBuyFromBrandLink([retailer(lastYear), { ...retailer(today), url: "https://retailer2.example/p" }]).url,
+      "https://retailer2.example/p"
+    );
+  });
+
+  it("ranks a missing or unknown source kind as a brand link", () => {
+    const old = T("2025-01-01T00:00:00Z");
+    const recent = T("2026-10-01T00:00:00Z");
+    const retailer = { ...base, url: "https://retailer.example/p", sourceKind: "retailer", lastSeenAt: recent };
+    assert.equal(selectBuyFromBrandUrl([retailer, { ...base, url: "https://legacy.example/p", lastSeenAt: old }]), "https://legacy.example/p");
+    assert.equal(
+      selectBuyFromBrandUrl([retailer, { ...base, url: "https://odd.example/p", sourceKind: "marketplace", lastSeenAt: old }]),
+      "https://odd.example/p"
+    );
+  });
+
+  it("reads the source kind from data_source.metadata (sourceKindFromMetadata), not a SQL column", () => {
+    assert.match(BUY_LINK_CANDIDATES_SQL, /ds\.metadata\s+AS "sourceMetadata"/);
+    assert.doesNotMatch(BUY_LINK_CANDIDATES_SQL, /'sourceKind'/);
+  });
+
+  it("ranks sold-out before kind: a buyable retailer link beats a sold-out brand link", () => {
+    const seen = T("2026-10-01T00:00:00Z");
+    const brandSoldOut = { ...base, url: "https://brand.example/p", sourceKind: "brand", available: false, lastSeenAt: seen };
+    const feedLive = { ...base, url: "https://feed.example/p", sourceKind: "feed", available: true, lastSeenAt: seen };
+    const retailerLive = { ...base, url: "https://retailer.example/p", sourceKind: "retailer", available: null, lastSeenAt: seen };
+    assert.equal(selectBuyFromBrandUrl([brandSoldOut, retailerLive]), "https://retailer.example/p");
+    assert.equal(selectBuyFromBrandUrl([brandSoldOut, retailerLive, feedLive]), "https://feed.example/p");
+  });
+
   it("treats an unknown enabled flag as enabled", () => {
     assert.equal(selectBuyFromBrandUrl([{ ...base, url: "https://brand.example/p", sourceEnabled: null }]), "https://brand.example/p");
   });
@@ -321,11 +363,181 @@ describe("recordShadeSourceProduct", () => {
     assert.deepEqual(calls[0].params, [42, 3, "gid://shopify/Product/1"]);
   });
 
+  it("accepts the string ids node-postgres returns for bigint columns", async () => {
+    // data_source_id and shade_id are bigint, so pg hands them back as strings ("24"); ingestion
+    // passes them straight through, and a Number.isFinite check on the raw value skipped every link.
+    const calls = [];
+    const client = { query: async (sql, params) => calls.push({ sql, params }) };
+    await recordShadeSourceProduct(client, "42", "3", "7779998924851");
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].params, [42, 3, "7779998924851"]);
+  });
+
+  it("is a no-op for ids that are not positive integers", async () => {
+    const calls = [];
+    const client = { query: async (sql, params) => calls.push({ sql, params }) };
+    await recordShadeSourceProduct(client, "abc", 3, "1");
+    await recordShadeSourceProduct(client, 42, undefined, "1");
+    await recordShadeSourceProduct(client, 0, 3, "1");
+    await recordShadeSourceProduct(client, 4.5, 3, "1");
+    assert.equal(calls.length, 0);
+  });
+
   it("is a no-op without an external id", async () => {
     const calls = [];
     const client = { query: async (sql, params) => calls.push({ sql, params }) };
     await recordShadeSourceProduct(client, 42, 3, "  ");
     await recordShadeSourceProduct(client, 42, 3, null);
     assert.equal(calls.length, 0);
+  });
+});
+
+describe("selectBuyFromBrandUrl: missing listings and retailer ordering", () => {
+  const base = {
+    shadeId: "1",
+    sourceEnabled: true,
+    lastSeenAt: T("2026-10-01T00:00:00Z"),
+    fetchedAt: T("2026-10-01T00:00:00Z"),
+    externalProductId: "10",
+    sourceKind: "brand_store",
+    available: true,
+    missingSince: null,
+  };
+
+  it("never chooses a missing listing, even when it is the newest", () => {
+    const live = { ...base, url: "https://brand.example/p", lastSeenAt: T("2026-01-01T00:00:00Z") };
+    const missing = {
+      ...base,
+      url: "https://retailer.example/p",
+      sourceKind: "retailer",
+      lastSeenAt: T("2026-10-30T00:00:00Z"),
+      missingSince: T("2026-10-29T00:00:00Z"),
+    };
+    assert.equal(selectBuyFromBrandUrl([missing, live]), "https://brand.example/p");
+  });
+
+  it("returns no link when every listing is missing", () => {
+    const missing = { ...base, url: "https://brand.example/p", missingSince: "2026-10-29T00:00:00Z" };
+    assert.equal(selectBuyFromBrandUrl([missing]), null);
+    assert.equal(selectBuyFromBrandLink([missing]), null);
+  });
+
+  it("prefers an available retailer over a sold-out brand store", () => {
+    const brand = { ...base, url: "https://brand.example/p", available: false };
+    const retailer = { ...base, url: "https://retailer.example/p", sourceKind: "retailer", available: true };
+    assert.equal(selectBuyFromBrandUrl([brand, retailer]), "https://retailer.example/p");
+  });
+
+  it("prefers the brand store when both are available, even if the retailer was seen later", () => {
+    const brand = { ...base, url: "https://brand.example/p", lastSeenAt: T("2026-01-01T00:00:00Z") };
+    const retailer = {
+      ...base,
+      url: "https://retailer.example/p",
+      sourceKind: "retailer",
+      lastSeenAt: T("2026-10-30T00:00:00Z"),
+    };
+    assert.equal(selectBuyFromBrandUrl([retailer, brand]), "https://brand.example/p");
+  });
+
+  it("ranks an unknown availability (null) with available", () => {
+    const brand = { ...base, url: "https://brand.example/p", available: null };
+    const retailer = { ...base, url: "https://retailer.example/p", sourceKind: "retailer", available: true };
+    assert.equal(selectBuyFromBrandUrl([retailer, brand]), "https://brand.example/p");
+  });
+
+  it("falls back to a sold-out listing when it is the only one", () => {
+    const brand = { ...base, url: "https://brand.example/p", available: false };
+    assert.equal(selectBuyFromBrandUrl([brand]), "https://brand.example/p");
+  });
+
+  it("selects candidate columns for the new fields", () => {
+    assert.match(BUY_LINK_CANDIDATES_SQL, /missing_since/);
+    assert.match(BUY_LINK_CANDIDATES_SQL, /"sourceMetadata"/);
+    assert.match(BUY_LINK_CANDIDATES_SQL, /available/);
+  });
+});
+
+describe("loadBuyLinksForShades: source kind and missing listings (fake rows)", () => {
+  // The fake query never runs the SQL, so `available` comes in as the column value it would return.
+  const row = (overrides) => ({
+    shadeId: "7",
+    sourceEnabled: true,
+    lastSeenAt: "2026-11-01T00:00:00Z",
+    fetchedAt: "2026-11-01T00:00:00Z",
+    missingSince: null,
+    available: true,
+    sourceMetadata: null,
+    price: null,
+    currency: null,
+    ...overrides,
+  });
+
+  it("maps sourceMetadata to the source kind, prefers the brand store and drops a missing listing", async () => {
+    const rows = [
+      // Newest of all, but gone from its catalog.
+      row({ url: "https://brand.example/gone", externalProductId: "3", lastSeenAt: "2026-11-06T00:00:00Z", missingSince: "2026-11-06T00:00:00Z" }),
+      // Seen later than the brand store, but a retailer.
+      row({ url: "https://retailer.example/p", externalProductId: "2", lastSeenAt: "2026-11-05T00:00:00Z", sourceMetadata: { kind: "retailer" }, price: "12.50", currency: "USD" }),
+      row({ url: "https://brand.example/p", externalProductId: "1", price: "13.00", currency: "USD" }),
+    ];
+    const links = await loadBuyLinksForShades(["7"], async () => ({ rows }));
+    assert.equal(links.get("7").url, "https://brand.example/p");
+    assert.equal(links.get("7").price, 13);
+  });
+
+  it("uses the retailer when the brand store listing is sold out, and returns no link when every listing is missing", async () => {
+    const soldOut = [
+      row({ url: "https://brand.example/p", externalProductId: "1", available: false }),
+      row({ url: "https://retailer.example/p", externalProductId: "2", sourceMetadata: { kind: "retailer" } }),
+    ];
+    const live = await loadBuyLinksForShades(["7"], async () => ({ rows: soldOut }));
+    assert.equal(live.get("7").url, "https://retailer.example/p");
+
+    const allGone = soldOut.map((r) => ({ ...r, missingSince: "2026-11-06T00:00:00Z" }));
+    const none = await loadBuyLinksForShades(["7"], async () => ({ rows: allGone }));
+    assert.equal(none.has("7"), false);
+  });
+
+  it("treats an unrecognized metadata kind as a brand store and normalizes a known one", async () => {
+    const rows = [
+      row({ url: "https://shop-a.example/p", externalProductId: "1", lastSeenAt: "2026-11-01T00:00:00Z", sourceMetadata: { kind: "wholesale" } }),
+      row({ url: "https://shop-b.example/p", externalProductId: "2", lastSeenAt: "2026-11-02T00:00:00Z", sourceMetadata: { kind: " RETAILER " } }),
+    ];
+    const links = await loadBuyLinksForShades(["7"], async () => ({ rows }));
+    // "wholesale" is unknown (a brand store); " RETAILER " normalizes to retailer like readSourceKind.
+    assert.equal(links.get("7").url, "https://shop-a.example/p");
+  });
+});
+
+describe("availability contract: normalized_json.available (Task 14)", () => {
+  it("reads the connector's boolean available first, then the Shopify variants", () => {
+    const sql = BUY_LINK_CANDIDATES_SQL.replace(/--[^\n]*/g, "").replace(/\s+/g, " ");
+    const match = /COALESCE\( CASE WHEN jsonb_typeof\(ep\.normalized_json -> 'available'\) = 'boolean' THEN \(ep\.normalized_json ->> 'available'\)::boolean END, CASE WHEN jsonb_typeof\(ep\.normalized_json -> 'variants'\) = 'array'/.exec(sql);
+    assert.ok(match, "available = COALESCE(normalized available, variants derivation)");
+    assert.match(sql, /END \) AS available,/);
+  });
+
+  it("a variant-less listing whose normalized available is false sorts after one with true", async () => {
+    // The fake query stands in for the SQL: for a feed listing without variants the COALESCE
+    // returns normalized_json.available as is.
+    const listing = (normalized) => ({
+      shadeId: "1",
+      url: normalized.productUrl,
+      sourceEnabled: true,
+      lastSeenAt: normalized.seen,
+      fetchedAt: normalized.seen,
+      externalProductId: normalized.id,
+      price: null,
+      currency: null,
+      missingSince: null,
+      available: typeof normalized.available === "boolean" ? normalized.available : null,
+      sourceMetadata: { kind: "feed" },
+    });
+    const soldOut = listing({ id: "1", productUrl: "https://feed.example/sold-out", available: false, seen: T("2026-11-07T00:00:00Z") });
+    const live = listing({ id: "2", productUrl: "https://feed.example/live", available: true, seen: T("2026-10-01T00:00:00Z") });
+    const links = await loadBuyLinksForShades(["1"], async () => ({ rows: [soldOut, live] }));
+    assert.equal(links.get("1").url, "https://feed.example/live");
+    const reversed = await loadBuyLinksForShades(["1"], async () => ({ rows: [live, soldOut] }));
+    assert.equal(reversed.get("1").url, "https://feed.example/live");
   });
 });

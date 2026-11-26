@@ -56,7 +56,7 @@ Admin authorization note:
 
 - **Node.js ≥ 22.13** (see `engines` in `package.json`; Expo SDK 58 and React Native 0.88 need it)
 - **Docker** — for local Postgres (pgvector)
-- **Azure Functions Core Tools v4** — for local functions development (`brew install azure-functions-core-tools@4`)
+- **Azure Functions Core Tools v4 (>= 4.16)** — for local functions development, installed globally (`brew tap azure/functions && brew install azure-functions-core-tools@4`; elsewhere `npm i -g azure-functions-core-tools@4`). Not an npm dependency of the repo; `npm run dev` checks for it
 - **Terraform ≥ 1.5** — for infrastructure provisioning
 - **Expo CLI** — for mobile development (`npx expo`)
 
@@ -83,6 +83,7 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | Command | What it does |
 |---------|-------------|
 | `npm run setup` | Install workspace dependencies (`npm ci`) |
+| `npm run setup:worktree` | Ready a new worktree: copy `.env` + `local.settings.json` from the primary checkout, `npm ci` if needed, build shared types |
 | `npm run dev:infra` | Start local Postgres + Azurite containers in Docker |
 | `npm run dev` | Run shared type watcher, Functions host, and web dev server together (CTRL+C stops all) |
 | `npm run dev:web` | Next.js dev server (port 3000) |
@@ -98,17 +99,20 @@ npm run dev:mobile       # → mobile via Expo (see apps/mobile/README.md)
 | `npm run lint` | ESLint across all workspaces |
 | `npm run test` | Run workspace tests where present (includes Functions unit tests; builds shared + functions first) |
 | `npm run test --workspace=swatchwatch-shared` | Shared unit tests (color harmonies, Pair it; node:test via tsx; CI's "Shared unit tests" step) |
-| `npm run test:e2e --workspace=swatchwatch-functions` | E2E API + cross-user access-control tests against a running local Functions host (`AUTH_DEV_BYPASS=true`); skips when the host is unreachable |
+| `npm run test:e2e --workspace=swatchwatch-functions` | E2E API, cross-user access-control and Rapid Add capture tests against a running local Functions host (`AUTH_DEV_BYPASS=true`); skips when the host is unreachable (`E2E_REQUIRE_HOST=true` fails instead). CI's "API E2E" job runs them on every PR against a migrated Postgres, Azurite and `func` |
 | `npm run backfill:product-category --workspace=swatchwatch-functions` | Re-classify every shade's product category (#349, #347) via `POST /api/shades-admin/product-category/backfill` and save the JSON report (`--out`); dry run unless `--write`; `--clear-topper-hex` also clears suspicious topper detected hexes (logged for undo); `API_BASE_URL`, `ADMIN_BEARER_TOKEN` |
 | `npm run backfill:product-price --workspace=swatchwatch-functions` | Recompute product `price`/`currency` (brand list price for the buy link) from `raw_json`; Shopify store currency from `data_source.metadata.currency`, earlier ingests, or the shop's `/meta.json` (`--no-fetch-currency` skips it); dry run unless `--write`; needs Postgres |
 | `npm run backfill:product-text --workspace=swatchwatch-functions` | Recompute product `descriptionText`/`descriptors` from `raw_json` and report empty-finish coverage (#352); dry run unless `--write` (`--fill-finishes` also fills empty shade finishes) |
 | `npm run eval:bottle --workspace=swatchwatch-functions` | Bottle recognition eval: replays every bottle eval sample through the capture API (start → frames → read-only check, never finalize) and scores the answers against the labels; `--verbose`, `--only`, `--limit`; report JSON in `packages/functions/eval/bottle/results` (gitignored); `API_BASE_URL`, `ADMIN_BEARER_TOKEN`, Postgres and storage from `local.settings.json` |
+| `npm run eval:bottle:import --workspace=swatchwatch-functions -- --dir <folder>` | Bulk-import bottle eval samples from a folder of bottle photos or clips (one folder per bottle named `<Brand> - <Shade name>`, files `front`/`bottom`/`glass`/`box`, take subfolders per lighting) through the admin API; `--dry-run`, `--labels labels.csv`, `--frames-per-clip <n>` (clips need ffmpeg), `--require-catalog`, `--reset`; idempotent via `.bottle-eval-import.json`; `API_BASE_URL`, `ADMIN_BEARER_TOKEN` |
 | `npm run typecheck` | `tsc --noEmit` across all workspaces |
 | `npm run migrate` / `npm run migrate:down` | Apply pending Postgres migrations / roll back the last one (copies `local.settings.json` values into the environment first, overriding exported or inline variables of the same name; then `DATABASE_URL` if set, else `PG*`) |
 | `npm run generate:types` | Regenerate the `SupportedConnectorSource` type from `docs/seed_data_sources.sql` |
 | `npm run generate:pwa-icons` | Regenerate the PWA / apple-touch PNG icons in `apps/web/public` from the brand SVG (commit the PNGs) |
 | `npm run dedupe:makeupapi-shades --workspace=swatchwatch-functions` | Merge the duplicate shades the MakeupAPI connector created (copies inside MakeupAPI, and MakeupAPI copies of a brand-store shade) and delete the MakeupAPI-only shades nothing uses, in batches of brands via `POST /api/shades-admin/makeupapi-dedupe/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--out report.json` saves the report) |
+| `npm run backfill:brand-store-rejected --workspace=swatchwatch-functions` | Exclude the active shades whose every listing is a brand-store product the store's current gate rejects (gel and LED lines while `includeGel` is off, another vendor's items), in batches of shades via `POST /api/shades-admin/brand-store-rejected/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--sources` limits it to named sources, `--out report.json` saves the report) |
 | `npm run dedupe:gallery-images --workspace=swatchwatch-functions` | Unlink catalog gallery images that duplicate another image of the same shade (the same vendor picture stored twice), matched perceptually, in batches via `POST /api/images-admin/gallery-dedupe` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--shade <ids>`, `--after <shadeId>` resumes); also backfills `image_asset` perceptual fingerprints, even in a dry run, unless `--no-store-fingerprints` |
+| `npm run remove:source-images --workspace=swatchwatch-functions -- --source <name>` | Remove a disabled data source's catalog images when the store asks us to stop using its pictures (swatches unlinked, `image_asset` rows, blobs and thumbnail variants deleted; hex-labeled and `color_features` images kept, blobs another row shares stay), in batches via `POST /api/images-admin/source-images/remove` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; 409 while the source is enabled; dry run unless `--write`, `--after <imageId>` resumes) |
 | `npm run backfill:imported-wishlist --workspace=swatchwatch-functions` | Remove the untouched wishlist rows that old ingestion runs added for the admin who ran them, in batches via `POST /api/inventory-admin/imported-wishlist/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--after <inventoryItemId>` resumes); then run `backfill:product-category` |
 | `npm run backfill:barcodes --workspace=swatchwatch-functions` | Build catalog `barcode` rows from stored connector products (GTIN + variant barcodes → shade via `shade_source_product`) in batches via `POST /api/barcodes-admin/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; dry run unless `--write`, `--after <externalProductId>` resumes; first shade to claim a GTIN keeps it, conflicts are listed) |
 | `npm run backfill:image-variants --workspace=swatchwatch-functions` | Generate missing pre-generated catalog thumbnails for images stored before variants existed, in batches via `POST /api/images-admin/variants/backfill` (`API_BASE_URL`, `ADMIN_BEARER_TOKEN`; idempotent, `--after <imageId>` resumes) |
@@ -200,7 +204,7 @@ npm run dev:infra
 
 The compose project is pinned to `swatchwatch`, so running this from any worktree manages the same containers. Postgres data lives in the `swatchwatch_pgdata` volume and Azurite data in `swatchwatch_azuritedata`, so both survive container recreates. If Azurite exits at startup with `is not valid JSON` (its metadata files were corrupted, e.g. when Docker Desktop was killed mid-write), reset it to empty storage with `docker compose rm -sf azurite && docker volume rm swatchwatch_azuritedata && npm run dev:infra`. That drops local blobs, so re-run ingestion to repopulate catalog images.
 
-Then set the following in `packages/functions/local.settings.json` (the `agent-worktree.sh` script already uses these defaults for new worktrees):
+Then set the following in `packages/functions/local.settings.json` (`npm run setup:worktree` copies this file from the primary checkout into new worktrees):
 
 ```jsonc
 {
@@ -244,6 +248,7 @@ This project is in early development. The web UI is now fully API-driven. See [K
 |----------|----------|---------|
 | [This README](README.md) | All developers | Setup, architecture, quick start |
 | [CLAUDE.md](CLAUDE.md) | AI coding agents | Conventions, patterns, decision rationale (canonical; other agent files are symlinks) |
+| [docs/agents/README.md](docs/agents/README.md) | AI coding agents | Topic files CLAUDE.md points to: architecture by area, web routes, env vars, all dev commands, completed work |
 | [apps/web/README.md](apps/web/README.md) | Web developers | Web app architecture, components, routing |
 | [docs/issue-42-ui-findings-tracker.md](docs/issue-42-ui-findings-tracker.md) | Web + product | Live tracker for Issue #42 UI findings and implementation status |
 | [packages/functions/README.md](packages/functions/README.md) | Backend developers | API routes, handler patterns, local dev |

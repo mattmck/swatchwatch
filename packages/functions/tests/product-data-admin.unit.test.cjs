@@ -150,4 +150,16 @@ describe("runProductPriceBatch", () => {
     assert.deepEqual(db.writes[0].patches, [{ price: "6.00", currency: "USD" }]);
     assert.deepEqual(resolver.currencies, { MakeupAPI: { currency: null, origin: "not_needed" } });
   });
+
+  it("needs no store currency for a …Feed source (not a Shopify products.json source)", async () => {
+    const db = fakeDb({ sources: { StellaChromaFeed: { baseUrl: "https://stellachroma.example/feed.xml" } } });
+    const resolver = createStoreCurrencyResolver(db.query, {
+      fetchCurrency: true,
+      fetchStoreCurrency: async () => {
+        throw new Error("a feed source needs no /meta.json lookup");
+      },
+    });
+    assert.equal(await resolver.resolve("StellaChromaFeed"), null);
+    assert.deepEqual(resolver.currencies, { StellaChromaFeed: { currency: null, origin: "not_needed" } });
+  });
 });

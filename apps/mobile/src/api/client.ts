@@ -115,8 +115,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (response.status === 204) return undefined as T;
-  if (response.status === 401 && options.auth !== false && options.authorization === undefined) {
-    // The session's token was refused: send the user back to sign-in.
+  if (response.status === 401 && authorization && options.authorization === undefined) {
+    // The session's token was refused: send the user back to sign-in. A request sent without
+    // a token (a screen refetching just after sign-out) has no session to expire.
     notifySessionExpired();
   }
   if (!response.ok) {
@@ -487,7 +488,7 @@ export async function downloadCollectionExport(
     );
   }
   try {
-    if (response.status === 401) notifySessionExpired();
+    if (response.status === 401 && authorization) notifySessionExpired();
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
       throw new ApiError(response.status, body?.error || body?.message || `Export failed (${response.status})`, body);

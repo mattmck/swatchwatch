@@ -206,6 +206,12 @@ variable "bottle_capture_enabled" {
   default     = false
 }
 
+variable "catalog_refresh_enabled" {
+  description = "Enable the nightly catalog-refresh timer (CATALOG_REFRESH_ENABLED, #532): one ingestion job per enabled, unblocked catalog source each night. Off by default; measure one full pass on dev before prod."
+  type        = bool
+  default     = false
+}
+
 variable "ingestion_job_queue_name" {
   description = "Azure Storage Queue name for ingestion jobs"
   type        = string
@@ -232,6 +238,23 @@ variable "azure_openai_vision_detail" {
   validation {
     condition     = contains(["low", "high", "auto"], var.azure_openai_vision_detail)
     error_message = "azure_openai_vision_detail must be one of: low, high, auto."
+  }
+}
+
+variable "azure_openai_reasoning_deployments" {
+  description = "Comma list of Azure OpenAI deployment names that serve reasoning models (gpt-5 / o-series) when the name does not reveal it (AZURE_OPENAI_REASONING_DEPLOYMENTS)"
+  type        = string
+  default     = ""
+}
+
+variable "azure_openai_reasoning_effort" {
+  description = "reasoning_effort sent to reasoning deployments: minimal | low | medium | high (AZURE_OPENAI_REASONING_EFFORT)"
+  type        = string
+  default     = "minimal"
+
+  validation {
+    condition     = contains(["minimal", "low", "medium", "high"], var.azure_openai_reasoning_effort)
+    error_message = "azure_openai_reasoning_effort must be one of: minimal, low, medium, high."
   }
 }
 
@@ -464,6 +487,34 @@ variable "capture_frame_sweep_max_per_run" {
   default     = 2000
 }
 
+variable "catalog_refresh_schedule" {
+  description = "NCRONTAB schedule (UTC) of the catalog-refresh timer (CATALOG_REFRESH_SCHEDULE); default 07:30 UTC, quiet hours in the US"
+  type        = string
+  default     = "0 30 7 * * *"
+}
+
+variable "catalog_refresh_stagger_seconds" {
+  description = "Queue visibility delay per position between catalog-refresh jobs (a start delay, not a no-overlap guarantee), 0-3600 (CATALOG_REFRESH_STAGGER_SECONDS)"
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = var.catalog_refresh_stagger_seconds >= 0 && var.catalog_refresh_stagger_seconds <= 3600 && floor(var.catalog_refresh_stagger_seconds) == var.catalog_refresh_stagger_seconds
+    error_message = "catalog_refresh_stagger_seconds must be a whole number between 0 and 3600."
+  }
+}
+
+variable "catalog_refresh_max_sources_per_run" {
+  description = "Most sources one catalog-refresh run queues, least recently attempted first; 0 = no cap, at most 1000 (CATALOG_REFRESH_MAX_SOURCES_PER_RUN)"
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.catalog_refresh_max_sources_per_run >= 0 && var.catalog_refresh_max_sources_per_run <= 1000 && floor(var.catalog_refresh_max_sources_per_run) == var.catalog_refresh_max_sources_per_run
+    error_message = "catalog_refresh_max_sources_per_run must be a whole number between 0 and 1000."
+  }
+}
+
 variable "cors_allowed_methods" {
   description = "Access-Control-Allow-Methods sent by the API (lib/http.ts) (CORS_ALLOWED_METHODS). The app is the only CORS layer (the Function App has no platform cors block), so this is what browsers see"
   type        = string
@@ -582,6 +633,35 @@ variable "pg_pool_max" {
   description = "Postgres pool size per Function instance, 1-100 (PG_POOL_MAX)"
   type        = number
   default     = 10
+
+  # The code clamps PG_POOL_MAX to 1-100, so a value outside that range would make the
+  # scale-limit precondition on the Function App check a pool size the app does not use.
+  validation {
+    condition     = var.pg_pool_max >= 1 && var.pg_pool_max <= 100 && floor(var.pg_pool_max) == var.pg_pool_max
+    error_message = "pg_pool_max must be a whole number between 1 and 100."
+  }
+}
+
+variable "function_app_scale_limit" {
+  description = "Most Function App instances the Consumption plan may run at once, 1-200. Each instance holds up to pg_pool_max Postgres connections (#548)"
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.function_app_scale_limit >= 1 && var.function_app_scale_limit <= 200 && floor(var.function_app_scale_limit) == var.function_app_scale_limit
+    error_message = "function_app_scale_limit must be a whole number between 1 and 200."
+  }
+}
+
+variable "pg_app_connection_limit" {
+  description = "Postgres connections available to the app: the server's max_connections minus the reserved ones. B_Standard_B1ms allows 50 and reserves 15. Update it with the Postgres sku_name in main.tf"
+  type        = number
+  default     = 35
+
+  validation {
+    condition     = var.pg_app_connection_limit >= 1 && floor(var.pg_app_connection_limit) == var.pg_app_connection_limit
+    error_message = "pg_app_connection_limit must be a whole number of at least 1."
+  }
 }
 
 variable "pg_idle_timeout_ms" {
@@ -626,6 +706,30 @@ variable "shopify_connector_retry_base_delay_ms" {
   default     = 1000
 }
 
+variable "shopify_connector_page_delay_ms" {
+  description = "Shopify connector pause between consecutive page requests to one store, 0-10000 (SHOPIFY_CONNECTOR_PAGE_DELAY_MS)"
+  type        = number
+  default     = 1000
+}
+
+variable "sitemap_jsonld_max_pages_per_run" {
+  description = "Sitemap + JSON-LD connector product pages fetched per pull, 10-300 (SITEMAP_JSONLD_MAX_PAGES_PER_RUN)"
+  type        = number
+  default     = 150
+}
+
+variable "sitemap_jsonld_save_margin_ms" {
+  description = "Sitemap + JSON-LD connector time kept before the worker deadline to save the crawl checkpoint and hand off, 5000-120000 (SITEMAP_JSONLD_SAVE_MARGIN_MS)"
+  type        = number
+  default     = 20000
+}
+
+variable "shopify_connector_max_pages" {
+  description = "Shopify connector pages of 250 products read per run, 1-200; a source overrides it with data_source.metadata.maxPages (SHOPIFY_CONNECTOR_MAX_PAGES)"
+  type        = number
+  default     = 30
+}
+
 variable "source_image_container" {
   description = "Blob container for catalog images and their thumbnail variants (the only container public v2 ids read) (SOURCE_IMAGE_CONTAINER)"
   type        = string
@@ -636,6 +740,12 @@ variable "source_image_max_edge_px" {
   description = "Long edge above which catalog images are downscaled before storage, 256-8192 (SOURCE_IMAGE_MAX_EDGE_PX)"
   type        = number
   default     = 2048
+}
+
+variable "source_image_max_per_product" {
+  description = "Max images (primary included) ingestion downloads and stores per product per run, 1-50; 0 or invalid = default 8, no unlimited value (SOURCE_IMAGE_MAX_PER_PRODUCT)"
+  type        = number
+  default     = 8
 }
 
 variable "source_image_max_download_bytes" {

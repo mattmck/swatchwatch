@@ -1,0 +1,4110 @@
+{
+ "_note": "polishpickup.com/products.json fetched 2026-11-08 during the November 2026 shop (92 products, 76 vendors), trimmed: body_html cut to 300 chars, at most 2 variants and 2 images",
+ "products": [
+  {
+   "id": 6254984855703,
+   "title": "Nail File, Glass",
+   "handle": "glass-nail-file",
+   "vendor": "Polish Pickup",
+   "product_type": "Merchandise",
+   "tags": [
+    "basic essentials"
+   ],
+   "created_at": "2020-12-27T13:45:36-06:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-06T10:07:05-06:00",
+   "body_html": "<p>Authentic glass nail file. Tempered glass, laser etched nail file leaves your nails smooth and allows for precise filing. </p>",
+   "variants": [
+    {
+     "id": 38431368741015,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "6.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 48097636483223,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PPU_Nail_FIle_1.jpg?v=1751458968",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 48097636319383,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PPU_Nail_FIle.jpg?v=1751521143",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 6407558660247,
+   "title": "Glass Cuticle Pusher",
+   "handle": "glass-cuticle-pusher",
+   "vendor": "Polish Pickup",
+   "product_type": "Merchandise",
+   "tags": [
+    "basic essentials"
+   ],
+   "created_at": "2021-01-31T20:03:02-06:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-06T10:06:27-06:00",
+   "body_html": "<p>This fine quality glass cuticle pusher comes with both a slanted and pointed edge that allows for the gentle pushing of cuticles.  The fine grit texture can be used as an exfoliator and even a file in a pinch.</p>\n<p> </p>",
+   "variants": [
+    {
+     "id": 38984712880279,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "6.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 48098013577367,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PPU_Cuticle_Stick_1.jpg?v=1751459344",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 48098013479063,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PPU_Cuticle_Stick.jpg?v=1751521137",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 9108727758999,
+   "title": "Pedicure File, Glass",
+   "handle": "glass-pedicure-file",
+   "vendor": "Polish Pickup",
+   "product_type": "Hand & Nail",
+   "tags": [
+    "basic essentials"
+   ],
+   "created_at": "2025-07-02T07:26:28-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-06T10:05:12-06:00",
+   "body_html": "<p>Revitalize your feet with the smooth precision of this durable glass foot file. Designed to gently exfoliate and remove rough skin, its sleek, ergonomic shape ensures a comfortable grip while effectively smoothing heels and soles. Ideal for a spa-like experience at home, it leaves your feet feeli",
+   "variants": [
+    {
+     "id": 45636134797463,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "8.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 48097818116247,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PPUFootFile.jpg?v=1751459128",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 48097817886871,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PPUFootFile1.jpg?v=1751521130",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15475903430807,
+   "title": "Psyche Minerals | Grandma's Pitcher",
+   "handle": "psyche-minerals-grandmas-pitcher",
+   "vendor": "Psyche Minerals",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-11-04T13:00:51-06:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-04T13:00:52-06:00",
+   "body_html": "<div class=\"gs\">\n<div class=\"\">\n<div class=\"ii gt\" id=\":bc\">\n<div class=\"a3s aiL\" id=\":bb\">\n<div id=\"avWBGd-625\">\n<div dir=\"auto\">\n<div dir=\"auto\">\n<div dir=\"auto\">Inspiration: Our inspiration was a vintage water pitcher given to us by my husband's grandmother. It's an adorable frog! Pictures of it ",
+   "variants": [
+    {
+     "id": 68255739052183,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54122634215575,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/26000.jpg?v=1793857189",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54122623139991,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/25981.jpg?v=1793857191",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15468496846999,
+   "title": "Painted Polish | Let's Get Weird",
+   "handle": "painted-polish-lets-get-weird",
+   "vendor": "Painted Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-11-01T13:13:47-06:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T13:13:48-06:00",
+   "body_html": "<p><span>Inspiration</span><span>: A Collection of Oddity Items</span></p>\n<p><span>Description: </span><span>The polish features gold metallic flakies, a champagne glitter mix, gold reflective glitters and black micro slices in a rosey light brown crelly base. </span></p>\n<p> </p>\n<p><span>Total CA",
+   "variants": [
+    {
+     "id": 68221409329303,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54065331044503,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/image1_2f9052df-2c14-4455-8d95-4510c4adc69f.jpg?v=1793598038",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54065331077271,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/image2_a537993e-60cb-49c4-8d7d-d7a095c1bce8.jpg?v=1793598040",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467853807767,
+   "title": "1422 Designs | Bottle of Poison",
+   "handle": "1422-designs-bottle-of-poison",
+   "vendor": "1422 Designs",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T18:57:41-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:18-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">vintage apothecary glass bottles<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219185201303,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057848373399,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1422Designs1.jpg?v=1793512306",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057848406167,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1422Designs2.jpg?v=1793512307",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467853938839,
+   "title": "Alchemy Lacquers | Still an Oddity",
+   "handle": "alchemy-lacquers-still-an-oddity",
+   "vendor": "Alchemy Lacquers",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:00:19-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:17-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">\"Still an Oddity\" is a solar and thermal nail lacquer and was inspired by a previous shade, \"Oddities\" . This nail lacquers shifts from a drab olive green (cold) to a lighter shade of yellow-green (warm) with constrasting purple to red shifting iridescent shimmer that a",
+   "variants": [
+    {
+     "id": 68219185954967,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057850667159,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/0_7a658bcc-d9d6-48b0-8044-9169ad8f59ca.jpg?v=1793512350",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057850699927,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_c414ca51-e3c3-4c1d-90d0-2f89a5ff0154.png?v=1793512351",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467854168215,
+   "title": "All Mixed Up Lacquers | Nope...F*ck That",
+   "handle": "all-mixed-up-lacquers-nope-f-ck-that",
+   "vendor": "All Mixed Up Lacquers",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:02:05-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:16-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by Ouija boards. <br><br>\"Nope…F*ck That” is a sheer cloudy base with scattered shifting green/blue/indigo/violet shimmer, a mix of red and orange holographic, matte black, UCC red/bronze shifting flakes, and short black slices. <br><br>Cap:400</span></p>",
+   "variants": [
+    {
+     "id": 68219186577559,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057852993687,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_24610f57-c3f2-41ba-87a7-53ddf401a608.jpg?v=1793512370",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057853026455,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_32e4b5e0-673e-48de-a747-1a5e2309754a.jpg?v=1793512371",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467854659735,
+   "title": "Arcana Lacquer | Of Silk & Bone",
+   "handle": "arcana-lacquer-of-silk-bone",
+   "vendor": "Arcana Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:03:39-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:15-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Of Silk &amp; Bone features a muted chartreuse crelly base with copper to gold to green fine particle magnetic pigment. This polish drew inspiration from an odd Victorian-era chair made with silk, horn, and brass. <br><br>Cap:480</span></p>",
+   "variants": [
+    {
+     "id": 68219187298455,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057856434327,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Arcana1.jpg?v=1793512388",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057856467095,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Arcana2.jpg?v=1793512389",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467854889111,
+   "title": "Baroness X | Chessie Cat",
+   "handle": "baroness-x-chessie-cat",
+   "vendor": "Baroness X",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:05:50-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:14-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Chessie Cat has a teal jelly base<br>with peach/yellow/green/turq shimmer.<br>Inspired by a rare Fenton glass design.<br><br>Cap:None</span></p>",
+   "variants": [
+    {
+     "id": 68219187822743,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057857450135,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/BaronessX_ChessieCat_1.jpg?v=1793512408",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057857482903,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/BaronessX_ChessieCat_2.jpg?v=1793512409",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467855413399,
+   "title": "Acetone Antidote by Baroness X | Wicked Vanilla Woods",
+   "handle": "acetone-antidote-by-baroness-x-wicked-vanilla-woods",
+   "vendor": "Baroness X",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T19:07:00-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:13-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Baroness X Acetone Antidote in Wicked Vanilla Woods (opens with a touch of spice from pink pepper before drying down into a warm, creamy, and woody vanilla). Inspired by the Forest Fancies design on vintage Pyrex.<br><br>Acetone Antidote (AA) is an additive for your ace",
+   "variants": [
+    {
+     "id": 68219188314263,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "8.75",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057861218455,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/BaronessX_ACETONEANTIDOTE_1_6ef56b42-e1bd-4712-8449-318913bf2709.jpg?v=1793512425",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057861251223,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/BaronessX_ACETONEANTIDOTE_2_caceb37e-56f8-4751-b5c4-21605d710276.jpg?v=1793512426",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467856691351,
+   "title": "BCB Lacquers | Mildly Radioactive",
+   "handle": "bcb-lacquers-mildly-radioactive",
+   "vendor": "BCB Lacquers",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:11:52-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:12-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by uranium glass. | Described as a brown(cold) to green(warm) thermal with a strong green to blue shifting shimmer.<br><br>Cap:300</span></p>",
+   "variants": [
+    {
+     "id": 68219189887127,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057869312151,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/BCB1_c31286e7-4a03-45ac-97ca-91a199001ea1.jpg?v=1793512443",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057869344919,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/BCB2_b84cbf5e-c5e5-4a96-87a7-7a1cc351846c.jpg?v=1793512444",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467856953495,
+   "title": "Broken Pixel Polish | Tiny Dancer",
+   "handle": "broken-pixel-polish-tiny-dancer",
+   "vendor": "Broken Pixel Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:14:50-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:11-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">A plum-based silvery lilac-magenta-green multichrome, packed with holographic micro flakes, ultra fine blue reflective glitter, and a deep violet-blue shimmer.<br><br>Inspired by showgirl rat taxidermy.<br><br>Holo flakes and reflective glitter will make the polish slig",
+   "variants": [
+    {
+     "id": 68219190476951,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057875079319,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_9b2d21f4-3f52-4d63-a37b-ed7b9fadf13b.png?v=1793511558",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057875112087,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_9c95c1d1-9c52-4e5f-ab76-00a5d60c2abe.png?v=1793512484",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467856855191,
+   "title": "Bee's Knees | Briarheart",
+   "handle": "bees-knees-briarheart",
+   "vendor": "Bee's Knees",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:13:33-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:11-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Bee's Knees was inspired by a piece of entomology art that was a gift for my birthday. This is a blackened ruby polish with matte black flakes and red to orange multichrome magnetic shimmer.<br><br>Cap:none</span></p>",
+   "variants": [
+    {
+     "id": 68219190378647,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057873178775,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/bkl1.jpg?v=1793491986",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057872916631,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/agirlandherlacquercollage.png?v=1793511539",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467857084567,
+   "title": "By Dany Vianna | Lalique",
+   "handle": "by-dany-vianna-lalique",
+   "vendor": "By Dany Vianna",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:16:10-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:10-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">inspired by Lalique art noveaus jewelry, Lalique has a lcear base with iridescent flakes and a sparkling cyan to teal aurora shimmer and a gold magnetic effect<br><br>Cap:400</span></p>",
+   "variants": [
+    {
+     "id": 68219190771863,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54102781296791,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/874105994_29428594206736257_571034295370973138_n.jpg?v=1793770727",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54122552557719,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1001238438_900x900_f83eb979-8ea3-45d7-963f-c12ae690452b.jpg?v=1793857061",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467858559127,
+   "title": "Chamaeleon Nails | Forgotten Tea Parties",
+   "handle": "chamaeleon-nails-forgotten-tea-parties",
+   "vendor": "Chamaeleon Nails",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:20:22-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:09-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by an antique tea set that lets us dream of secret tea parties of another time.<br>A thermal going from magenta (cold) to sheer white (warm) with blue and lilac hues while transitioning. Filled with orange and golden iridescent flakes, a soft shimmer and a scat",
+   "variants": [
+    {
+     "id": 68219192672407,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057883041943,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Chamaeleon1_669fc076-2b72-46e5-b147-ed8110fa9094.jpg?v=1793512557",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057883074711,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Chamaeleon2_bd54634f-db42-4606-8538-c371785f12b8.jpg?v=1793512558",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467858657431,
+   "title": "Clionadh Cosmetics | Vertebrae",
+   "handle": "clionadh-cosmetics-vertebrae",
+   "vendor": "Clionadh Cosmetics",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:21:17-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:08-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by the marine mammal bones Maggie found off the shores of Nova Scotia during her marine biology research days.<br><br>A champagne taupe magnetic that pulls to reveal an ancient grey base with golden micro flakes.<br><br>Cap:670</span></p>",
+   "variants": [
+    {
+     "id": 68219192770711,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.25",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54129145020567,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1-Vertebrae-ClionadhCosmetics.jpg?v=1793943531",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54129145053335,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2-Vertebrae-ClionadhCosmetics.jpg?v=1793943532",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467859083415,
+   "title": "Colores De Carol | Once Cherished",
+   "handle": "colores-de-carol-once-cherished",
+   "vendor": "Colores De Carol",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:22:45-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:07-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Antique china set. Once Cherished is a teal blue, purple, orange, gold shifting base with purple and lavender holo micro glitter and a luminous white-gold magnetic effect.<br><br>Cap:450</span></p>",
+   "variants": [
+    {
+     "id": 68219193720983,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.75",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057885696151,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_7d8a2f28-ed72-48b6-ac07-06d261e6989d.png?v=1793512591",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057885728919,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_6f5aadde-5da1-4ded-b7ed-5c473b6d9286.png?v=1793512592",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467859443863,
+   "title": "Cracked Polish | Sniff Test",
+   "handle": "cracked-polish-sniff-test",
+   "vendor": "Cracked Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:23:43-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:06-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Antique Items you gotta smell before you take home. Rusty orange with green shimmers<br><br>Cap:750</span></p>",
+   "variants": [
+    {
+     "id": 68219194081431,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057888350359,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/IMG_0065.jpg?v=1793512607",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057888383127,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/IMG_1431.jpg?v=1793512608",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467859706007,
+   "title": "Dam Nail Polish | Souvenirs from Hell",
+   "handle": "dam-nail-polish-souvenirs-from-hell",
+   "vendor": "Dam Nail Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:24:45-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:05-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Souvenirs from Hell is inspired by a Antique Roadshow meme with a demonic looking item captioned Souvenirs From Trip To Hell $8,000-$10,000. This one has a dark red base with red reflective glitters, red and orange shifting shimmer, and black and holographic micro glitt",
+   "variants": [
+    {
+     "id": 68219194638487,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057890611351,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_Dam_Souvenirs_From_Hell.jpg?v=1793512622",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057890644119,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_Dam_Souvenirs_From_Hell.jpg?v=1793512623",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467860197527,
+   "title": "Danglefoot Nail Polish | Bejewelled Beast",
+   "handle": "danglefoot-nail-polish-bejewelled-beast",
+   "vendor": "Danglefoot Nail Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:25:48-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:04-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">I was inspired by one of my favourite little oddities in my house, a bedazzled highland cow.<br><br>Bejewelled Beast is a muted orange with pink shimmer and silver magnetic pull. This is a very reactive magnetic pigment and easy to use 🙂<br><br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219195424919,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.75",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057893920919,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Photo11-10-2026_114737.jpg?v=1793512640",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057893953687,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Photo11-10-2026_114751.jpg?v=1793512641",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467863539863,
+   "title": "Emily de Molly | Marieneer",
+   "handle": "emily-de-molly-marieneer",
+   "vendor": "Emily de Molly",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:49:15-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:03-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">INSPIRATION - Marieneer shell necklace.<br>DESCRIPTION - A light grey nail polish with a purple / pink / gold shifting shimmer and a green to blue shifting magnetic effect.<br>Opaque in 2-3 coats depending on your application, top coat recommended for a glossy finish.<b",
+   "variants": [
+    {
+     "id": 68219200635031,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057921511575,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_0de96ad8-a7a1-4941-a1c5-bdc6b7b61988.jpg?v=1793512719",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057921544343,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_4e59e39b-0a37-4fe1-811f-0fa51cb7702a.jpg?v=1793512720",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467864064151,
+   "title": "Fancy Gloss | Victorian Dream",
+   "handle": "fancy-gloss-victorian-dream",
+   "vendor": "Fancy Gloss",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:51:11-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:02-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Victorian Dream is a thermal that changes from pink (cold) to a beige(warm) packed with gold semi opaque flakies and champagne micro opaque flakies.<br><br>Cap:350</span></p>",
+   "variants": [
+    {
+     "id": 68219201159319,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057926328471,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/image0_2b0e7878-7665-4add-8dec-c8692b9bb798.jpg?v=1793512761",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057926361239,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/image1_f5bd9eae-b42e-428a-80a8-c783a156f8b2.jpg?v=1793512762",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467864195223,
+   "title": "Hearts & Promises | Velvet Chair",
+   "handle": "hearts-promises-velvet-chair",
+   "vendor": "Hearts & Promises",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:52:17-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:01-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by an antique 19th century velvet chair. This polish has a red-orange crelly base with red/orange/gold aurora shimmer.<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219202273431,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057927573655,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Mainphoto232026_100606.jpg?v=1793512786",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057927606423,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PhotoOct152026_135117.jpg?v=1793512787",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467864391831,
+   "title": "Hit the Bottle Polishes | Space Oddity",
+   "handle": "hit-the-bottle-polishes-space-oddity",
+   "vendor": "Hit the Bottle Polishes",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:53:27-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:56:00-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">I took a different approach to this theme and went with David Bowie as inspiration. In particular the music video to Space Oddity which has an entirely red and blue palette. Plus Bowie's Ziggy Stardust make up and often brilliant red hair.<br><br>\"Space Oddity\" has a ri",
+   "variants": [
+    {
+     "id": 68219202928791,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057928163479,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/HittheBottle1_863354d7-66a3-44e3-9bcf-7ed2964a2fe4.png?v=1793512816",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057928196247,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/HittheBottle2_165fc987-02d1-41ea-b5da-3be60def9385.jpg?v=1793512817",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467864490135,
+   "title": "Stamping Plate by Hit the Bottle Polishes | Full Steam Ahead",
+   "handle": "stamping-plate-by-hit-the-bottle-polishes-full-steam-ahead",
+   "vendor": "Hit the Bottle Polishes",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T19:54:34-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:59-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">\"Full Steam Ahead\" is a steampunk inspired stamping plate. Mixing elegant Victorian style elements with industrial gears and machine parts for an iconic Steampunk look.<br><br>9.5 x 14 cm<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219203518615,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.99",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057928851607,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/HittheBottle1_7d720c99-18de-47fc-ad74-c0100c6fc371.png?v=1793512836",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057928884375,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/HittheBottle2_75cbfe96-623c-469e-ad50-0becbcbd136a.jpg?v=1793512839",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467864621207,
+   "title": "Humble Bee | The Violet Glass",
+   "handle": "humble-bee-the-violet-glass",
+   "vendor": "Humble Bee",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:55:51-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:58-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by various examples of antique violet/purple glass pieces.<br>The Violet Glass is a sheer Violet base with a Pink to Orange to Gold to Lime Green shifting pigment, silver holographic bar glitter, and a dash of silver reflective glitter.<br><br>Cap:500</span></p",
+   "variants": [
+    {
+     "id": 68219203846295,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057929965719,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_2ea41086-2c95-4fd0-9f73-5c35aeeab8d0.jpg?v=1793512856",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057929998487,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_e11bdd26-d310-4c37-a411-31716cc7262b.jpg?v=1793512857",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467864785047,
+   "title": "Indie by Patty Lopes | Antique Scarab",
+   "handle": "indie-by-patty-lopes-antique-scarab",
+   "vendor": "Indie by Patty Lopes",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:57:14-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:57-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Moth box frame - Black base with rose/green/gold multichrome magnetic and some gold micro glitters holo.<br><br>Cap:300</span></p>",
+   "variants": [
+    {
+     "id": 68219204075671,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057931243671,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/AntiqueScarabMain.jpg?v=1793511786",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057930948759,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/AntiqueScarab2.jpg?v=1793512880",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467865178263,
+   "title": "Jen & Berries | The Good Egg",
+   "handle": "jen-berries-the-good-egg",
+   "vendor": "Jen & Berries",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:58:28-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:56-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by the Alexander III Portraits Fabergé Egg, this polish has a bright blue base with iridescent gold sparks, gold to green iridescent holographic flakes and silver holographic flakes.<br><br>Cap:500</span></p>",
+   "variants": [
+    {
+     "id": 68219204534423,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057933209751,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/thegoodegg_01.jpg?v=1793512900",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057933242519,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/thegoodegg_02.jpg?v=1793512901",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467865866391,
+   "title": "Lumen | Carnival Glass",
+   "handle": "lumen-carnival-glass",
+   "vendor": "Lumen",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:06:20-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:55-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by the beautiful carnival glass passed down to me by my mother-in-law, this shade captures the iridescence of treasured antique heirlooms. Carnival Glass is a shifty pink jelly base with a lilac to blue to gold shift and saturated with micro holo to capture the",
+   "variants": [
+    {
+     "id": 68219205550231,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057937895575,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PhotoOct262026_60830PM_4.jpg?v=1793513016",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057937928343,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PhotoOct262026_60830PM_5.jpg?v=1793513016",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467865931927,
+   "title": "Lurid Lacquer | The Sands of Time",
+   "handle": "lurid-lacquer-the-sands-of-time",
+   "vendor": "Lurid Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:07:16-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:54-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">The Sands of Time features a semi-sheer pale teal crelly base packed with aurora shimmer that shifts from green to blue. <br><br>It is inspired by antique glass. <br><br>Cap:850</span></p>",
+   "variants": [
+    {
+     "id": 68219205615767,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057938321559,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PhotoOct252026_74419PM_1.jpg?v=1793513036",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057938354327,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PhotoOct252026_74419PM.jpg?v=1793513038",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866030231,
+   "title": "LynBDesigns | Betty Nudshite",
+   "handle": "lynbdesigns-betty-nudshite",
+   "vendor": "LynBDesigns",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:08:14-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:53-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Betty Nudshite- dark blue leaning purple base with green to aqua to blue shifting shimmer and ghostly pale green magnetic pull<br><br>A magnetic cousin of fan favorite Dudley Nudshite inspired by antique belladonna bottles<br><br>Cap:None</span></p>",
+   "variants": [
+    {
+     "id": 68219205714071,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057938780311,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Ppu-1_0bfdec76-5f8d-4867-b6dc-6ca5e0272f67.jpg?v=1793513058",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057938813079,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Ppu-2_6ab9e6a0-5f16-4cad-9be5-3f48c40e9ca0.jpg?v=1793513059",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866161303,
+   "title": "MJ Lacquer | Berry Relic",
+   "handle": "mj-lacquer-berry-relic",
+   "vendor": "MJ Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:10:07-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:52-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by preserved aged berries.<br>Described as a berry to colorless thermal, with grass green and lemon lime metallic flakes. The warm colorless shade is vintage green, due to the vibrant green metallic flakes.<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219206303895,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057939730583,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PIC1.png?v=1793513087",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057939763351,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PIC2.png?v=1793513088",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866194071,
+   "title": "Moon Shine Mani | You Have Chosen Wisely",
+   "handle": "moon-shine-mani-you-have-chosen-wisely",
+   "vendor": "Moon Shine Mani",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:11:58-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:51-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">You Have Chosen Wisely is a soft white gold holographic accented with holo flakes and a stunning gold/green glow. This polish is inspired by Indiana Jones and the Last Crusade.<br><br>Cap:300</span></p>",
+   "variants": [
+    {
+     "id": 68219206533271,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54065349656727,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/MSMNOV01.jpg?v=1793597950",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54065349689495,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/MSMNOV02.jpg?v=1793597950",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866226839,
+   "title": "Moth & Moon | Conjoined Specimen",
+   "handle": "moth-moon-conjoined-specimen",
+   "vendor": "Moth & Moon",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:13:11-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:50-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by skeletal specimens of conjoined twins, this is muted, cool toned grey with bright copper iridescent shimmers, and silver and gold reflective glitter. <br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219206566039,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057941336215,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PhotoOct252026_14612PM.jpg?v=1793513110",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057941368983,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PhotoOct252026_14550PM_1.jpg?v=1793513111",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866259607,
+   "title": "Nailed It | Midway Magic",
+   "handle": "nailed-it-midway-magic",
+   "vendor": "Nailed It",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:14:13-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:49-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Midway Magic is a smoky blue base with a green to blue magnetic and a magenta to gold shifting shimmer. <br><br>Inspired by Carnival Glass<br><br>Cap:350</span></p>",
+   "variants": [
+    {
+     "id": 68219206664343,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.75",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057941696663,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/nailedit1_9f26be37-0943-434b-8662-6e790f7bf7ff.jpg?v=1793513134",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057941729431,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/nailedit2.jpg?v=1793513135",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866325143,
+   "title": "Nothing Basic | Moody Pendant",
+   "handle": "nothing-basic-moody-pendant",
+   "vendor": "Nothing Basic",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:16:13-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:48-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">For the Antiques &amp; Oddities theme NB chose an interesting psychodelic pendant as inspiration:<br><br>Moody Pendant: purple/blue/turquoise magnetic pigment with sparkly golden to green micro flakes<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219206729879,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057942319255,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Foto25-10-2026_154557.jpg?v=1793513158",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057942352023,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Foto25-10-2026_154747.jpg?v=1793513159",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866292375,
+   "title": "Night Owl Lacquer | Steampunk Owl",
+   "handle": "night-owl-lacquer-steampunk-owl",
+   "vendor": "Night Owl Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:14:58-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:48-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Steampunk Owl - this is a dark greige filled with charcoal &amp; copper metallic micro flakies and gold crystal flakes.<br><br>Inspired by an antique looking steampunk owl clock.<br><br><br>Cap:None</span></p>",
+   "variants": [
+    {
+     "id": 68219206697111,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54122507960471,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/NightOwl001_c9363464-9899-4044-8d7c-f06ade9c919c.jpg?v=1793857158",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54122507993239,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/NightOwl002_b60f289e-bd4a-45f7-8048-252daffd4d62.jpg?v=1793857158",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866357911,
+   "title": "Pahlish | Antikythera",
+   "handle": "pahlish-antikythera",
+   "vendor": "Pahlish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:17:10-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:47-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Antikythera is a soft black based packed with a microfine rosy gunmetal/green/bronze shifting shimmer! I was inspired by the Antikythera Mechanism, an antique oddity that has always fascinated me!<br><br>Cap:none</span></p>",
+   "variants": [
+    {
+     "id": 68219206762647,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057942941847,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/DSC_8421resize.jpg?v=1793513185",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057942778007,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/0000.jpg?v=1793513180",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866423447,
+   "title": "Off the Hook Creations by Jessica | Crochet Potion Bottle",
+   "handle": "off-the-hook-creations-by-jessica-crochet-potion-bottle",
+   "vendor": "Off the Hook Creations by Jessica",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:18:51-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:46-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">When I think of antiques and oddities, I think of old glass bottles, often filled with mysterious substances.<br><br>Inspired by that, I have created a potion bottle toy.<br><br>Cap:120 catnip, 20 without </span></p>",
+   "variants": [
+    {
+     "id": 68219206992023,
+     "title": "WITH catnip",
+     "sku": null,
+     "barcode": null,
+     "price": "6.00",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "WITH catnip",
+     "option2": null,
+     "option3": null
+    },
+    {
+     "id": 68219207024791,
+     "title": "WITHOUT catnip",
+     "sku": null,
+     "barcode": null,
+     "price": "6.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "WITHOUT catnip",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057943302295,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/OfftheHook1.png?v=1793513200",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057943335063,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/OfftheHook2.png?v=1793513201",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866587287,
+   "title": "Paint it Pretty Polish | Lurking Limb",
+   "handle": "paint-it-pretty-polish-lurking-limb",
+   "vendor": "Paint it Pretty Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:22:57-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:45-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by everyone’s favorite severed hand, Thing from the Adam's Family.<br>Lurking Limb is a moody, antique-inspired magnetic polish with a deep, dark base that shifts between shadowy bronze, burnished gold, and a subtle haunting rosy-purple sheen. Magnetized, it pu",
+   "variants": [
+    {
+     "id": 68219207286935,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057945727127,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_2675f095-8471-4d0c-9b54-d5fd75bf0559.jpg?v=1793513211",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057945759895,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_0725ec33-2285-4476-9335-910eef36c819.jpg?v=1793513212",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866914967,
+   "title": "Penelope Luz | Portrait of a Lady",
+   "handle": "penelope-luz-portrait-of-a-lady",
+   "vendor": "Penelope Luz",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:24:19-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:44-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">inspired by the painting of the same name by artist Robert Schiff. It is a magnetic \"glass effect\" polish in a dusty pink shade with lilac undertones and gold shimmer.<br><br>Cap:700</span></p>",
+   "variants": [
+    {
+     "id": 68219209973911,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057947365527,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PortraitofaLady-1.jpg?v=1793513231",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057947398295,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PortraitofaLady-2.jpg?v=1793513233",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467867046039,
+   "title": "Phoenix | Opal Essence",
+   "handle": "phoenix-opal-essence",
+   "vendor": "Phoenix",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:25:30-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:43-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\"><br>For this month, Phoenix is bringing a nail polish inspired by that beautiful opal necklace.<br><br>Opal Essence has turquoise jelly base with a mix of iridescent flakies <br><br>Cap 600<br><br>$14.00<br><br>Cap:600</span></p>",
+   "variants": [
+    {
+     "id": 68219210137751,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057951330455,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Foto25-10-2026_205814_2.jpg?v=1793513254",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057951363223,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Foto25-10-2026_205814_3_1.jpg?v=1793513254",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467879727255,
+   "title": "Red Eyed Lacquer | Walk This Way",
+   "handle": "red-eyed-lacquer-walk-this-way",
+   "vendor": "Red Eyed Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:33:14-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:42-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Discman. A deeper blue crelly with black flakes and orange/gold glass flakes!<br><br>Cap:300</span></p>",
+   "variants": [
+    {
+     "id": 68219263713431,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057986883735,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/RedEyedLacquerWalkThisWay.jpg?v=1793513371",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057986916503,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/RedEyedLacquerWalkThisWay1.jpg?v=1793513372",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467879792791,
+   "title": "Ribbits | Verdigris",
+   "handle": "ribbits-verdigris",
+   "vendor": "Ribbits",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:34:11-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:41-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Copper Patina/Verdigris <br><br>Description: blue-green creme base with red to orange aurora shimmer, copper flakes, and red to yellow multichrome flakes<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219263778967,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057988718743,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Ribbits1.jpg?v=1793513391",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057988751511,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Ribbits2.jpg?v=1793513391",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467879923863,
+   "title": "Rogue Lacquer | Cocktails and curiosities",
+   "handle": "rogue-lacquer-cocktails-and-curiosities",
+   "vendor": "Rogue Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:35:07-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:40-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">I actually used a picture from yesteryear of me and my best friend. Antique stores hold a special place in my heart as I grew up in a town that the entire Main Street was antique stores. My grandma owned a shop called Main Street Antiques lol.<br><br>This picture was ta",
+   "variants": [
+    {
+     "id": 68219263910039,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057989832855,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1Main_Listing_Photo_e011edb0-9308-413c-b584-fd822b3b8d1e.jpg?v=1793513413",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057989865623,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Aneesa_164A35A2-FEA3-48E2-B26A-ABD396821BE8.jpg?v=1793513413",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467880415383,
+   "title": "Sassy Sauce Polish | Drop dead beetleful",
+   "handle": "sassy-sauce-polish-drop-dead-beetleful",
+   "vendor": "Sassy Sauce Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:37:05-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:39-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">A blackened blue thermal (cold) that shifts to violet (warm) with violet/blue/green ghost flakies and a strong blue shimmer. Inspo A photo of iridescent beetles.<br><br>Cap:500</span></p>",
+   "variants": [
+    {
+     "id": 68219265679511,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057991340183,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Dropdeadpic1.jpg?v=1793513454",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057991372951,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Dropdeadpic2.jpg?v=1793513456",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467882315927,
+   "title": "Cuticle caviar by Sassy Sauce Polish | Vanilla Candy Rock Candy",
+   "handle": "cuticle-caviar-by-sassy-sauce-polish-vanilla-candy-rock-candy",
+   "vendor": "Sassy Sauce Polish",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:38:30-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:38-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Vanilla Candy Rock Sugar, KayAli type<br>A sugary sweet explosion of candied vanilla, spun sugar, and berries, wrapped in warm amber and soft woods.<br>Notes:<br>Top: Bergamot, Red Berries<br>Middle: Vanilla, Rock Sugar<br>Base: Amber, Woods, Musk<br>Perfect for daily u",
+   "variants": [
+    {
+     "id": 68219273183383,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "9.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057993961623,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Vanillarockpic1.jpg?v=1793513474",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057993994391,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Vanillarockpic2.jpg?v=1793513475",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467885822103,
+   "title": "Base Coat by Vibrant Scents | One of a Kind - Scented Double Bond Base Coat",
+   "handle": "base-coat-by-vibrant-scents-one-of-a-kind-scented-double-bond-base-coat",
+   "vendor": "Vibrant Scents",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:45:49-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:37-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">One of a Kind — A nostalgic Christmas fragrance inspired by antique ornaments, vintage holiday décor, and treasured keepsakes passed down through generations. Rich plums and dark cherries blend with sweet, festive orange, while peppery woods add a warm, old-fashioned de",
+   "variants": [
+    {
+     "id": 68219289174167,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "10.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": []
+  },
+  {
+   "id": 15467885887639,
+   "title": "Top Coat by Vibrant Scents | One of a Kind - Scented Fast & Hard Quick Dry Top Coat",
+   "handle": "top-coat-by-vibrant-scents-one-of-a-kind-scented-fast-hard-quick-dry-top-coat",
+   "vendor": "Vibrant Scents",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:46:43-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:36-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">One of a Kind — A nostalgic Christmas fragrance inspired by antique ornaments, vintage holiday décor, and treasured keepsakes passed down through generations. Rich plums and dark cherries blend with sweet, festive orange, while peppery woods add a warm, old-fashioned de",
+   "variants": [
+    {
+     "id": 68219289272471,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "10.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": []
+  },
+  {
+   "id": 15467888246935,
+   "title": "Zombie Claw | Flutter of the Forbidden",
+   "handle": "zombie-claw-flutter-of-the-forbidden",
+   "vendor": "Zombie Claw",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:49:02-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:35-06:00",
+   "body_html": "<p><span data-sheets-root=\"1\">A butterfly &amp; a dark green/blue base with electric green/blue shimmer and purple reflective glitter <br><br>Cap:300</span></p>",
+   "variants": [
+    {
+     "id": 68219298185367,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.75",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058010247319,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Main_50e4bba5-3ec3-4bd2-8283-ce22cdeeaecd.jpg?v=1793513569",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058010280087,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PhotoOct112026_42438PM_8fd95dbe-69a4-4fff-a650-4cf2180d0015.jpg?v=1793513569",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467891458199,
+   "title": "Glisten & Glow | Dusty Little Secrets",
+   "handle": "glisten-glow-dusty-little-secrets",
+   "vendor": "Glisten & Glow",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:50:32-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:34-06:00",
+   "body_html": "<p>Dusty Little Secrets – is a steel blue magnetic polish that once magnetized reveals a color shifting shimmer that shifts green/blue/gold and a silver and blue steel magnetic line.<br>Inspo: inspired by the dusty little books, journals and diaries found on the CT Antiques Trail! Filled with little",
+   "variants": [
+    {
+     "id": 68219309818007,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54065340219543,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/IMG_3070.jpg?v=1793597998",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54065340285079,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/IMG_3072.jpg?v=1793597998",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467894407319,
+   "title": "Top Coat by Glisten & Glow",
+   "handle": "top-coat-by-glisten-glow",
+   "vendor": "Glisten & Glow",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:52:00-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:33-06:00",
+   "body_html": "<div>\n<b>Glisten &amp; Glow Top Coat</b> is an award winning fast dry glossy top coat.</div>\n<div>The benefits are:</div>\n<ul>\n<li>2-4 minutes or less and your nails will dry, durable, long lasting with days or weeks of no tip wear, or chipping!</li>\n<li>crystal clear, shiny, glossy “wet/gel like\" a",
+   "variants": [
+    {
+     "id": 68219321286807,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "11.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54118876840087,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/GlistenandGlowTopCoat.jpg?v=1793857175",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54118876872855,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/GlistenandGlowTopCoat0.jpg?v=1793857176",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467894734999,
+   "title": "Cuticle Remover & Cuticle Oil Pen Duo by Glisten & Glow",
+   "handle": "cuticle-remover-cuticle-oil-pen-duo-by-glisten-glow",
+   "vendor": "Glisten & Glow",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:52:55-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:32-06:00",
+   "body_html": "<p>Cuticle Remover is Unscented<br>Cuticle Oil is scented in Doughnuts<br>Scent Notes: smells l like you just walked into a doughnut shop in the crisp morning with the scent of fresh, warm doughnuts, rolled in cinnamon sugar<br>Glisten &amp; Glow’s Cuticle Remover softens and removes excess cuticle ",
+   "variants": [
+    {
+     "id": 68219321843863,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54065333633175,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/GlistenandGlowCuticleDuo1.jpg?v=1793598018",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54065333665943,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/GlistenandGlowCuticleDuo4.jpg?v=1793598019",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467895357591,
+   "title": "Sassy Cats Lacquer | The Mourning Room",
+   "handle": "sassy-cats-lacquer-the-mourning-room",
+   "vendor": "Sassy Cats Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:54:49-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:31-06:00",
+   "body_html": "<p><span>The Mourning Room purple base red shimmer with glow in the dark effect (may look blue or green depending on lighting)</span></p>\n<div dir=\"auto\">Price 14 cap 250</div>",
+   "variants": [
+    {
+     "id": 68219323875479,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058032627863,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_45a12b7a-7e04-46b0-8bd5-e3171b4c54b5.jpg?v=1793513593",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058032660631,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/20261020_225043.jpg?v=1793513594",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467897913495,
+   "title": "Haunted Polish | Cathedral Glass",
+   "handle": "haunted-polish-cathedral-glass",
+   "vendor": "Haunted Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:56:34-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:30-06:00",
+   "body_html": "<p><span>Name- Cathedral Glass</span></p>\n<div>Price- $15.00</div>\n<div>Cap- none </div>\n<div>Weight- 2.1 oz </div>\n<div><br></div>\n<div>Description-</div>\n<div><br></div>\n<div>Like sunlight shining through a rose window, Cathedral Glass is a cool toned purple base with red, pink to orange shimmer a",
+   "variants": [
+    {
+     "id": 68219333017751,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058041442455,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/F409C881-0931-4E65-833B-B0DDFB4F5607.jpg?v=1793513624",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058041213079,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/bottleIMG_2007.jpg?v=1793513617",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467902009495,
+   "title": "Lemming Lacquer | The Shadow Doll",
+   "handle": "lemming-lacquer-the-shadow-doll",
+   "vendor": "Lemming Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:59:55-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:29-06:00",
+   "body_html": "<div class=\"gmail_default\">Inspired by The Shadow Doll from The Warrens’ Occult Museum, the real life couple from The Conjuring movies. The Shadow Doll that is said to be more dangerous than the Annabelle Doll.<br><br>The Shadow Doll is made from animal bones, black crow feathers, cloth, and a real ",
+   "variants": [
+    {
+     "id": 68219349729431,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058048520343,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Lemming-Lacquer-The-Shadow-Doll.jpg?v=1793513642",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058048553111,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Lemming-Lacquer-The-Shadow-Doll1.jpg?v=1793513643",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467911381143,
+   "title": "Cuticula | Dragonfly Glass",
+   "handle": "cuticula-dragonfly-glas",
+   "vendor": "Cuticula",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T21:04:48-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:28-06:00",
+   "body_html": "<div>'Dragonfly Glass' a green jelly base full of glowing green/gold/orange crystal flakes, green glass flakes, and orange/red ultra chrome flakes.</div>\n<div dir=\"auto\"><br></div>\n<div dir=\"auto\">Inspired by antique Tiffany lamps</div>\n<div dir=\"auto\">$14 no cap</div>",
+   "variants": [
+    {
+     "id": 68219388854423,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058065035415,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_a1416566-7706-401d-9b11-97841c009174.jpg?v=1793513686",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058065068183,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_0f11183c-1855-46b6-8326-db7df02f39fe.jpg?v=1793513687",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467908038807,
+   "title": "Paradox | Tiger Oak",
+   "handle": "paradox-tiger-oak",
+   "vendor": "Paradox",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T21:03:19-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:28-06:00",
+   "body_html": "<div dir=\"auto\">Inspired by my love for collecting antiques. My favorite two pieces are my tiger oak nightstand and curio. By what I've been told the reason why this kind of oak got its name for it has these distinct stripes (like a tiger).</div>\n<div dir=\"auto\"><br></div>\n<div dir=\"auto\">Tiger Oak ",
+   "variants": [
+    {
+     "id": 68219375648919,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54154262773911,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/ParadoxPolishTigerOak2.jpg?v=1794029927",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058059530391,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/att.P9kh_xskn36SXnXlK6nOkmvTig6V4Zz1GP-zgY9ABIo.jpg?v=1793513664",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467912757399,
+   "title": "Top Coat by Cuticula | Wild Strawberry Limitless Quick Dry Scented Top Coat",
+   "handle": "top-coat-by-cuticula-wild-strawberry-limitless-quick-dry-scented-top-coat",
+   "vendor": "Cuticula",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T21:05:47-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:27-06:00",
+   "body_html": "<div dir=\"auto\">Wild Strawberry Limitless Quick Dry Scented Top Coat </div>\n<div dir=\"auto\">Strawberries and rhubarb with hints of vanilla.</div>\n<div dir=\"auto\">$10 no cap</div>",
+   "variants": [
+    {
+     "id": 68219394162839,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "10.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058067689623,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Picsart_26-10-30_07-51-58-781.jpg?v=1793513701",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    }
+   ]
+  },
+  {
+   "id": 15467912822935,
+   "title": "Cupcake Polish | Handle With Care",
+   "handle": "cupcake-polish-handle-with-care",
+   "vendor": "Cupcake Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T21:07:04-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:26-06:00",
+   "body_html": "<div>Handle With Care - <span>a soft mint green glow-in-the-dark nail polish filled with sparkling green-to-blue shifting iridescent shimmer with a green glow in the dark.</span>\n</div>\n<div><span>Inspired by vintage uranium glass, which glows green<br><br>Price - $14<br>Cap - 600</span></div>",
+   "variants": [
+    {
+     "id": 68219394228375,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058068869271,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/CupcakePolish1.png?v=1793512251",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058068902039,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/CupcakePolish2.png?v=1793512253",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467913412759,
+   "title": "Garden Path Lacquers | Stay Curious, Stay Weird",
+   "handle": "garden-path-lacquers-stay-curious-stay-weird",
+   "vendor": "Garden Path Lacquers",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T21:12:35-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-11-01T12:55:25-06:00",
+   "body_html": "<div>Inspo: <span>Inspired by the best place in Gravity Falls to find antiques and oddities, the Mystery Shack!</span>\n</div>\n<p><br><span>Description: A dark purple jelly base is packed to the brim with sparkling, glowy jade holographic microglitter.</span><br><br><span>$13.50, no cap</span></p>",
+   "variants": [
+    {
+     "id": 68219394916503,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058074013847,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/GPLNov01.jpg?v=1793513730",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058074046615,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/GPLNov02.jpg?v=1793513730",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467885789335,
+   "title": "Unicorn Magic Skincare | Deluxe Coconut Milk Hand Creme scented in Nocturne No.5",
+   "handle": "unicorn-magic-skincare-deluxe-coconut-milk-hand-creme-scented-in-nocturne-no-5",
+   "vendor": "Unicorn Magic Skincare",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:44:26-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:16-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">All things dark and mysterious. <br><br>Milk has been used in beauty routines since ancient times, it is high in lactic acid that aids<br>to remove dead skin cells, for soft and supple skin. Coconut milk is also packed full of<br>vitamins and antioxidants, especially vi",
+   "variants": [
+    {
+     "id": 68219289141399,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "9.95",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058005364887,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/UnicornMagicSkincareNovember2026pic1.jpg?v=1793513549",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058005397655,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/UnicornMagicSkincareNovember2026pic2.jpg?v=1793513550",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467885527191,
+   "title": "sylvanclaw | Glass Wisteria",
+   "handle": "sylvanclaw-glass-wisteria",
+   "vendor": "sylvanclaw",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:43:22-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:15-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by an antique Tiffany Lamp that was designed to look like blue wisteria. Glass Wisteria is a sheer, bright green jelly with gold iridescent flakes, ghostly blue iridescent flakes, and scattered holographic glitters.<br><br>Ingredients: ethyl acetate, butyl acet",
+   "variants": [
+    {
+     "id": 68219288879255,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058004218007,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/sylvanclawglasswisteria1.jpg?v=1793513528",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058004250775,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/sylvanclawglasswisteria2.jpg?v=1793513528",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467885133975,
+   "title": "Stella Chroma | In Granny's Attic",
+   "handle": "stella-chroma-in-grannys-attic",
+   "vendor": "Stella Chroma",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:42:12-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:14-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">I can remember exploring my grandma's attic as a kid and seeing what I thought was the absolute fanciest and surely most expensive lamp in existence! It was mauve with a glass base that had painted blue flowers on it. The shade was mauve silk and domed with scalloped ed",
+   "variants": [
+    {
+     "id": 68219288256663,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058001989783,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/STELLACHROMA1.jpg?v=1793513508",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058002022551,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/STELLACHROMA2.jpg?v=1793513509",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467884904599,
+   "title": "Sweet & Sour Lacquer | Thrift Store Treasure",
+   "handle": "sweet-sour-lacquer-thrift-store-treasure",
+   "vendor": "Sweet & Sour Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:41:06-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:12-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">A milky white crelly with green/blue/teal/violet shimmer<br><br>Cap:500</span></p>",
+   "variants": [
+    {
+     "id": 68219288027287,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058001596567,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_e470319f-892f-4edf-a437-0bd3249b23de.jpg?v=1793513491",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058001629335,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_7f2825a1-2f28-4fe9-b672-38342583c583.jpg?v=1793513492",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467880022167,
+   "title": "Royla Lee | Beloved by Betty",
+   "handle": "royla-lee-beloved-by-betty",
+   "vendor": "Royla Lee",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:36:05-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:11-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Beloved by Betty was inspired by a beautiful hand-painted Pekingese portrait I won in Betty White’s estate auction in 2022. I stumbled across the auction while waiting at the emergency vet with one of our senior dogs, during a year when we lost two beloved pets. Winning",
+   "variants": [
+    {
+     "id": 68219264008343,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.75",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057990946967,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1_2ca83993-6fa8-4870-ab64-af930b53a486.jpg?v=1793513430",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057990979735,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2_eb1bbecd-bd6a-4db6-8c11-3454adc44248.jpg?v=1793513431",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467878219927,
+   "title": "Raven Lacquer | Shady Lady",
+   "handle": "raven-lacquer-shady-lady",
+   "vendor": "Raven Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:31:51-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:10-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Shady Lady has a sheer purple base loaded with multi colored flake, gold/orange candy Aurora shimmer, pink/blue shimmer and pink reflective inspired by Tiffany lamps<br><br><br>Cap:No cap</span></p>",
+   "variants": [
+    {
+     "id": 68219257782423,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54065307648151,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Bottle1_da965b1b-1021-4de6-a944-336741b0bb90.jpg?v=1793597973",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54065307189399,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/IMG_3669.jpg?v=1793597973",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467876810903,
+   "title": "Prism Parade | Carnival Glass",
+   "handle": "prism-parade-carnival-glass",
+   "vendor": "Prism Parade",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:30:58-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:09-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Carnival Glass is a denim blue jelly based linear holographic polish with delicate shifty pink shimmer.<br><br>Cap:300</span></p>",
+   "variants": [
+    {
+     "id": 68219252342935,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057979969687,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Prism-Parade-Carnival-Glass-1.jpg?v=1793513354",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057980002455,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Prism-Parade-Carnival-Glass-2.jpg?v=1793513355",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467874877591,
+   "title": "Dew Drops by Polished For Days | Spiced Wassail",
+   "handle": "dew-drops-by-polished-for-days-spiced-wassail",
+   "vendor": "Polished For Days",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:29:58-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:08-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Spiced Wassail is warm holiday wassail simmering on the stove in the distance. More subtle of a scent. This one is subtle enough to where it doesn’t feel like you’re wearing a candle but you still get perfect scent of cozy spiced fall vibes.<br><br>Dew Drops are a respo",
+   "variants": [
+    {
+     "id": 68219239760023,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "9.75",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057969221783,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/dewdrops-THUMBNAILjpeg_ad0dad85-79c1-43e6-a04f-2f899a6934c2.jpg?v=1793511992",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057969254551,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/dewdrops2_1a720218-79c3-43b4-a255-860be26aedb6.jpg?v=1793513338",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467873075351,
+   "title": "Polished For Days | A Pearl in Time",
+   "handle": "polished-for-days-a-pearl-in-time",
+   "vendor": "Polished For Days",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:28:39-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:07-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">a pastel pink base with pink-gold iridescent shimmer and super holographic microflakes. Inspired by a vintage Cutex Polish photo ad from 1954. <br><br>Cap:none</span></p>",
+   "variants": [
+    {
+     "id": 68219233140887,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057963978903,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PFDthumbnail_e584689f-b871-4d63-a228-9788a1e433b2.jpg?v=1793513318",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057963683991,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PFD2_99a65596-c1aa-49b9-9611-a618788f8971.jpg?v=1793513319",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467870224535,
+   "title": "Pinnacle Polish | Jadeite",
+   "handle": "pinnacle-polish-jadeite",
+   "vendor": "Pinnacle Polish",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:27:21-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:06-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by antique jadeite dishware, this polish is a mint green crelly with subtle blue shimmer.<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219222130839,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "12.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057960439959,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Pinnacle1.jpg?v=1793513296",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057960472727,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Pinnacle2.jpg?v=1793513297",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467868520599,
+   "title": "PI Colors | Crapemyrtle.000",
+   "handle": "pi-colors-crapemyrtle-000",
+   "vendor": "PI Colors",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:26:28-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:05-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">This is a deep magenta purple nail polish with green to blue colorshifting shimmer, holographic blue glitter and colorshifting deep blue flakies. Inspired by the crapemytle and its blooms and the use of purple in Victorian antique bottles. <br><br>Cap:300</span></p>",
+   "variants": [
+    {
+     "id": 68219215675543,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057955917975,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/picolors_nov26ppu_01.jpg?v=1793513274",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057955950743,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/picolors_nov26ppu_02.jpg?v=1793513276",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467866095767,
+   "title": "ManMade by J&S | Tissues for Your Issues",
+   "handle": "manmade-by-j-s-tissues-for-your-issues",
+   "vendor": "ManMade by J&S",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:09:13-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:04-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">We wanted to make something a little different and a little odd this month but still slightly salty! <br><br>Tissues for Your Issues is a travel tissue holder that you can toss in your purse or clip to the outside. You could also clip it onto a tote bag or backpack for ",
+   "variants": [
+    {
+     "id": 68219206238359,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "20.00",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54102778151063,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/ManMadetissue_1.jpg?v=1793770737",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54102778183831,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/ManMadetissues_2.jpg?v=1793707237",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467865800855,
+   "title": "Hand & Body Scrub by KBShimmer | Winter Lodge",
+   "handle": "hand-body-scrub-by-kbshimmer-winter-lodge",
+   "vendor": "KBShimmer",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:05:27-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:02-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">I can see the appeal of staying at a winter lodge. When heading out into the woods on a crisp morning, the scent of cool, fresh air and fir needles provides a bit of calm joy. Knowing you have a ream of freshly cut wood and a crackling fireplace to come back to only add",
+   "variants": [
+    {
+     "id": 68219205484695,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "11.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057937338519,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/KBShimmer_Winter_Lodge_1.jpg?v=1793512994",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057937371287,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/KBShimmer_Winter_Lodge_2.jpg?v=1793512995",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467865768087,
+   "title": "Restoration Drops by KBShimmer | Nail Polish Thinner",
+   "handle": "restoration-drops-by-kbshimmer-nail-polish-thinner",
+   "vendor": "KBShimmer",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T20:04:35-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:01-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">To restore thick polish, use our KBShimmer polish thinner, Restoration Drops. For slightly thickened polish, start with 2-3 drops, shake, then check the consistency. Repeat until you are happy with the result. For dried out or severely thickened polish, we suggest that ",
+   "variants": [
+    {
+     "id": 68219205451927,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "8.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057936748695,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/KBShimmer_Restoration_Drops_1.jpg?v=1793512974",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057936781463,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/KBShimmer_Restoration_Drops_2.jpg?v=1793512975",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467865637015,
+   "title": "KBShimmer | Checked Out",
+   "handle": "kbshimmer-check-yourself",
+   "vendor": "KBShimmer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:03:42-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:23:00-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\"><span>When antique hunting, the best way to find all the hidden treasures is by checking each booth and every nook and cranny. It's the best seek-and-find you will ever play, with shelves full of pictures and decor, and treasures carefully displayed throughout. For me, ",
+   "variants": [
+    {
+     "id": 68219205058711,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057936421015,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/KBShimmer_Checked_Out_1.jpg?v=1793512954",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057936453783,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/KBShimmer_Checked_Out_2.jpg?v=1793512955",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467865505943,
+   "title": "Kathleen & Co | Poison Ring",
+   "handle": "kathleen-co-poison-ring",
+   "vendor": "Kathleen & Co",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:02:41-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:59-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">I have always loved Poison <br>Rings and when I was in my teens I had one with my birthstone which is a <br>Ruby. Poison Ring is a deep red base with fiery red shimmer and a sprinkling of holo micro glitters for extra sparkle. <br><br>Cap:500</span></p>",
+   "variants": [
+    {
+     "id": 68219204862103,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54058113728663,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/IMG_3151.jpg?v=1793512935",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54058113663127,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/IMG_3135.jpg?v=1793512933",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467865440407,
+   "title": "Jior Couture | The Collector",
+   "handle": "jior-couture-the-collector",
+   "vendor": "Jior Couture",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T20:01:41-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:58-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspiration: Oddities found in Little Haiti - Miami, Fl<br>Description: Grey holo jelly base with various color multi-chrome flakes. <br><br>Cap:no cap</span></p>",
+   "variants": [
+    {
+     "id": 68219204796567,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "15.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057935208599,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Jior1_459a8e94-40c6-4d8a-82b6-40494c0bab70.jpg?v=1793512918",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057935241367,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Jior2_78b3c711-5043-4b05-a212-835e5c9f6868.jpg?v=1793512919",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467863638167,
+   "title": "Envy Lacquer | Vert De Paris",
+   "handle": "envy-lacquer-vert-de-paris",
+   "vendor": "Envy Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:50:14-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:57-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">A green magnetic polish inspired by arsenic paint. Worn unmagnetized you get all the shades of green together. Magnetized you get a warm green base with a cool magnetization and a hidden deadly detail, a red shift.<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219200733335,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057923379351,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/ppu-1.jpg?v=1793512739",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057923412119,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/ppu-2.jpg?v=1793512740",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467863408791,
+   "title": "Seal Glaze by DRK Nails",
+   "handle": "seal-glaze-by-drk-nails",
+   "vendor": "DRK Nails",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T19:48:07-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:56-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Seal glaze was first created to prevent the top coat from bleeding over certain polish colors (violet, purple, red, etc.). Seal Glaze also protects nail stamping art, but it is the best product for maintaining the magnetic effect, as it stops the spreading when a regula",
+   "variants": [
+    {
+     "id": 68219200503959,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "10.80",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057903620247,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/PhotoGrid_Site_1792965270115_77c8dc0d-12aa-4aff-a06a-2fe6aae23c9d.jpg?v=1793512699",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    }
+   ]
+  },
+  {
+   "id": 15467861115031,
+   "title": "DRK Nails | There Is No Place Like Home",
+   "handle": "drk-nails-there-is-no-place-like-home",
+   "vendor": "DRK Nails",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:30:13-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:55-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Ruby Slippers (the wizard of Oz)<br>A deep red jelly base mixed with sparkly red to gold shimmer. <br><br>Cap:400</span></p>",
+   "variants": [
+    {
+     "id": 68219196768407,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057900605591,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/first_1a9a953e-7590-4421-9b1e-9893e85fbac0.jpg?v=1793512684",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057900900503,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/second_83d45e0c-d359-4bcb-96a8-fa47185e1be6.jpg?v=1793512685",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467860557975,
+   "title": "Dreamland Lacquer | Cabinet of Curiosities",
+   "handle": "dreamland-lacquer-cabinet-of-curiosities",
+   "vendor": "Dreamland Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:26:47-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:53-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">I've been obsessed with the idea of cabinets of curiosity (a collection of rarities, weird things, art, etc) ever since I read the book Cabinet of Curiosity by Preston &amp; Child a million years ago. I found a lovely picture of one such cabinet, and created this polish",
+   "variants": [
+    {
+     "id": 68219195818135,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057896804503,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/DreamlandLacquer-CabinetofCuriosities_1.jpg?v=1793512662",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057896837271,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/DreamlandLacquer-CabinetofCuriosities_2.jpg?v=1793512663",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467858133143,
+   "title": "Cameo Colours Lacquers | A cameo for Cameo",
+   "handle": "cameo-colours-lacquers-a-cameo-for-cameo",
+   "vendor": "Cameo Colours Lacquers",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:19:24-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:52-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">A cameo which belonged first to my great-grandmother, and then to me. | A rosy pink with a slight pink/gold shimmer, full of gold flakes and small white hex glitters.<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219192246423,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057880289431,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/1CCLNov26.jpg?v=1793512534",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057880322199,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/2CCLNov26.jpg?v=1793512535",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467857739927,
+   "title": "Stamping Plate by Cadillacquer | Curiosities",
+   "handle": "stamping-plate-by-cadillacquer-curiosities",
+   "vendor": "Cadillacquer",
+   "product_type": "IPU",
+   "tags": [
+    "IPU",
+    "Nov"
+   ],
+   "created_at": "2026-10-31T19:18:24-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:51-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">This stainless steel plate has a size of 6x12cm and comes with a blue protective film which must be removed before you use it. The images were drawn by Swiss illustrator Lucille Solomon in cooperation with Cadillacquer.<br><br>Cap:335</span></p>",
+   "variants": [
+    {
+     "id": 68219191754903,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "16.50",
+     "compare_at_price": null,
+     "available": false,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057878356119,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Stampingplate1.jpg?v=1793511580",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057878388887,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Stampingplate2.jpg?v=1793512522",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467857313943,
+   "title": "Cadillacquer | Open Your Mind",
+   "handle": "cadillacquer-open-your-mind",
+   "vendor": "Cadillacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T19:17:34-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:50-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by Guillermo del Toro’s Cabinet of Curiosities. A blackened blue base, with matte yellow glitter and a red/orange to yellow magnetic pull. <br><br>Cap:600</span></p>",
+   "variants": [
+    {
+     "id": 68219191230615,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057876258967,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Cadillacquer1_77d1edbc-2a91-4d37-a94d-5e2f9c72dfb0.jpg?v=1793512506",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057876291735,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Cadillacquer2_f051da10-0de2-4582-b64a-7b929e9e428c.jpg?v=1793512506",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15467853873303,
+   "title": "Ahmya Cosmetics | Forged & Forgotten",
+   "handle": "ahmya-cosmetics-forged-forgotten",
+   "vendor": "Ahmya Cosmetics",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-31T18:58:44-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:49-05:00",
+   "body_html": "<p><span data-sheets-root=\"1\">Inspired by old rusty nails with a lovely petina. Forged and Forgotten is a magnetic berry pink with a teal flash in a royal jelly base and Aurora shimmer.<br><br>Cap:250</span></p>",
+   "variants": [
+    {
+     "id": 68219185430679,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "14.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54057849684119,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Image1_27bb588f-77e5-479c-a42b-00387f75dfed.jpg?v=1793512321",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54057849716887,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Image2_62efbf46-ac6e-4ccf-b4aa-55b0b1d0229f.jpg?v=1793512323",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15465343910039,
+   "title": "Beaux Rêves Lacquer | Attachment Issues",
+   "handle": "beaux-reves-lacquer-attachment-issues",
+   "vendor": "Beaux Rêves Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-30T13:26:41-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:48-05:00",
+   "body_html": "<p><span>'Attachment Issues'(thermal) is a plum purple when cold/cool to a light blue when warm/hot filled with a red/orange shimmer.</span></p>\n<p><span>Inspired by: Octopuses</span></p>\n<p><span>12ml</span></p>",
+   "variants": [
+    {
+     "id": 68211413483671,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54059265327255,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/collage_export_9F151E44-2F0C-4050-88EB-99FF4CC3118E.jpg?v=1793512292",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54045520789655,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/958A2C47-EFA3-43B1-A5BD-10C9820A689D.jpg?v=1793425158",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 15464951480471,
+   "title": "Monarch Lacquer | Snow Cute it Hurts",
+   "handle": "snow-cute-it-hurts-monarch-lacquer",
+   "vendor": "Monarch Lacquer",
+   "product_type": "PPU",
+   "tags": [
+    "Nov",
+    "PPU"
+   ],
+   "created_at": "2026-10-30T10:03:32-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2026-10-31T21:22:47-05:00",
+   "body_html": "<p>Inspired by: Snowbabies - collectible figurines </p>\n<p>This snow inspired polish features a delicate mix of matte white microglitter and color shifting iridescent mini flake.  The combo creates a soft, textured, glistening snowy effect.</p>",
+   "variants": [
+    {
+     "id": 68209462509719,
+     "title": "Default Title",
+     "sku": null,
+     "barcode": null,
+     "price": "13.50",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 54043494973591,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/IMG_8646.jpg?v=1793425134",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 54043495235735,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/20261007_110623.jpg?v=1793425135",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 5511966556311,
+   "title": "Nail Diva | Polish Remover Tool",
+   "handle": "nail-diva-polish-remover-tool",
+   "vendor": "Polish Pickup",
+   "product_type": "Merchandise",
+   "tags": [
+    "basic essentials"
+   ],
+   "created_at": "2020-08-11T19:51:49-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2025-09-27T12:52:36-05:00",
+   "body_html": "<p>Nail Diva is a patented tool that removes nail polish from a single nail while protecting your other polished fingernails from getting ruined!</p>\n<p>Designed to eliminate the most common nail painting mistakes like nail polish smudges or chips (the worst!). A must-have in your mani/pedi kit, giv",
+   "variants": [
+    {
+     "id": 35542616440983,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "9.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 42140465823895,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Shopify_Collection_Image_1.jpg?v=1719467563",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 42140465889431,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/Shopify_Collection_Image_3.jpg?v=1719467565",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  },
+  {
+   "id": 5804709150871,
+   "title": "Neodymium Bar Magnet",
+   "handle": "neodymium-bar-magnet",
+   "vendor": "Polish Pickup",
+   "product_type": "Merchandise",
+   "tags": [
+    "basic essentials"
+   ],
+   "created_at": "2020-10-02T10:44:05-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2024-02-27T22:47:38-06:00",
+   "body_html": "<p>Powerful magnet, perfect for maximum pull for designs in magnetic nail polish.</p>\n<p><span>MAGNETS DIMENSIONS - 60mm x 10mm x 3mm</span></p>\n<p><span>Weight: .5 oz</span></p>\n<p><span>User note: Magnet is fragile and does have a breaking point, especially from the force of impact from other magn",
+   "variants": [
+    {
+     "id": 36780827639959,
+     "title": "Default Title",
+     "sku": "",
+     "barcode": null,
+     "price": "3.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 20271705391255,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/products/magnet1.jpg?v=1601653499",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    }
+   ]
+  },
+  {
+   "id": 4201740795994,
+   "title": "Gift Card - Electronic",
+   "handle": "gift-card-electronic",
+   "vendor": "PPickup",
+   "product_type": "Gift Cards",
+   "tags": [],
+   "created_at": "2019-10-10T20:56:13-05:00",
+   "updated_at": "2026-11-08T00:27:06-06:00",
+   "published_at": "2024-01-24T15:35:44-06:00",
+   "body_html": "<div class=\"skt_gc_button_container\"></div><div class=\"skt_gc_preview_button_container\"></div>\n<p>Shopping for someone else but not sure what to give them? Give them the gift of choice with a Polish Pickup gift card. </p>\n<p>Gift cards are delivered by email and contain instructions to redeem them a",
+   "variants": [
+    {
+     "id": 30592696057946,
+     "title": "$5.00",
+     "sku": "PPUGG5",
+     "barcode": null,
+     "price": "5.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "$5.00",
+     "option2": null,
+     "option3": null
+    },
+    {
+     "id": 30592695894106,
+     "title": "$10.00",
+     "sku": "PPUGC10",
+     "barcode": null,
+     "price": "10.00",
+     "compare_at_price": null,
+     "available": true,
+     "option1": "$10.00",
+     "option2": null,
+     "option3": null
+    }
+   ],
+   "images": [
+    {
+     "id": 40480227524759,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/files/gift1.png?v=1703741873",
+     "width": 1000,
+     "height": 1000,
+     "position": 1
+    },
+    {
+     "id": 33102388920471,
+     "src": "https://cdn.shopify.com/s/files/1/1734/6741/products/PPUGF5.jpg?v=1703719506",
+     "width": 1000,
+     "height": 1000,
+     "position": 2
+    }
+   ]
+  }
+ ]
+}

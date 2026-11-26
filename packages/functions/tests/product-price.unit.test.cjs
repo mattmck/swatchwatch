@@ -105,6 +105,12 @@ describe("price + currency pairs", () => {
     assert.equal(productPriceFromRaw("OpenBeautyFacts", { code: "123" }, "USD"), null);
     assert.equal(productPriceFromRaw("MooncatShopify", null, "USD"), null);
   });
+
+  it("productPriceFromRaw: a …Feed source never takes the Shopify branch, Holo Taco does", () => {
+    // Same Shopify-shaped payload: the protocol decides, not the name suffix.
+    assert.equal(productPriceFromRaw("StellaChromaFeed", fixture.products[1], "CAD"), null);
+    assert.deepEqual(productPriceFromRaw("HoloTacoShopify", fixture.products[1], "CAD"), { price: "9.00", currency: "CAD" });
+  });
 });
 
 describe("store currency lookup", () => {

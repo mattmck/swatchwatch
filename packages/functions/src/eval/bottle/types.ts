@@ -13,6 +13,14 @@ export interface EvalSample {
   shadeId: number | null;
   brand: string;
   shadeName: string;
+  /** Catalog brand of the labelled shade; `null` for a bottle not in the catalog (or unknown). */
+  brandId?: number | null;
+  /**
+   * Whether the labelled shade can be in its brand's candidate pool (live, unmerged, active `color`
+   * shade): `false` = it cannot, `null` = unknown (a `user_submitted` shade, whose eligibility
+   * depends on who runs the eval, or a bottle not in the catalog).
+   */
+  labelPoolEligible?: boolean | null;
   /**
    * Finish family of the shade's primary finish: `finish_type.family`, else the built-in
    * `DUPE_FINISH_FAMILIES` by finish name, else `"unknown"` (always `"unknown"` for external samples).
@@ -42,6 +50,28 @@ export type Outcome =
   | "skipped_no_frames"
   | "error";
 
+/**
+ * Earliest resolver stage that lost a sample (see `attributeFailure` in `attribution.ts` and the
+ * eval:bottle section of the Functions README for each one).
+ */
+export type FailureStage =
+  | "barcode_wrong_shade"
+  | "brand_not_read"
+  | "brand_not_in_catalog"
+  | "brand_wrong"
+  | "candidate_pool_missing_label"
+  | "name_not_read"
+  | "name_wrong"
+  | "name_ambiguous"
+  | "name_weak"
+  | "color_no_hex"
+  | "color_not_confirmed"
+  | "color_vetoed"
+  | "color_tie_broke_wrong"
+  | "false_match_not_in_catalog"
+  | "label_not_in_catalog_expected"
+  | "unknown";
+
 export interface SampleResult {
   sampleId: number;
   brand: string;
@@ -68,6 +98,14 @@ export interface SampleResult {
   adaptive: boolean;
   /** The check carried a `suggestedShade`, i.e. the app would show a create card. */
   createCard: boolean;
+  /**
+   * Earliest stage that lost the sample; `null` for `matched_correct`, `skipped_no_frames` and
+   * `error`. `rejected_correct` gets `label_not_in_catalog_expected` (a correct answer, counted so
+   * every non-match has a reason).
+   */
+  failureStage: FailureStage | null;
+  /** Short evidence behind `failureStage` (read text, scores); absent when it is null. */
+  failureDetail?: string;
   error?: string;
 }
 
@@ -91,4 +129,8 @@ export interface EvalSummary {
   medianFramesNeeded: number;
   /** Scored not-in-catalog samples whose check carried a create card / scored not-in-catalog samples (0 when there are none). */
   createCardRate: number;
+  /** Samples per `SampleResult.failureStage` (samples with a null stage are not counted). */
+  byFailureStage: Record<FailureStage, number>;
+  /** `byFailureStage` per brand. */
+  byBrandFailureStage: Record<string, Record<FailureStage, number>>;
 }

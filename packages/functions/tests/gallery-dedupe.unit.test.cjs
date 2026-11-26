@@ -551,3 +551,30 @@ describe("getGalleryMaxImagesPerShade", () => {
     assert.equal(getGalleryMaxImagesPerShade({ GALLERY_MAX_IMAGES_PER_SHADE: " 12 " }), 12);
   });
 });
+
+describe("unlinkRetailerGallerySwatches", () => {
+  const { unlinkRetailerGallerySwatches } = require("../dist/lib/gallery-dedupe");
+
+  it("deletes only retailer-owned gallery/product swatches of the shade, never protected ones", async () => {
+    const calls = [];
+    const client = {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return { rows: [{ swatchId: 1 }, { swatchId: 2 }] };
+      },
+    };
+    const count = await unlinkRetailerGallerySwatches(client, 42);
+    assert.equal(count, 2);
+    assert.equal(calls.length, 1);
+    const { sql, params } = calls[0];
+    assert.deepEqual(params, [42]);
+    assert.match(sql, /DELETE FROM swatch sw/);
+    assert.match(sql, /sw\.shade_id = \$1/);
+    assert.match(sql, /swatch_type IN \('source_gallery', 'source_product'\)/);
+    assert.match(sql, /ia\.owner_type = 'source'/);
+    assert.match(sql, /NOT \(COALESCE\(NULLIF\(lower\(btrim\(ds\.metadata ->> 'kind'\)\), ''\), 'brand'\) NOT IN \('retailer', 'feed'\)\)/);
+    assert.match(sql, /NOT \(EXISTS \(SELECT 1 FROM color_training_sample/);
+    assert.match(sql, /color_features/);
+    assert.doesNotMatch(sql, /DELETE FROM image_asset/);
+  });
+});

@@ -160,6 +160,8 @@ export interface IngestionJob {
   completedAt?: string;
   errorSummary?: string;
   recordsProcessed?: number;
+  /** `metrics.pipeline.stage` (e.g. `store_closed`, `queue_poisoned`), when the job recorded one. */
+  stage?: string;
 }
 
 export interface AdminJobsListResponse {

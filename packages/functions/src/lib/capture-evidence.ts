@@ -31,8 +31,14 @@ export interface CaptureEvidence {
    * brand counts as typed; a `pipeline` one was read off the bottle. `confidence` is 0 when unscored.
    */
   brandRead?: { text: string; confidence: number; source: FrameExtraction["source"] };
-  /** Shade name the model picked from a closed list of catalog names. */
+  /** Shade name the model picked from a closed list of catalog names, verified by the printed name. */
   shadeNameListed?: string;
+  /** A closed-list pick the printed name did not verify: a candidate, never a match on its own. */
+  shadeNamePick?: string;
+  /** True when the frame that supplied `shadeName` read it only in part (cut off or covered). */
+  shadeNameIncomplete?: boolean;
+  /** The shade name the pipeline read off a front frame: never `shadeName`, a candidate or a contradiction only. */
+  frontShadeName?: string;
   /** Glass color read from a frame the pipeline marked `extracted.source === "glass"`; never client-supplied. */
   glassHex?: string;
   glassHexConfidence?: number;
@@ -50,6 +56,9 @@ export interface FrameExtraction {
   brandConfidence?: number;
   shadeName?: string;
   shadeNameListed?: string;
+  shadeNamePick?: string;
+  /** False when the pipeline read the shade name only in part (`extracted.shadeNameComplete`). */
+  shadeNameComplete?: boolean;
   finish?: string;
   /** Only set from `extracted.hex` when `extracted.source === "glass"`. */
   hex?: string;
@@ -161,6 +170,7 @@ export function extractFrameEvidence(quality: Record<string, unknown> | null): F
     shadeName: getStringField(extracted, "shadeName", "name"),
     finish: getStringField(extracted, "finish"),
     shadeNameListed: getStringField(extracted, "shadeNameListed"),
+    shadeNamePick: getStringField(extracted, "shadeNamePick"),
     hex: glassHex,
   };
   if (
@@ -169,6 +179,7 @@ export function extractFrameEvidence(quality: Record<string, unknown> | null): F
     || extractedEvidence.shadeName
     || extractedEvidence.finish
     || extractedEvidence.shadeNameListed
+    || extractedEvidence.shadeNamePick
     || extractedEvidence.hex
   ) {
     // A barcode the device decoded on a photo the pipeline also read (a bottle's bottom with its
@@ -182,6 +193,7 @@ export function extractFrameEvidence(quality: Record<string, unknown> | null): F
     return {
       ...extractedEvidence,
       brandConfidence: getNumberField(extracted, "brandConfidence"),
+      ...(extracted.shadeNameComplete === false ? { shadeNameComplete: false } : {}),
       hexConfidence: glassHex ? getNumberField(extracted, "hexConfidence") : undefined,
       // Ingest stores a client-sent frame's evidence under `extracted` with its source; the
       // client's own `extracted.source` is stripped on ingest, so only the server writes it.
@@ -282,12 +294,18 @@ export function collectCaptureEvidence(
       evidence.brandRead = { text: extracted.brand, confidence: extracted.brandConfidence ?? 0, source: extracted.source };
     }
     if (surfaceReadsShadeName(surface)) {
-      if (!evidence.shadeName) {
+      if (!evidence.shadeName && extracted.shadeName) {
         evidence.shadeName = extracted.shadeName;
+        if (extracted.shadeNameComplete === false) evidence.shadeNameIncomplete = true;
       }
       if (!evidence.shadeNameListed) {
         evidence.shadeNameListed = extracted.shadeNameListed;
       }
+      if (!evidence.shadeNamePick && extracted.shadeNamePick) {
+        evidence.shadeNamePick = extracted.shadeNamePick;
+      }
+    } else if (!evidence.frontShadeName && extracted.shadeName && extracted.source === "pipeline") {
+      evidence.frontShadeName = extracted.shadeName;
     }
     if (!evidence.finish) {
       evidence.finish = extracted.finish;

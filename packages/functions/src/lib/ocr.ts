@@ -3,6 +3,8 @@
  * Graceful degradation: returns null when credentials are not configured.
  */
 
+import { aiReplayFetch } from "./ai-replay";
+
 const LOG_PREFIX = "[ocr]";
 const API_VERSION = "2024-11-30";
 const POLL_INTERVAL_MS = 1000;
@@ -47,7 +49,7 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await aiReplayFetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }

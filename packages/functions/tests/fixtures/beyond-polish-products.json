@@ -1,0 +1,74 @@
+{
+  "products": [
+    {
+      "id": 7001,
+      "title": "OPI Nail Lacquer - No Room for the Blues 0.5 oz - #NLB83",
+      "handle": "opi-nail-lacquer-no-room-for-the-blues",
+      "vendor": "OPI",
+      "product_type": "Nail Polish",
+      "tags": ["Blue", "bp-discontinued", "Creme", "OPI"],
+      "body_html": "<p>A deep navy creme.</p>",
+      "published_at": "2026-11-05T10:00:00-05:00",
+      "created_at": "2026-11-05T10:00:00-05:00",
+      "updated_at": "2026-11-06T10:00:00-05:00",
+      "variants": [
+        { "id": 81, "title": "Default Title", "option1": "Default Title", "sku": "NLB83", "barcode": "094100006611", "price": "11.50", "available": true }
+      ],
+      "images": [{ "src": "https://cdn.shopify.com/s/files/1/beyond/opi-nlb83.jpg", "position": 1, "alt": null }]
+    },
+    {
+      "id": 7002,
+      "title": "Orly Nail Lacquer - Velvet Dreams - #2000478",
+      "handle": "orly-nail-lacquer-velvet-dreams",
+      "vendor": "ORLY",
+      "product_type": "Nail Polish",
+      "tags": ["Purple", "Shimmer"],
+      "published_at": "2026-11-04T10:00:00-05:00",
+      "created_at": "2026-11-04T10:00:00-05:00",
+      "updated_at": "2026-11-04T10:00:00-05:00",
+      "variants": [
+        { "id": 82, "title": "Default Title", "option1": "Default Title", "sku": "2000478", "barcode": null, "price": "10.00", "available": true }
+      ],
+      "images": []
+    },
+    {
+      "id": 7003,
+      "title": "OPI - Gel & Lacquer Combo - Metallic Rewind",
+      "handle": "opi-gel-lacquer-combo-metallic-rewind",
+      "vendor": "OPI",
+      "product_type": "Nail Polish",
+      "tags": ["Nail Set", "OPI"],
+      "published_at": "2026-11-03T10:00:00-05:00",
+      "created_at": "2026-11-03T10:00:00-05:00",
+      "updated_at": "2026-11-03T10:00:00-05:00",
+      "variants": [{ "id": 83, "title": "Default Title", "option1": "Default Title", "price": "24.00", "available": true }],
+      "images": []
+    },
+    {
+      "id": 7004,
+      "title": "Zoya - Sonnet Fall Collection",
+      "handle": "zoya-sonnet-fall-collection",
+      "vendor": "Zoya",
+      "product_type": "Nail Polish",
+      "tags": ["Zoya"],
+      "published_at": "2026-11-02T10:00:00-05:00",
+      "created_at": "2026-11-02T10:00:00-05:00",
+      "updated_at": "2026-11-02T10:00:00-05:00",
+      "variants": [{ "id": 84, "title": "Default Title", "option1": "Default Title", "price": "60.00", "available": true }],
+      "images": []
+    },
+    {
+      "id": 7005,
+      "title": "Midnight Garden",
+      "handle": "midnight-garden",
+      "vendor": "vendor-unknown",
+      "product_type": "Nail Polish",
+      "tags": ["Green"],
+      "published_at": "2026-11-01T10:00:00-05:00",
+      "created_at": "2026-11-01T10:00:00-05:00",
+      "updated_at": "2026-11-01T10:00:00-05:00",
+      "variants": [{ "id": 85, "title": "Default Title", "option1": "Default Title", "price": "12.00", "available": true }],
+      "images": []
+    }
+  ]
+}

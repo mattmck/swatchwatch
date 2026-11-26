@@ -309,6 +309,8 @@ resource "azurerm_postgresql_flexible_server" "main" {
   administrator_login    = var.pg_admin_username
   administrator_password = var.pg_admin_password
 
+  # Changing the SKU changes max_connections: update var.pg_app_connection_limit with it, or the
+  # Function App scale-limit precondition checks the old limit (#548).
   sku_name   = "B_Standard_B1ms"
   storage_mb = 32768
 
@@ -930,6 +932,12 @@ resource "azurerm_linux_function_app" "main" {
       node_version = "22"
     }
 
+    # #548: each instance keeps its own Postgres pool (PG_POOL_MAX), so instances x pool size
+    # must stay under the server's connection limit (see the precondition below). Without a
+    # cap the Consumption plan adds instances for a long ingestion queue until Postgres
+    # refuses connections.
+    app_scale_limit = var.function_app_scale_limit
+
     # Keep this block. The Functions host reserves the CORS_ALLOWED_ORIGINS setting (it
     # JSON-parses it as the host CORS origin list); with platform CORS configured Azure supplies
     # that value itself, without it the host reads the app's comma-separated list below and fails
@@ -964,6 +972,8 @@ resource "azurerm_linux_function_app" "main" {
     AZURE_OPENAI_BATCH_API_VERSION       = var.azure_openai_batch_api_version
     AZURE_OPENAI_BATCH_COMPLETION_WINDOW = var.azure_openai_batch_completion_window
     AZURE_OPENAI_VISION_DETAIL           = var.azure_openai_vision_detail
+    AZURE_OPENAI_REASONING_DEPLOYMENTS   = var.azure_openai_reasoning_deployments
+    AZURE_OPENAI_REASONING_EFFORT        = var.azure_openai_reasoning_effort
     HEX_DETECTION_BATCH_ENABLED          = var.hex_detection_batch_enabled ? "true" : "false"
     HEX_DETECTION_BATCH_MIN_IMAGES       = tostring(var.hex_detection_batch_min_images)
     HEX_DETECTION_SNAP_ENABLED           = var.hex_detection_snap_enabled ? "true" : "false"
@@ -979,6 +989,7 @@ resource "azurerm_linux_function_app" "main" {
     SHAREABLE_WISHLIST_ENABLED           = var.shareable_wishlist_enabled ? "true" : "false" # #268; off until roadmap section 6 decision 2
     SHAREABLE_LOOKS_ENABLED              = var.shareable_looks_enabled ? "true" : "false"    # saved-look share links; off until the owner turns them on
     BOTTLE_CAPTURE_ENABLED               = var.bottle_capture_enabled ? "true" : "false"     # guided bottle recognition flow; off until the owner turns it on
+    CATALOG_REFRESH_ENABLED              = var.catalog_refresh_enabled ? "true" : "false"    # nightly catalog-refresh timer (#532); off until measured on dev
     IMAGE_PROXY_SIGNING_KEY              = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.image_proxy_signing_key.versionless_id})"
     CORS_ALLOWED_ORIGINS                 = join(",", local.function_cors_allowed_origins)
     # Entrypoint/import failures hard-fail host startup instead of surfacing as
@@ -995,6 +1006,9 @@ resource "azurerm_linux_function_app" "main" {
     CAPTURE_FRAME_RETENTION_SECONDS       = tostring(var.capture_frame_retention_seconds)
     CAPTURE_FRAME_SWEEP_BATCH_SIZE        = tostring(var.capture_frame_sweep_batch_size)
     CAPTURE_FRAME_SWEEP_MAX_PER_RUN       = tostring(var.capture_frame_sweep_max_per_run)
+    CATALOG_REFRESH_SCHEDULE              = var.catalog_refresh_schedule
+    CATALOG_REFRESH_STAGGER_SECONDS       = tostring(var.catalog_refresh_stagger_seconds)
+    CATALOG_REFRESH_MAX_SOURCES_PER_RUN   = tostring(var.catalog_refresh_max_sources_per_run)
     CORS_ALLOWED_METHODS                  = var.cors_allowed_methods
     CORS_ALLOWED_HEADERS                  = var.cors_allowed_headers
     CORS_SUPPORT_CREDENTIALS              = var.cors_support_credentials ? "true" : "false"
@@ -1022,9 +1036,14 @@ resource "azurerm_linux_function_app" "main" {
     SHOPIFY_CONNECTOR_REQUEST_TIMEOUT_MS  = tostring(var.shopify_connector_request_timeout_ms)
     SHOPIFY_CONNECTOR_MAX_RETRIES         = tostring(var.shopify_connector_max_retries)
     SHOPIFY_CONNECTOR_RETRY_BASE_DELAY_MS = tostring(var.shopify_connector_retry_base_delay_ms)
+    SHOPIFY_CONNECTOR_PAGE_DELAY_MS       = tostring(var.shopify_connector_page_delay_ms)
+    SHOPIFY_CONNECTOR_MAX_PAGES           = tostring(var.shopify_connector_max_pages)
+    SITEMAP_JSONLD_MAX_PAGES_PER_RUN      = tostring(var.sitemap_jsonld_max_pages_per_run)
+    SITEMAP_JSONLD_SAVE_MARGIN_MS         = tostring(var.sitemap_jsonld_save_margin_ms)
     SOURCE_IMAGE_CONTAINER                = var.source_image_container
     SOURCE_IMAGE_MAX_EDGE_PX              = tostring(var.source_image_max_edge_px)
     SOURCE_IMAGE_MAX_DOWNLOAD_BYTES       = tostring(var.source_image_max_download_bytes)
+    SOURCE_IMAGE_MAX_PER_PRODUCT          = tostring(var.source_image_max_per_product)
     SUSPICIOUS_HEX_REPEAT_MIN_RECORDS     = tostring(var.suspicious_hex_repeat_min_records)
     SUSPICIOUS_HEX_REPEAT_MIN_SHARE       = tostring(var.suspicious_hex_repeat_min_share)
     SUSPICIOUS_HEX_GRAYSCALE_MAX_CHROMA   = tostring(var.suspicious_hex_grayscale_max_chroma)
@@ -1040,6 +1059,11 @@ resource "azurerm_linux_function_app" "main" {
       tags["hidden-link: /app-insights-instrumentation-key"],
       tags["hidden-link: /app-insights-conn-string"],
     ]
+
+    precondition {
+      condition     = var.function_app_scale_limit * var.pg_pool_max <= var.pg_app_connection_limit
+      error_message = "function_app_scale_limit x pg_pool_max must not exceed pg_app_connection_limit (the Postgres connections left for the app)."
+    }
   }
 }
 

@@ -5,6 +5,7 @@ import {
   buildCameraConstraints,
   classifyCameraError,
   getCameraAvailability,
+  planCameraVisibility,
   shouldRetryWithoutConstraints,
   type CameraAvailability,
   type CameraErrorKind,
@@ -44,7 +45,9 @@ async function cameraPermissionGranted(): Promise<boolean> {
 /**
  * Owns a `getUserMedia` stream bound to `videoRef`: rear camera first, an unconstrained
  * retry on OverconstrainedError, and the camera released on stop, unmount, and when the
- * tab is hidden (so the phone's camera light doesn't stay on in the background).
+ * tab is hidden (so the phone's camera light doesn't stay on in the background). A camera
+ * released by hiding the tab (switching apps on a phone) restarts when the tab is shown again;
+ * one the user stopped stays off (`planCameraVisibility`, #527).
  */
 export function useCameraStream(
   videoRef: RefObject<HTMLVideoElement | null>,
@@ -55,6 +58,10 @@ export function useCameraStream(
   const [streamState, setState] = useState<StreamPhase>({ phase: "idle" });
   const streamRef = useRef<MediaStream | null>(null);
   const startTokenRef = useRef(0);
+  /** Live or still starting (the permission prompt may be open), for the visibility handler. */
+  const activeRef = useRef(false);
+  /** Released by a hidden tab, not by the user: restart when the tab is visible again. */
+  const resumeOnVisibleRef = useRef(false);
   const onErrorRef = useRef(options.onError);
 
   useEffect(() => {
@@ -62,6 +69,7 @@ export function useCameraStream(
   }, [options.onError]);
 
   const releaseStream = useCallback(() => {
+    activeRef.current = false;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     const video = videoRef.current;
@@ -70,17 +78,25 @@ export function useCameraStream(
     }
   }, [videoRef]);
 
-  const stop = useCallback(() => {
+  /** Release the camera and abandon a start in flight. */
+  const halt = useCallback(() => {
     startTokenRef.current += 1;
     releaseStream();
     setState((prev) => (prev.phase === "live" || prev.phase === "starting" ? { phase: "idle" } : prev));
   }, [releaseStream]);
+
+  /** The user stopped the camera: it stays off, even across a tab switch. */
+  const stop = useCallback(() => {
+    resumeOnVisibleRef.current = false;
+    halt();
+  }, [halt]);
 
   const start = useCallback(async () => {
     if (readAvailability() !== "available") return;
 
     const token = ++startTokenRef.current;
     releaseStream();
+    activeRef.current = true;
     setState({ phase: "starting" });
 
     let stream: MediaStream;
@@ -93,6 +109,7 @@ export function useCameraStream(
       }
     } catch (error) {
       if (token !== startTokenRef.current) return;
+      activeRef.current = false;
       const kind = classifyCameraError(error);
       setState({ phase: "error", kind });
       onErrorRef.current?.(kind);
@@ -134,13 +151,18 @@ export function useCameraStream(
 
   useEffect(() => {
     function handleVisibility() {
-      if (document.visibilityState === "hidden" && streamRef.current) {
-        stop();
-      }
+      const plan = planCameraVisibility({
+        visible: document.visibilityState === "visible",
+        active: activeRef.current,
+        resumeOnVisible: resumeOnVisibleRef.current,
+      });
+      resumeOnVisibleRef.current = plan.resumeOnVisible;
+      if (plan.action === "release") halt();
+      else if (plan.action === "resume") void start();
     }
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [stop]);
+  }, [halt, start]);
 
   useEffect(() => {
     return () => {

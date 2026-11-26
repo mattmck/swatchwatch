@@ -48,9 +48,25 @@ export type ConnectorProtocol =
   | "OpenBeautyFacts"
   | "MakeupAPI"
   | "GS1"
+  | "ProductFeed"
+  | "SitemapJsonLd"
+  | "WooCommerce"
+  | "BigCartel"
   | "Custom";
 
 export type IngestionJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+/**
+ * `metrics.pipeline.stage` of a job that stopped because the store was closed or locked
+ * (Shopify storefront password page, Big Cartel maintenance; #529). Such a job's status is
+ * `succeeded`: nothing failed, the catalog was left as it was and the next run tries again.
+ */
+export const INGESTION_STORE_CLOSED_STAGE = "store_closed";
+
+/** True for a finished job whose store was closed (status `succeeded`, stage `store_closed`). */
+export function isStoreClosedIngestionJob(job: { status: string; stage?: string | null }): boolean {
+  return job.status === "succeeded" && job.stage === INGESTION_STORE_CLOSED_STAGE;
+}
 
 export type IngestionLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -109,6 +125,8 @@ export interface BulkIngestionRequest {
 export interface BulkIngestionResponse {
   enqueued: number;
   jobs: IngestionJobRecord[];
+  /** Sources not queued because a job of theirs is still queued or running (#532). */
+  skipped?: Array<{ source: string; reason: "already_running"; jobId: string }>;
 }
 
 export interface IngestionJobRecord {

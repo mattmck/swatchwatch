@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "key": "51fba026a55b3d28626920843987118b6b009f4889cb6a70e2256b91bb1d03ff",
+  "service": "azure-openai",
+  "recordedAt": "2026-11-07T05:35:08.401Z",
+  "deployment": "gpt-4o-mini",
+  "model": "gpt-4o-mini-2024-07-18",
+  "request": {
+    "method": "POST",
+    "path": "/openai/deployments/gpt-4o-mini/chat/completions",
+    "query": [
+      [
+        "api-version",
+        "2024-06-01"
+      ]
+    ],
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "max_tokens": 500,
+      "messages": [
+        {
+          "content": "You are a nail polish label reader. Given OCR text from a nail polish bottle label, extract the following fields as JSON: brand, shadeName, finish (one of: creme, sheer, jelly, shimmer, metallic, glitter, holographic, duochrome, multichrome, flake, matte, topper, magnetic, thermal, crelly, glow, cream), collection, gtin (if a barcode number is visible), sizeMl. Return ONLY valid JSON. If a field cannot be determined, set it to null.",
+          "role": "system"
+        },
+        {
+          "content": "OCR text:\nOPI\nBig Apple Red\nNL N25 15 mL\n\nHints (may help disambiguate):\nbrand: OPI",
+          "role": "user"
+        }
+      ],
+      "response_format": {
+        "type": "json_object"
+      },
+      "temperature": 0.1
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "bodyJson": {
+      "choices": [
+        {
+          "content_filter_results": {
+            "hate": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "protected_material_code": {
+              "detected": false,
+              "filtered": false
+            },
+            "protected_material_text": {
+              "detected": false,
+              "filtered": false
+            },
+            "self_harm": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "sexual": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "violence": {
+              "filtered": false,
+              "severity": "safe"
+            }
+          },
+          "finish_reason": "stop",
+          "index": 0,
+          "logprobs": null,
+          "message": {
+            "annotations": [],
+            "content": "{\n  \"brand\": \"OPI\",\n  \"shadeName\": \"Big Apple Red\",\n  \"finish\": null,\n  \"collection\": null,\n  \"gtin\": null,\n  \"sizeMl\": 15\n}",
+            "refusal": null,
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1794029707,
+      "id": "chatcmpl-EhTMxkcVQZXWuGVBS2gZmosV9sSzT",
+      "model": "gpt-4o-mini-2024-07-18",
+      "object": "chat.completion",
+      "prompt_filter_results": [
+        {
+          "prompt_index": 0,
+          "content_filter_results": {
+            "hate": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "jailbreak": {
+              "detected": false,
+              "filtered": false
+            },
+            "self_harm": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "sexual": {
+              "filtered": false,
+              "severity": "safe"
+            },
+            "violence": {
+              "filtered": false,
+              "severity": "safe"
+            }
+          }
+        }
+      ],
+      "routing": {
+        "serving_pipereplica": "d20261025032130-6b41b25f-default-r10-dp0-default"
+      },
+      "service_tier": "default",
+      "system_fingerprint": "fp_4b2adf74ff",
+      "usage": {
+        "completion_tokens": 47,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "latency_checkpoint": {
+          "engine_tbt_ms": 7,
+          "engine_ttft_ms": 26,
+          "engine_ttlt_ms": 345,
+          "pre_inference_ms": 108,
+          "service_tbt_ms": 7,
+          "service_ttft_ms": 355,
+          "service_ttlt_ms": 670,
+          "user_visible_ttft_ms": 247
+        },
+        "prompt_tokens": 150,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 197
+      }
+    },
+    "bodyText": null
+  }
+}

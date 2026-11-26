@@ -47,6 +47,18 @@ function protocolForSource(source) {
   if (source.endsWith("Shopify")) {
     return "Shopify";
   }
+  if (source.endsWith("Feed")) {
+    return "ProductFeed";
+  }
+  if (source.endsWith("Sitemap")) {
+    return "SitemapJsonLd";
+  }
+  if (source.endsWith("WooCommerce")) {
+    return "WooCommerce";
+  }
+  if (source.endsWith("BigCartel")) {
+    return "BigCartel";
+  }
   if (source === "OpenBeautyFacts") {
     return "OpenBeautyFacts";
   }

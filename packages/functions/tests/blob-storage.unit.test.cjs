@@ -729,3 +729,78 @@ describe("lib/blob-storage — deleteBlobFromStorageUrl (#270)", () => {
     assert.equal(fetchCalls.length, 0);
   });
 });
+
+describe("lib/blob-storage — conditional writes and reads by name (catalog cache checkpoints)", () => {
+  const { uploadBytesToBlobConditional, readBlobByName } = require("../dist/lib/blob-storage");
+  const ACCOUNT_KEY = Buffer.from("test-key").toString("base64");
+  const CONNECTION = `DefaultEndpointsProtocol=https;AccountName=testacct;AccountKey=${ACCOUNT_KEY};EndpointSuffix=core.windows.net`;
+  const originalFetch = global.fetch;
+  let calls = [];
+  let respond = () => new Response(null, { status: 201, headers: { etag: '"0x2"' } });
+
+  beforeEach(() => {
+    calls = [];
+    global.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), method: init.method || "GET", headers: init.headers || {} });
+      return respond(String(url), init);
+    };
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  const put = (extra) =>
+    uploadBytesToBlobConditional({
+      connectionString: CONNECTION,
+      containerName: "connector-raw",
+      blobName: "catalog-cache/OpiSitemap/7.checkpoint.json.gz",
+      bytes: Buffer.from("x"),
+      contentType: "application/gzip",
+      skipContainerEnsure: true,
+      ...extra,
+    });
+
+  it("sends If-Match with the ETag and returns the new ETag", async () => {
+    const result = await put({ ifMatch: '"0x1"' });
+    assert.deepEqual(result, {
+      written: true,
+      etag: '"0x2"',
+      url: "https://testacct.blob.core.windows.net/connector-raw/catalog-cache/OpiSitemap/7.checkpoint.json.gz",
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "PUT");
+    assert.equal(calls[0].headers["If-Match"], '"0x1"');
+    assert.equal(calls[0].headers["If-None-Match"], undefined);
+    assert.match(calls[0].headers.Authorization, /^SharedKey testacct:/);
+  });
+
+  it("sends If-None-Match: * for a blob that must not exist yet", async () => {
+    await put({ ifNoneMatch: "*" });
+    assert.equal(calls[0].headers["If-None-Match"], "*");
+    assert.equal(calls[0].headers["If-Match"], undefined);
+  });
+
+  it("reports a precondition failure (412, or 409 for If-None-Match on an existing blob) without throwing", async () => {
+    respond = () => new Response("<Error/>", { status: 412 });
+    assert.deepEqual(await put({ ifMatch: '"0x1"' }), { written: false });
+    respond = () => new Response("<Error/>", { status: 409 });
+    assert.deepEqual(await put({ ifNoneMatch: "*" }), { written: false });
+  });
+
+  it("refuses to send both conditions, and throws on any other storage error", async () => {
+    await assert.rejects(put({ ifMatch: '"0x1"', ifNoneMatch: "*" }), /either ifMatch or ifNoneMatch/);
+    respond = () => new Response("nope", { status: 403 });
+    await assert.rejects(put({ ifMatch: '"0x1"' }), /Conditional blob upload failed .*403/);
+  });
+
+  it("readBlobByName returns the bytes and ETag, or null for a missing blob", async () => {
+    respond = () => new Response("hello", { status: 200, headers: { etag: '"0x9"' } });
+    const found = await readBlobByName({ connectionString: CONNECTION, containerName: "connector-raw", blobName: "a/b.gz" });
+    assert.equal(found.bytes.toString(), "hello");
+    assert.equal(found.etag, '"0x9"');
+    assert.equal(calls[0].url, "https://testacct.blob.core.windows.net/connector-raw/a/b.gz");
+    respond = () => new Response("<Error/>", { status: 404 });
+    assert.equal(await readBlobByName({ connectionString: CONNECTION, containerName: "connector-raw", blobName: "a/b.gz" }), null);
+  });
+});

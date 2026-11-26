@@ -9,7 +9,8 @@
  *     user-scoped routes do not grant admins access to other users' inventory)
  *
  * The whole suite is skipped (not failed) when the host is unreachable or not in
- * dev-bypass mode, so it is safe to include in any test run.
+ * dev-bypass mode, so it is safe to include in any test run; with E2E_REQUIRE_HOST=true (CI's
+ * "API E2E" job) it fails instead.
  *
  * Override with env vars: E2E_API_BASE, E2E_OWNER_TOKEN, E2E_ATTACKER_TOKEN, and E2E_OWNER_ID
  * (the owner's numeric app_user id; required for the userId-spoofing cases when E2E_OWNER_TOKEN is
@@ -177,6 +178,8 @@ async function deleteTestPolishes(headers) {
 test("access control e2e: users cannot access or modify each other's data", async (t) => {
   const skipReason = await probeHost();
   if (skipReason) {
+    // CI's "API E2E" job starts the host itself: a skip there would hide a broken setup.
+    if (process.env.E2E_REQUIRE_HOST === "true") assert.fail(`E2E_REQUIRE_HOST=true, but ${skipReason}`);
     t.skip(skipReason);
     return;
   }

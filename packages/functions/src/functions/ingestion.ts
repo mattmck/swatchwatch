@@ -2,10 +2,12 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext, output } from "@
 import {
   BulkIngestionRequest,
   BulkIngestionResponse,
+  ConnectorProtocol,
   IngestionJobListResponse,
   IngestionJobRecord,
   IngestionJobRunRequest,
   IngestionJobRunResponse,
+  INGESTION_STORE_CLOSED_STAGE,
 } from "swatchwatch-shared";
 import { saveConnectorRawSnapshot } from "../lib/connector-raw-storage";
 import { withAdmin } from "../lib/auth";
@@ -16,15 +18,19 @@ import {
   cancelIngestionJob,
   createIngestionJob,
   ensureDataSourceByName,
+  type DataSourceRecord,
   ensureSupportedShopifyDataSources,
   getDataSourceByName,
   getGlobalSettings,
   getIngestionJobById,
   listDataSources,
   listDataSourcesWithSettings,
+  admitIngestionJob,
   listIngestionJobs,
   markIngestionJobFailed,
   markIngestionJobRunning,
+  markIngestionJobStoreClosed,
+  trackIngestionStoreClosed,
   markIngestionJobSucceeded,
   materializeHoloTacoRecords,
   materializeMakeupApiRecords,
@@ -33,6 +39,12 @@ import {
   updateGlobalSettings,
   upsertExternalProducts,
 } from "../lib/ingestion-repo";
+import {
+  partitionBlockedSources,
+  partitionDisabledSources,
+  refuseIfDisabled,
+  sourceBlockedReason,
+} from "../lib/ingestion-run-guard";
 
 
 import {
@@ -58,28 +70,49 @@ import {
   readCatalogSnapshotFromMetrics,
 } from "../lib/ingestion-catalog-cache";
 import { JobLogger } from "../lib/job-logger";
-import { OpenBeautyFactsConnector } from "../lib/connectors/open-beauty-facts";
-import { MakeupApiConnector } from "../lib/connectors/makeup-api";
-import { HoloTacoShopifyConnector } from "../lib/connectors/holo-taco-shopify";
-import { ShopifyGenericConnector } from "../lib/connectors/shopify-generic";
+import {
+  buildBulkRunRequest,
+  buildRequestedMetrics,
+  DEFAULT_MAX_RECORDS,
+  DEFAULT_PAGE,
+  DEFAULT_PAGE_SIZE,
+  DEFAULT_SEARCH_TERM,
+  JOB_TYPE_CONNECTOR_VERIFY,
+  MAX_PAGE_SIZE,
+  withPipelineMetrics,
+} from "../lib/ingestion-job-request";
+import { markExternalProductsMissing } from "../lib/listing-freshness";
+import { transaction } from "../lib/db";
+import { isStoreClosedError, type StoreClosedError } from "../lib/connectors/store-closed";
 import { isFeatureEnabled } from "../lib/feature-flags";
 import {
+  ConnectorCheckpointSupersededError,
   ProductConnector,
   SOURCE_PROTOCOL_MAP,
   SupportedConnectorSource,
   SUPPORTED_SOURCES,
 } from "../lib/connectors/types";
+import { materializesShadeProducts } from "../lib/connectors/registry";
+import {
+  createConnector,
+  hasRunnableConnector,
+  isRunnableConnectorSource,
+  isSupportedSource,
+} from "../lib/connectors/factories";
 
-const DEFAULT_PAGE = 1;
-const DEFAULT_PAGE_SIZE = 20;
-const DEFAULT_MAX_RECORDS = 20;
+// Re-exported for tests that build connectors through the ingestion module.
+export { createConnector, createConnectorForProtocol } from "../lib/connectors/factories";
+import {
+  planSourceImageWork,
+  readIngestionSwitches,
+  readSourceSettings,
+  type SourceSettings,
+} from "../lib/source-settings";
+
 const DEFAULT_RECENT_DAYS = 120;
-const MAX_PAGE_SIZE = 100;
 const MAX_RECORDS = 200;
 const MAX_RECENT_DAYS = 3650;
 const MAX_BULK_SOURCES = SUPPORTED_SOURCES.length;
-const DEFAULT_SEARCH_TERM = "nail polish";
-const JOB_TYPE_CONNECTOR_VERIFY = "connector_verify";
 // Queue bindings resolve this to the AzureWebJobsStorage app setting.
 const INGESTION_QUEUE_CONNECTION_SETTING = "Storage";
 
@@ -142,41 +175,6 @@ function getHexBatchRuntimeConfig(): HexBatchRuntimeConfig {
   };
 }
 
-function isSupportedSource(value: string): value is SupportedConnectorSource {
-  return (SUPPORTED_SOURCES as readonly string[]).includes(value);
-}
-
-function hasRunnableConnector(source: SupportedConnectorSource): boolean {
-  return source === "OpenBeautyFacts" || source === "MakeupAPI" || source.endsWith("Shopify");
-}
-
-function isRunnableConnectorSource(value: string): value is SupportedConnectorSource {
-  return isSupportedSource(value) && hasRunnableConnector(value);
-}
-
-function createConnector(
-  source: SupportedConnectorSource,
-  baseUrl?: string | null,
-  currency?: string | null
-): ProductConnector {
-  if (source === "OpenBeautyFacts") {
-    return new OpenBeautyFactsConnector(baseUrl);
-  }
-  if (source === "MakeupAPI") {
-    return new MakeupApiConnector(baseUrl);
-  }
-  if (source === "HoloTacoShopify") {
-    return new HoloTacoShopifyConnector(baseUrl, { currency });
-  }
-
-  // All other Shopify stores use the generic Shopify connector
-  if (source.endsWith("Shopify")) {
-    return new ShopifyGenericConnector(source, baseUrl, { currency });
-  }
-
-  throw new Error(`No connector available for source: ${source}`);
-}
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
 }
@@ -195,6 +193,7 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "imageUploadFailures",
   "additionalImagesUploaded",
   "imagesReused",
+  "imagesSkippedByCap",
   "swatchesLinked",
   "gallerySwatchesPruned",
   "galleryNearDuplicatesSkipped",
@@ -212,6 +211,11 @@ const ADDITIVE_METRIC_KEYS = new Set([
   "applied",
   "skippedNoDetection",
   "noShadeMatch",
+  "ambiguousShadesSkipped",
+  "brandStoreShadesMoved",
+  "brandStoreShadesRenamed",
+  "brandStoreShadesMerged",
+  "brandStoreCorrectionsSkipped",
 ]);
 
 /**
@@ -344,41 +348,7 @@ function toMetricsRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function buildRequestedMetrics(
-  request: NormalizedIngestionJobRequest,
-  userId: number
-): Record<string, unknown> {
-  return {
-    searchTerm: request.searchTerm,
-    requestedPage: request.page,
-    requestedPageSize: request.pageSize,
-    maxRecords: request.maxRecords,
-    recentDays: request.recentDays || null,
-    materializeToInventory: request.materializeToInventory,
-    detectHexFromImage: request.detectHexFromImage,
-    detectHexOnSuspiciousOnly: request.detectHexOnSuspiciousOnly,
-    overwriteDetectedHex: request.overwriteDetectedHex,
-    triggeredByUserId: userId,
-  };
-}
-
-function withPipelineMetrics(
-  baseMetrics: Record<string, unknown>,
-  status: "queued" | "running" | "succeeded" | "failed",
-  stage: string,
-  extra?: Record<string, unknown>
-): Record<string, unknown> {
-  return {
-    ...baseMetrics,
-    ...(extra || {}),
-    pipeline: {
-      status,
-      stage,
-      updatedAt: new Date().toISOString(),
-    },
-  };
-}
-
+/** The job's `metrics.pipeline.stage` (e.g. `awaiting_ai`), or null when unset or blank. */
 export function getPipelineStage(metrics: Record<string, unknown> | undefined): string | null {
   if (!metrics || typeof metrics !== "object") {
     return null;
@@ -454,6 +424,11 @@ async function enqueueIngestionJob(
         jsonBody: { error: `Data source '${normalizedRequest.source}' not found in data_source table` },
       };
     }
+    // After provisioning: a pending Shopify source is auto-created disabled and must be refused too.
+    const disabledResponse = refuseIfDisabled(normalizedRequest.source, source);
+    if (disabledResponse) {
+      return disabledResponse;
+    }
 
     const queuedMetrics = withPipelineMetrics(requestedMetrics, "queued", "queued", {
       queuedAt,
@@ -518,6 +493,65 @@ async function enqueueIngestionJob(
   }
 }
 
+/**
+ * Ends a job whose connector found the store closed: `succeeded`, stage `store_closed`, the
+ * reason in `metrics.storeClosed` and the job log, and `ingestion.store_closed` (never
+ * `ingestion.job_failed`). If even that write fails the message is not retried into a failure:
+ * the error is logged and the job is left for the admin to see.
+ */
+/** `metrics.storeClosed`: why and where the store was found closed. */
+function buildStoreClosedMetrics(error: StoreClosedError, stage: string): Record<string, unknown> {
+  return {
+    reason: error.reason,
+    httpStatus: error.httpStatus,
+    url: error.url,
+    detail: error.detail,
+    detectedAt: new Date().toISOString(),
+    detectedStage: stage,
+  };
+}
+
+function storeClosedEventDetails(error: StoreClosedError) {
+  return { source: error.source, reason: error.reason, httpStatus: error.httpStatus, detail: error.detail };
+}
+
+function logStoreClosed(logger: JobLogger, jobId: number, error: StoreClosedError, stage: string): void {
+  logger.warn(`Job ${jobId} stopped: ${error.message}. Nothing more is pulled or written for this run; the next run tries again.`, {
+    source: error.source,
+    reason: error.reason,
+    httpStatus: error.httpStatus,
+    url: error.url,
+    ...(error.detail ? { detail: error.detail } : {}),
+    stage,
+  });
+}
+
+async function finishStoreClosedJob(
+  payload: IngestionJobQueueMessage,
+  requestedMetrics: Record<string, unknown>,
+  stage: string,
+  logger: JobLogger,
+  error: StoreClosedError
+): Promise<void> {
+  logStoreClosed(logger, payload.jobId, error, stage);
+  try {
+    const storeClosed = buildStoreClosedMetrics(error, stage);
+    logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "succeeded", INGESTION_STORE_CLOSED_STAGE, {
+      queuedAt: payload.queuedAt,
+      workerCompletedAt: storeClosed.detectedAt,
+      storeClosed,
+    }));
+    await markIngestionJobStoreClosed(payload.jobId, storeClosedEventDetails(error), logger.getMetricsWithLogs());
+  } catch (markError) {
+    logger.error("Failed to record the store-closed outcome", {
+      originalError: error.message,
+      markError: getErrorMessage(markError),
+    });
+  }
+  await logger.dispose();
+}
+
+/** Runs one ingestion queue message within the worker time budget, checkpointing and enqueuing a continuation when it is spent. */
 export async function processIngestionJobQueueMessage(
   payload: IngestionJobQueueMessage,
   context: InvocationContext
@@ -632,7 +666,43 @@ export async function processIngestionJobQueueMessage(
     if (!source) {
       throw new Error(`Data source '${payload.request.source}' not found in data_source table`);
     }
-    logger.info(`Found data source`, { dataSourceId: source.dataSourceId, baseUrl: source.baseUrl });
+    // A source marked known-blocked after this job was queued stops here, before any pull.
+    const blockedReason = sourceBlockedReason(source);
+    if (blockedReason) {
+      stage = "source_blocked";
+      logger.warn(`Job ${payload.jobId} not run: source ${source.name} is known-blocked (${blockedReason})`);
+      throw new Error(`Source ${source.name} is known-blocked (${blockedReason}); the job was not run`);
+    }
+    // A source disabled after this job was queued stops here, before any connector pull.
+    if (source.enabled === false) {
+      stage = "source_disabled";
+      logger.warn(`Job ${payload.jobId} not run: source ${source.name} is disabled`);
+      throw new Error(`Source ${source.name} is disabled; the job was not run`);
+    }
+    // Source kind, image permission and connector keys, read once per job (lib/source-settings.ts).
+    const sourceSettings = readSourceSettings(source.metadata, source.name);
+    // Permission (`imagesPermitted`) and the admin switches (`metadata.ingestion.downloadImages`
+    // / `detectHex`) together decide whether this job stores images and runs AI hex detection.
+    const ingestionSwitches = readIngestionSwitches(source.metadata);
+    const imageWork = planSourceImageWork({
+      imagesPermitted: sourceSettings.imagesPermitted,
+      switches: ingestionSwitches,
+      requestDetectHex: payload.request.detectHexFromImage,
+    });
+    logger.info(`Found data source`, {
+      dataSourceId: source.dataSourceId,
+      baseUrl: source.baseUrl,
+      sourceKind: sourceSettings.kind,
+      imagesPermitted: sourceSettings.imagesPermitted,
+      downloadImages: ingestionSwitches.downloadImages,
+      detectHex: ingestionSwitches.detectHex,
+      storeImages: imageWork.storeImages,
+      detectHexFromImage: imageWork.detectHexFromImage,
+    });
+    // A retailer or feed only fills empty catalog data: never overwrite detected hexes, so the
+    // AI batch submission and the poller's apply step (which read this flag) inherit it too.
+    const overwriteDetectedHex =
+      sourceSettings.kind === "brand" ? payload.request.overwriteDetectedHex : false;
 
     // Connector pull
     stage = "connector_pull";
@@ -649,7 +719,7 @@ export async function processIngestionJobQueueMessage(
       recentDays: payload.request.recentDays,
     });
 
-    const connector = createConnector(payload.request.source, source.baseUrl, source.currency);
+    const connector = createConnector(payload.request.source, source.baseUrl, sourceSettings);
     // One catalog download per job, reused across pages and continuation invocations.
     const catalogCache = createIngestionCatalogCache({
       jobId: payload.jobId,
@@ -669,6 +739,10 @@ export async function processIngestionJobQueueMessage(
       : {};
     let connectorMetadata: Record<string, unknown> = {};
     const persistenceMetricsAggregate: Record<string, unknown> = toMetricsRecord(priorTotals.persistence);
+    // Listing freshness runs once per job, on the first pull that reports a catalog: a fresh
+    // start's download (Shopify, feeds), or the pull that finds a crawl complete (sitemap), which
+    // may be in a continuation. An earlier invocation's run is in the carried persistence totals.
+    let listingFreshnessDone = typeof persistenceMetricsAggregate.listingsMarkedMissing === "number";
     let materializationMetricsAggregate: Record<string, unknown> | null =
       priorTotals.materialization ? toMetricsRecord(priorTotals.materialization) : null;
     let totalRecordsProcessed = startCheckpoint?.recordsProcessed ?? 0;
@@ -811,7 +885,7 @@ export async function processIngestionJobQueueMessage(
         }
       }
 
-      if (payload.request.source.endsWith("Shopify") && payload.request.materializeToInventory) {
+      if (materializesShadeProducts(payload.request.source) && payload.request.materializeToInventory) {
         stage = "materialize_inventory";
         logger.updateBaseMetrics(withPipelineMetrics(requestedMetrics, "running", stage, {
           queuedAt: payload.queuedAt,
@@ -826,8 +900,8 @@ export async function processIngestionJobQueueMessage(
           recordCount: connectorResult.records.length,
           userId: payload.userId,
           dataSourceId: source.dataSourceId,
-          detectHexFromImage: payload.request.detectHexFromImage,
-          overwriteDetectedHex: payload.request.overwriteDetectedHex,
+          detectHexFromImage: imageWork.detectHexFromImage,
+          overwriteDetectedHex,
           hexBatchEnabled: hexBatchConfig.enabled,
           hexBatchMinImages: hexBatchConfig.minImages,
         });
@@ -837,9 +911,14 @@ export async function processIngestionJobQueueMessage(
             source.dataSourceId,
             connectorResult.records,
             {
-              detectHexFromImage: payload.request.detectHexFromImage,
+              detectHexFromImage: imageWork.detectHexFromImage,
               detectHexOnSuspiciousOnly: payload.request.detectHexOnSuspiciousOnly,
-              overwriteDetectedHex: payload.request.overwriteDetectedHex,
+              overwriteDetectedHex,
+              storeImages: imageWork.storeImages,
+              sourceKind: sourceSettings.kind,
+              sourceName: payload.request.source,
+              // Audit actor of brand-store corrections (moved / merged shades).
+              actorUserId: payload.userId,
               useBatchForHexDetection: hexBatchConfig.enabled && !hexBatchDegraded,
               batchMinImages: hexBatchConfig.minImages,
               progressLogger: {
@@ -873,8 +952,8 @@ export async function processIngestionJobQueueMessage(
             error: getErrorMessage(materializeError),
             durationMs: materializeDuration,
             recordCount: connectorResult.records.length,
-            detectHexFromImage: payload.request.detectHexFromImage,
-            overwriteDetectedHex: payload.request.overwriteDetectedHex,
+            detectHexFromImage: imageWork.detectHexFromImage,
+            overwriteDetectedHex,
           });
           throw materializeError;
         }
@@ -924,9 +1003,9 @@ export async function processIngestionJobQueueMessage(
     // detection costs an AI call + delay per record, so it runs in small chunks.
     const usesBatchHexDetection =
       hexBatchConfig.enabled &&
-      payload.request.source.endsWith("Shopify") &&
+      materializesShadeProducts(payload.request.source) &&
       payload.request.materializeToInventory &&
-      payload.request.detectHexFromImage;
+      imageWork.detectHexFromImage;
     const currentChunkSize = (): number =>
       usesBatchHexDetection && !hexBatchDegraded ? INGESTION_BATCH_CHUNK_SIZE : INGESTION_SYNC_CHUNK_SIZE;
     let chunksThisInvocation = 0;
@@ -1059,15 +1138,96 @@ export async function processIngestionJobQueueMessage(
       }
 
       const pageNumber = checkpoint.nextPage;
-      const pageResult = await connector.pullProducts({
-        searchTerm: payload.request.searchTerm,
-        page: pageNumber,
-        pageSize: payload.request.pageSize,
-        maxRecords: exhaustive ? payload.request.pageSize : payload.request.maxRecords,
-        recentDays: payload.request.recentDays,
-        catalogCache,
-      });
+      let pageResult: Awaited<ReturnType<ProductConnector["pullProducts"]>>;
+      try {
+        pageResult = await connector.pullProducts({
+          searchTerm: payload.request.searchTerm,
+          page: pageNumber,
+          pageSize: payload.request.pageSize,
+          maxRecords: exhaustive ? payload.request.pageSize : payload.request.maxRecords,
+          recentDays: payload.request.recentDays,
+          catalogCache,
+          // A crawling connector (sitemap) stops its request loop in time to save and hand off.
+          deadlineMs: invocationStartedAt + timeBudgetMs,
+          // Events the connector logs as they happen (a crawl giving up on a page).
+          log: (level, message, data) => (level === "warn" ? logger.warn(message, data) : logger.info(message, data)),
+        });
+      } catch (pullError) {
+        // A newer invocation saved the crawl checkpoint first: it owns the job. Stop like a
+        // lost-ownership stop, without processing, writing the job row or queueing anything.
+        if (pullError instanceof ConnectorCheckpointSupersededError) {
+          context.warn(`Job ${payload.jobId} ${pullError.message}; stopping worker without updating it`);
+          await logger.dispose({ flush: false });
+          return;
+        }
+        // The store closed after earlier chunks submitted AI batches that are still pending.
+        // Ending the job now would strand them (the poller only reads awaiting_ai jobs), so
+        // record the closure and hand the job to the poller with nothing left to resume: it
+        // applies the batches, then completes the job at stage store_closed.
+        if (isStoreClosedError(pullError) && aiBatches.some(isAiBatchPending)) {
+          const storeClosed = buildStoreClosedMetrics(pullError, stage);
+          logStoreClosed(logger, payload.jobId, pullError, stage);
+          logger.updateBaseMetrics({ storeClosed });
+          trackIngestionStoreClosed(payload.jobId, storeClosedEventDetails(pullError));
+          await pauseForAiBatches(null);
+          return;
+        }
+        throw pullError;
+      }
       const records = pageResult.records;
+
+      // Every pull, partial crawls included: stop before persisting anything (listing freshness,
+      // records, progress) or pulling again when the job was cancelled or taken over.
+      if (!(await stillOwnsJob())) {
+        await logger.dispose({ flush: false });
+        return;
+      }
+
+      // Pages a crawling connector gave up on in this pull: already logged through `log` when
+      // recorded; the list stays out of the job metrics (the running `failedPages` count stays).
+      if (pageResult.metadata && "failedThisPull" in pageResult.metadata) {
+        const { failedThisPull: _failedThisPull, ...metadataWithoutFailures } = pageResult.metadata;
+        pageResult = { ...pageResult, metadata: metadataWithoutFailures };
+      }
+
+      // A crawling connector still reading its catalog: no records yet, and an empty partial
+      // result never ends the job. Call again with the same page number; each partial pull
+      // counts against the time budget, and the job hands off when another pull would not fit.
+      if (pageResult.metadata?.catalogComplete === false) {
+        connectorMetadata = { ...connectorMetadata, ...pageResult.metadata };
+        logger.info(
+          `Crawled ${String(pageResult.metadata.crawledPages ?? "?")} of ${String(pageResult.metadata.totalPages ?? "?")} pages (checkpoint ${String(pageResult.metadata.checkpointGeneration ?? "?")})`,
+          { page: pageNumber, ...pageResult.metadata }
+        );
+        await saveProgress();
+        const nextPullEstimateMs = asFinitePositiveNumber(pageResult.metadata.crawlPullEstimateMs) ?? 0;
+        if (Date.now() - invocationStartedAt + nextPullEstimateMs >= timeBudgetMs) {
+          await handOffToContinuation();
+          return;
+        }
+        continue;
+      }
+
+      if (!listingFreshnessDone && pageResult.catalog) {
+        listingFreshnessDone = true;
+        try {
+          const freshness = await transaction((client) =>
+            markExternalProductsMissing(client, source.dataSourceId, pageResult.catalog!)
+          );
+          persistenceMetricsAggregate.listingsMarkedMissing = freshness.marked;
+          persistenceMetricsAggregate.listingsCleared = freshness.cleared;
+          logger.info(
+            freshness.skipped
+              ? "Listing freshness skipped: the catalog fetch was incomplete or empty"
+              : `Listing freshness: ${freshness.marked} marked missing, ${freshness.cleared} cleared`,
+            { ...freshness }
+          );
+        } catch (freshnessError) {
+          logger.warn("Listing freshness update failed; continuing ingestion", {
+            error: getErrorMessage(freshnessError),
+          });
+        }
+      }
 
       // Stop decisions always use the FULL page, never a chunk of it.
       let stopReason: string | null = null;
@@ -1216,6 +1376,13 @@ export async function processIngestionJobQueueMessage(
     await markIngestionJobSucceeded(payload.jobId, logger.getMetricsWithLogs());
     await logger.dispose();
   } catch (error: unknown) {
+    if (isStoreClosedError(error)) {
+      // A locked store (password page, maintenance) is not a failure (#529): end the job
+      // `succeeded` at stage `store_closed`, leave the catalog as it is (nothing is pruned or
+      // marked missing, since the pull never returned), and let the next run try again.
+      await finishStoreClosedJob(payload, requestedMetrics, stage, logger, error);
+      return;
+    }
     const message = getErrorMessage(error);
     const errorData = error instanceof Error ? { stack: error.stack } : undefined;
     logger.error(`Job ${payload.jobId} failed: ${message}`, errorData);
@@ -1660,6 +1827,40 @@ async function bulkIngestionHandler(
       jsonBody: { error: `No ingestion connector available for: ${nonRunnableSources.join(", ")}` },
     };
   }
+  // Provision first (a pending Shopify source is created disabled), then check, so nothing is queued.
+  const ensuredRows = new Map<string, DataSourceRecord | null>();
+  try {
+    for (const source of sources) {
+      ensuredRows.set(source, await ensureDataSourceByName(source));
+    }
+  } catch (error) {
+    return internalServerError(context, error, "Bulk ingestion: provisioning data sources failed", "ingestion.bulk");
+  }
+  const blockedSources = partitionBlockedSources([...ensuredRows.values()]);
+  if (blockedSources.length > 0) {
+    return {
+      status: 409,
+      jsonBody: {
+        error: "source_blocked",
+        message: `Known-blocked sources (metadata.blocked): ${blockedSources.join(", ")}`,
+        sources: blockedSources,
+      },
+    };
+  }
+  const disabledSources = partitionDisabledSources([...ensuredRows.values()]);
+  if (disabledSources.length > 0) {
+    return {
+      status: 409,
+      jsonBody: {
+        error: "source_disabled",
+        message: `Disabled sources (pending approval or switched off): ${disabledSources.join(", ")}`,
+        sources: disabledSources,
+      },
+    };
+  }
+  // Same-source guard (#532): each source is admitted atomically (`admitIngestionJob`: advisory
+  // lock, active-job check and insert in one transaction); a busy source is skipped, not queued twice.
+  const skipped: NonNullable<BulkIngestionResponse["skipped"]> = [];
   const options = body.options ?? {};
   const queuedAt = new Date().toISOString();
   const queueMessages: string[] = [];
@@ -1672,23 +1873,11 @@ async function bulkIngestionHandler(
 
   try {
     for (const source of sources) {
-      const normalizedRequest: NormalizedIngestionJobRequest = {
-        source,
-        page: DEFAULT_PAGE,
-        pageSize: MAX_PAGE_SIZE,
-        maxRecords: DEFAULT_MAX_RECORDS,
-        searchTerm: DEFAULT_SEARCH_TERM,
-        materializeToInventory: options.materializeToInventory !== false,
-        detectHexFromImage: options.detectHexFromImage !== false,
-        detectHexOnSuspiciousOnly: false,
-        overwriteDetectedHex: options.overwriteDetectedHex === true,
-        collectTrainingData: false,
-        exhaustive: true,
-      };
+      const normalizedRequest: NormalizedIngestionJobRequest = buildBulkRunRequest(source, options);
 
       const requestedMetrics = buildRequestedMetrics(normalizedRequest, userId);
 
-      const dataSource = await ensureDataSourceByName(source);
+      const dataSource = ensuredRows.get(source) ?? null;
       if (!dataSource) {
         context.warn(`Bulk: data source '${source}' not found, skipping`);
         continue;
@@ -1700,12 +1889,16 @@ async function bulkIngestionHandler(
         bulkRun: true,
       });
 
-      const job = await createIngestionJob(
-        dataSource.dataSourceId,
+      const admission = await admitIngestionJob(
+        Number(dataSource.dataSourceId),
         JOB_TYPE_CONNECTOR_VERIFY,
-        queuedMetrics,
-        "queued"
+        queuedMetrics
       );
+      if (!admission.admitted) {
+        skipped.push({ source, reason: "already_running", jobId: String(admission.activeJobId) });
+        continue;
+      }
+      const job = admission.job;
       createdJobs.push({ jobId: job.jobId, requestedMetrics, source });
 
       const queueMessage: IngestionJobQueueMessage = {
@@ -1724,6 +1917,16 @@ async function bulkIngestionHandler(
     }
 
     if (queueMessages.length === 0) {
+      if (skipped.length > 0) {
+        return {
+          status: 409,
+          jsonBody: {
+            error: "source_busy",
+            message: `Every source already has a job queued or running: ${skipped.map((s) => s.source).join(", ")}`,
+            skipped,
+          },
+        };
+      }
       return { status: 400, jsonBody: { error: "No valid sources could be queued" } };
     }
 
@@ -1732,7 +1935,11 @@ async function bulkIngestionHandler(
 
     return {
       status: 202,
-      jsonBody: { enqueued: queueMessages.length, jobs } satisfies BulkIngestionResponse,
+      jsonBody: {
+        enqueued: queueMessages.length,
+        jobs,
+        ...(skipped.length > 0 ? { skipped } : {}),
+      } satisfies BulkIngestionResponse,
     };
   } catch (error: unknown) {
     const message = getErrorMessage(error);

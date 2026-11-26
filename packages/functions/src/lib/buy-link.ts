@@ -13,10 +13,17 @@
  * Selection when a shade has several source products (`selectBuyFromBrandUrl`):
  *   1. candidates whose URL fails validation are ignored, and so are products of a disabled
  *      `data_source` (a source is disabled when its links are dead or the store has not
- *      agreed, e.g. MakeupAPI's 2015 well.ca / dior.com URLs), so such a shade shows no link;
- *   2. then the most recently seen link (`shade_source_product.last_seen_at`);
- *   3. then the most recently fetched product (`external_product.fetched_at`);
- *   4. then the highest `external_product_id`, so ties are still deterministic.
+ *      agreed, e.g. MakeupAPI's 2015 well.ca / dior.com URLs) and listings marked missing
+ *      (`external_product.missing_since`, absent from a complete catalog fetch), so such a
+ *      shade shows no link;
+ *   2. then listings that are not known to be sold out (`available !== false`; unknown counts
+ *      as available) before sold-out ones;
+ *   3. then the source kind (`data_source.metadata.kind`, see `source-settings.ts`): a brand
+ *      store's link beats a feed's, which beats a retailer's, however recently each was seen
+ *      (a missing or unknown kind counts as a brand store);
+ *   4. then the most recently seen link (`shade_source_product.last_seen_at`);
+ *   5. then the most recently fetched product (`external_product.fetched_at`);
+ *   6. then the highest `external_product_id`, so ties are still deterministic.
  *
  * Price: the chosen product's vendor list price (`normalized_json` `price` + `currency`,
  * written by the connectors, see `product-price.ts`) travels with the URL as one `BuyLink`.
@@ -29,6 +36,7 @@
  */
 import type { PoolClient } from "pg";
 import { query as defaultQuery } from "./db";
+import { sourceKindFromMetadata, sourceKindRank, type SourceKind } from "./source-settings";
 import { normalizeCurrencyCode, normalizePriceAmount } from "./product-price";
 
 /** Longest URL we pass through; longer values are treated as junk rather than truncated. */
@@ -40,6 +48,11 @@ export interface BuyLinkCandidate {
   url: string | null | undefined;
   /** `data_source.enabled` of the product's source; `false` drops the candidate. */
   sourceEnabled: boolean | null | undefined;
+  /**
+   * Kind of the product's source (`sourceKindFromMetadata` of `data_source.metadata`; `brand` when
+   * unset or unknown): brand links rank first, then feed, then retailer.
+   */
+  sourceKind?: SourceKind | string | null;
   /** `shade_source_product.last_seen_at`. */
   lastSeenAt: Date | string | null | undefined;
   /** `external_product.fetched_at`. */
@@ -49,6 +62,14 @@ export interface BuyLinkCandidate {
   price?: string | number | null;
   /** `normalized_json ->> 'currency'` (ISO 4217). */
   currency?: string | null;
+  /** `external_product.missing_since`; non-null drops the candidate. */
+  missingSince?: Date | string | null;
+  /**
+   * Availability: the connector's own `normalized_json.available` (feeds, WooCommerce, Big Cartel)
+   * when it is a boolean, else the Shopify variants: true if any variant is available, false if all
+   * known ones are sold out, null if unknown.
+   */
+  available?: boolean | null;
 }
 
 /** The selected buy link for a shade: URL plus the same product's list price, when known. */
@@ -118,6 +139,14 @@ function toIdNumber(value: string | number | null | undefined): number {
 
 /** Sort comparator implementing the selection rule (best candidate first). */
 export function compareBuyLinkCandidates(a: BuyLinkCandidate, b: BuyLinkCandidate): number {
+  const soldOutA = a.available === false;
+  const soldOutB = b.available === false;
+  if (soldOutA !== soldOutB) return soldOutA ? 1 : -1;
+
+  const kindA = sourceKindRank(a.sourceKind);
+  const kindB = sourceKindRank(b.sourceKind);
+  if (kindA !== kindB) return kindA - kindB;
+
   const seenA = toMillis(a.lastSeenAt);
   const seenB = toMillis(b.lastSeenAt);
   if (seenA !== seenB) return seenB > seenA ? 1 : -1;
@@ -159,6 +188,7 @@ export function selectBuyFromBrandLink(candidates: readonly BuyLinkCandidate[]):
   const valid: Array<{ candidate: BuyLinkCandidate; url: string }> = [];
   for (const candidate of candidates) {
     if (candidate.sourceEnabled === false) continue;
+    if (candidate.missingSince !== null && candidate.missingSince !== undefined) continue;
     const url = sanitizeBuyUrl(candidate.url);
     if (url) valid.push({ candidate, url });
   }
@@ -207,7 +237,23 @@ export const BUY_LINK_CANDIDATES_SQL = `SELECT
        ep.fetched_at                           AS "fetchedAt",
        ep.external_product_id::text            AS "externalProductId",
        ep.normalized_json ->> 'price'          AS price,
-       ep.normalized_json ->> 'currency'       AS currency
+       ep.normalized_json ->> 'currency'       AS currency,
+       ep.missing_since                        AS "missingSince",
+       COALESCE(
+         -- A connector's own availability (feeds, WooCommerce, Big Cartel); a non-boolean value reads as unknown.
+         CASE WHEN jsonb_typeof(ep.normalized_json -> 'available') = 'boolean'
+           THEN (ep.normalized_json ->> 'available')::boolean END,
+         -- Shopify-style listings: any variant available, else any variant sold out.
+         CASE WHEN jsonb_typeof(ep.normalized_json -> 'variants') = 'array' THEN
+           CASE
+             WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(ep.normalized_json -> 'variants') v
+                          WHERE jsonb_typeof(v) = 'object' AND (v ->> 'available') = 'true') THEN true
+             WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(ep.normalized_json -> 'variants') v
+                          WHERE jsonb_typeof(v) = 'object' AND (v ->> 'available') = 'false') THEN false
+           END
+         END
+       )                                       AS available,
+       ds.metadata                             AS "sourceMetadata"
      FROM shade_source_product ssp
      JOIN external_product ep ON ep.external_product_id = ssp.external_product_id
      JOIN data_source ds ON ds.data_source_id = ep.data_source_id
@@ -233,8 +279,14 @@ export async function loadBuyLinksForShades(
   const ids = Array.from(new Set(shadeIds.map(toShadeIdParam).filter((id): id is string => id !== null)));
   if (ids.length === 0) return new Map();
   try {
-    const result = await queryFn<BuyLinkCandidate>(BUY_LINK_CANDIDATES_SQL, [ids]);
-    return selectBuyLinksByShade(Array.isArray(result?.rows) ? result.rows : []);
+    const result = await queryFn<BuyLinkCandidate & { sourceMetadata?: unknown }>(BUY_LINK_CANDIDATES_SQL, [ids]);
+    const rows = Array.isArray(result?.rows) ? result.rows : [];
+    return selectBuyLinksByShade(
+      rows.map(({ sourceMetadata, ...row }) => ({
+        ...row,
+        sourceKind: sourceKindFromMetadata(sourceMetadata),
+      }))
+    );
   } catch (error) {
     console.warn("[buy-link] Failed to load buy-from-brand links:", (error as Error)?.message ?? error);
     return new Map();
@@ -288,19 +340,30 @@ export async function withBuyUrls<T extends object>(
   });
 }
 
+/** A positive integer id, from a number or from the string node-postgres returns for `bigint`. */
+function toPositiveIntegerId(value: unknown): number | null {
+  const id = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 /**
  * Records (or refreshes) the link between a materialized shade and the connector product
  * it came from. Called by ingestion inside its transaction, after `upsertExternalProducts`
  * has stored the product. No-op when the product row is missing.
+ *
+ * `shade_id` and `data_source_id` are `bigint`, so ids read back from Postgres arrive as
+ * strings even where their TypeScript type says `number`; both forms are accepted.
  */
 export async function recordShadeSourceProduct(
   client: Pick<PoolClient, "query">,
-  shadeId: number,
-  dataSourceId: number,
+  shadeId: number | string,
+  dataSourceId: number | string,
   externalId: string | null | undefined
 ): Promise<void> {
   const trimmed = externalId?.trim();
-  if (!trimmed || !Number.isFinite(shadeId) || !Number.isFinite(dataSourceId)) return;
+  const shade = toPositiveIntegerId(shadeId);
+  const source = toPositiveIntegerId(dataSourceId);
+  if (!trimmed || shade === null || source === null) return;
   await client.query(
     `INSERT INTO shade_source_product (shade_id, external_product_id)
      SELECT $1, ep.external_product_id
@@ -309,6 +372,6 @@ export async function recordShadeSourceProduct(
        AND ep.external_id = $3
      ON CONFLICT (shade_id, external_product_id)
      DO UPDATE SET last_seen_at = now()`,
-    [shadeId, dataSourceId, trimmed]
+    [shade, source, trimmed]
   );
 }

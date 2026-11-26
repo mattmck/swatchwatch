@@ -38,6 +38,10 @@ recommendation in place for the record.
 | D22 | How feature flags work | Decided 2026-10-23: option 2, thin env-backed wrapper ([#313](https://github.com/mattmck/swatchwatch/issues/313)) | Shipped: `lib/feature-flags.ts`, `GET /api/config/flags` |
 | D23 | Product categories and non-polish cleanup | Decided | #349, #347 |
 | D24 | Expo app and Looks started early; overnight merge-to-dev rule | Decided | #109, #384, #385, Looks follow-ups |
+| D25 | Azure OpenAI APIM gateway removed | Decided | #158, #228 (closed as won't-do) |
+| D26 | Retailer sources, brand-store registrations and gel scope | Decided | Enabling the retailer and brand-store sources ([brand sources plan](superpowers/plans/2026-11-08-brand-sources-ingestion.md)) |
+| D27 | Picture Polish, Painted Polish and Potion Polish enabled without a store OK | Decided | Running `PicturePolishWooCommerce`, `PaintedPolishBigCartel`, `PotionPolishBigCartel` |
+| D28 | Images stored for Harlow & Co and Beyond Polish without a written OK | Decided | Measured colours for retailer-only shades (hex detection) |
 
 ---
 
@@ -403,3 +407,124 @@ Open follow-ups taken from the PR descriptions. Give each one an owner and a tic
   from this branch.
 - **Date:** 2026-10-23
 - **Ticket:** [#158](https://github.com/mattmck/swatchwatch/issues/158), [#228](https://github.com/mattmck/swatchwatch/issues/228) (both closed as won't-do)
+
+## G. Catalog sources
+
+### D26 — Retailer sources, brand-store registrations and gel scope (2026-11-08)
+- **Status:** Decided
+- **Context:** The indie Shopify route was close to exhausted without store agreements
+  ([indie-sources-2026-10.md](indie-sources-2026-10.md)), and the roadmap §4 catalog target is +10k active shades.
+  The [brand sources evaluation](brand-sources-evaluation-2026-11.md) measured the other routes on 2026-11-08:
+  §4 lists the ingestion strategies S1–S8 (retailer mode for multi-brand stores, brand Shopify stores, the Polish
+  Pickup roster, sitemap + JSON-LD, WooCommerce and Big Cartel connectors, affiliate and brand-supplied feeds), §5
+  the order and expected yield, and §6 the owner decisions. Three of those decide what the
+  [implementation plan](superpowers/plans/2026-11-08-brand-sources-ingestion.md) builds: how multi-brand retailers
+  may write to shared shades, which buy link wins, and whether gel polish is in scope. Beyond Polish alone lists
+  5,577 gel listings next to about 3,070 lacquer ones.
+- **Options:** (1) retailer sources: (a) ingest them like brand stores · (b) ingest them fill-only, images off on a
+  plain "no objection" and on only with an explicit OK (recommended) · (c) do not ingest retailers. (2) buy-link
+  priority: (a) the brand store wins over a retailer listing (recommended) · (b) the newest `last_seen_at` wins, as
+  before. (3) gel in scope: (a) out of scope, filtered out (recommended for now: the collector research is
+  lacquer-centric and gel shades would crowd dupes and color search) · (b) in scope with a `shade.system` column
+  (`lacquer | gel | dip`) and a filter chip · (c) in scope as a finish family.
+- **Recommendation:** 1b, 2a, 3a, as in the evaluation §6.
+- **Decision:** 1b, 2a and 3a, built in PRs #502–#505 and the Phase E PR:
+  - **Retailer mode is fill-only, with an authority takeover.** A `retailer` or `feed` source
+    (`data_source.metadata.kind`) adopts the brand's existing shade and only fills empty catalog data (finishes,
+    color name, name hex), never overwrites a detected hex or finishes, never changes the category of a shade it did
+    not create, and links images only to a shade without a product image. A shade a retailer creates gets
+    `catalog_authority = 'retailer'`; the first brand-store listing that matches it takes it over for good
+    (finishes, category, color name and detected hex rewritten as if the brand had created it).
+  - **Images are off for every non-brand source until a written OK.** `imagesPermitted` defaults to true for a brand
+    store only; Harlow & Co, Beyond Polish, Hypnotic Polish and Polish Pickup store no pictures until the owner
+    records a store's OK that names images and sets `imagesPermitted: true`. A store that withdraws its OK gets its
+    pictures removed by the source image removal job.
+  - **Buy links:** brand store before feed before retailer (`SOURCE_KIND_RANK`), after the existing rules (disabled
+    or missing listings dropped, buyable before sold out), then newest seen as before.
+  - **Brand stores:** the ten whose terms carry no automated-access clause are registered enabled like Night Owl
+    (D2) with the probe facts in `metadata.verification` (Deborah Lippmann, Londontown, Côte, Manucurist, Olive &
+    June, Piggy Paint, wet n wild, Alchemy Lacquers, Penelope Luz, Noodles); Mavala, CND and Barry M, whose terms
+    could not be read, and the 20 stores with a Shopify-default or own clause are registered disabled and pending
+    until the store's written OK is in `metadata.notes`. Modelones stays pending although its clause is narrow (an
+    email costs nothing and the evaluation classed it "own clause"). Piggy Paint's grown-up SOPHi line stays its own
+    brand (`SOPHi`), not folded into Piggy Paint. The nine non-Shopify registrations (OPI sitemap, three
+    WooCommerce, five Big Cartel stores) are pending or known-blocked (ILNP robots.txt, KBShimmer Cloudflare).
+  - **Gel is deferred.** `includeGel` is off for every source; the Beyond Polish, Londontown, Manucurist, Olive & June
+    and CND store filters keep gel lines out unless it is set to `true`, so the owner can reverse this without code.
+    No `shade.system` column is added.
+- **Consequences:** Retailers bring the majors (OPI, Zoya, Essie, CND, ILNP, KBShimmer) in two sources without
+  changing any brand store's data, and a brand store that comes later still wins its shades back. By 19 Dec the
+  plan expects about 4,300 new lacquer shades (about 8,300 if gel is ever let in); the lacquer-only +10k is not
+  reachable by December and needs either decision 3 reversed or many more indie permissions. Retailer shades
+  carry no pictures until the stores agree, so their display hex comes from vendor data or the name until then.
+  Most of the added sources stay disabled until the owner's outreach (evaluation §7) gets answers.
+- **Follow-ups:** (1) **lastmod reuse:** the sitemap crawl's checkpoint is per job, so every OPI run refetches all
+  ~575 pages; reuse the previous job's pages whose sitemap `lastmod` did not change. (2) **Barry M full-catalog
+  name check:** before enabling `BarryMShopify`, check the full catalog for shade names reused across lines (the
+  parsed name drops the line, so two lines' "Black Cherry" would collide). (3) **PotionPolishBigCartel
+  supersession:** when `PotionPolishBigCartel` is enabled, retire the disabled `PotionPolishShopify` row (its notes
+  already say it is superseded) so the two never run side by side. Owner steps: the plan's "Owner checklist".
+- **Date:** 2026-11-08
+- **Ticket:** none (plan `docs/superpowers/plans/2026-11-08-brand-sources-ingestion.md`)
+
+### D27 — Picture Polish, Painted Polish and Potion Polish enabled without a store OK (2026-11-10)
+- **Status:** Decided
+- **Context:** Phase E (D26) registered `PicturePolishWooCommerce`, `PaintedPolishBigCartel` and
+  `PotionPolishBigCartel` disabled and pending until the owner had read the terms and recorded each store's OK.
+  None of the three has given an OK. The terms were read on 2026-11-10:
+  - **Picture Polish** ([terms-conditions](https://picturepolish.com.au/terms-conditions/)): site access "does not
+    include the right to use any data mining robots or other extraction tools"; copying or republishing site
+    information needs prior written permission; "Linking our website is not permitted". robots.txt does not
+    disallow `/wp-json/`, so the connector's robots.txt check passes. `verification.termsScrapingClause` is `true`.
+  - **Big Cartel** ([API License Agreement](https://www.bigcartel.com/resources/help/article/api-license-agreement),
+    dated 07.21.23), which governs Painted Polish and Potion Polish: displaying a shop's public listings in an
+    application is a permitted use, but an application may not display content "more than six hours older" than
+    the shop, must delete public content once it is no longer public, and may not "create a database by downloading
+    and storing the Content" beyond a cache. SwatchWatch keeps shades permanently, so the catalog does not meet
+    those terms. The stores' own terms pages were not found (404 at `/terms` and `/terms-and-conditions`).
+- **Options:** (a) keep all three disabled until each store answers · (b) enable them now on the owner's decision
+  and ask the makers afterwards.
+- **Decision:** (b), by the owner (Matt) on 2026-11-10. Nobody at the stores confirmed anything, so the rows do not
+  use the "Acceptable use confirmed by …" form: each `metadata.notes` records the terms facts above and ends
+  "Enabled on 2026-11-10 by the owner's decision without a store OK; ask the maker for the record." Built with a
+  store filter and a shade-name parser per store (`src/lib/connectors/store-filters/picture-polish.ts`,
+  `painted-polish.ts`, `potion-polish.ts`, registered by source name in `SHOPIFY_STORE_PRODUCT_FILTERS` and
+  `SHOPIFY_STORE_TITLE_PARSERS`, which the WooCommerce and Big Cartel gates now ask) and migration
+  `20261110120000000_enable-picture-painted-potion-polish-sources` (only rows still pending; Down restores the
+  previous notes, verification and `pendingApproval`). Images are stored, like the other enabled brand stores.
+  Offline over the 2026-11-10 probes the filters keep 116 of 143 (Picture Polish), 246 of 287 (Painted Polish)
+  and 32 of 35 (Potion Polish) products.
+- **Consequences:** The three makers' shades enter the catalog with pictures before any of them has agreed, against
+  Picture Polish's extraction clause and outside Big Cartel's six-hour and no-database terms. If a maker or Big
+  Cartel objects, disable the row (or roll back the migration) and decide whether to remove the shades and images
+  already stored. The other non-Shopify registrations (OPI sitemap, Colores de Carol, Glisten & Glow, Poetry
+  Cowgirl) stay pending; ILNP and KBShimmer stay known-blocked.
+- **Follow-ups:** (1) the owner asks each maker for the record and notes the answer in `metadata.notes`; (2) D26
+  follow-up 3 (retire `PotionPolishShopify` so it never runs beside the Big Cartel source) is still open: that row
+  stays disabled and marked superseded; (3) a few real shades land with category `accessory` because their names
+  hit the accessory words ("Gourd Luck Charm", Picture Polish "Charm", Painted Polish's stamping cremes "Stamped
+  In Love" and others): an admin sets their category, or the classifier's charm/stamping rule is revisited.
+- **Date:** 2026-11-10
+- **Ticket:** none
+
+### D28 — Images stored for Harlow & Co and Beyond Polish without a written OK (2026-11-10)
+
+- **Context:** D26 kept images off for every non-brand source until a store's written OK that names images. The
+  first real runs (2026-11-10) put about 3,000 shades in the catalog from Harlow & Co and Beyond Polish alone
+  (ILNP, KBShimmer, OPI, essie, Zoya and others). With no image, none of them can get a measured colour, and the
+  bottle resolver no longer treats a colour guessed from the shade name as evidence.
+- **Options:** (a) keep images off until each retailer answers · (b) turn them on for the two enabled retailers
+  now · (c) wait for maker-supplied product lists.
+- **Decision:** (b), by the owner (Matt) on 2026-11-10. Neither retailer has confirmed anything; each row's
+  `metadata.notes` ends "Images: stored since 2026-11-10 by the owner's decision (D28) without a written OK from
+  the store that names images; ask the store for the record." Migration
+  `20261110130000000_retailer-images-permitted` sets `imagesPermitted: true` on `HarlowAndCoShopify` and
+  `BeyondPolishShopify` only (rows without an explicit setting; Down reverts). Hypnotic Polish and Polish Pickup
+  stay as D26 left them.
+- **Consequences:** The retailers' product photos are stored and shown as catalog images. Retailer mode still
+  links images only to a shade that has no product image, so a brand store's pictures win. If a retailer objects,
+  set `imagesPermitted` to false and run the source image removal job (D26).
+- **Follow-ups:** the owner asks both retailers for the record; (c) stays worth doing for makers whose own sites
+  are closed.
+- **Date:** 2026-11-10
+- **Ticket:** none

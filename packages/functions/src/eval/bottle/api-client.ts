@@ -128,6 +128,27 @@ export function createCaptureApi(baseUrl: string, bearer: string): CaptureApi {
   };
 }
 
+/** The host's AI record/replay mode as reported by `GET config/flags`; `unknown` when it cannot be read. */
+export type HostAiReplayMode = "off" | "record" | "replay" | "unknown";
+
+/**
+ * Reads `aiReplayMode` from the anonymous `GET {baseUrl}/config/flags` (present only when the host
+ * runs with `AI_REPLAY_MODE=record|replay`, absent = `off`). Never throws.
+ */
+export async function fetchHostAiReplayMode(api: Pick<CaptureApi, "baseUrl">): Promise<HostAiReplayMode> {
+  try {
+    const response = await fetch(`${api.baseUrl}/config/flags`, { signal: AbortSignal.timeout(REACHABILITY_TIMEOUT_MS) });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return "unknown";
+    }
+    const body = (await response.json()) as { aiReplayMode?: unknown };
+    return body.aiReplayMode === "record" || body.aiReplayMode === "replay" ? body.aiReplayMode : "off";
+  } catch {
+    return "unknown";
+  }
+}
+
 /** `GET {baseUrl}/reference/finishes` must answer 200; otherwise throws an error naming the URL. */
 export async function assertApiReachable(api: CaptureApi): Promise<void> {
   const url = `${api.baseUrl}/reference/finishes`;

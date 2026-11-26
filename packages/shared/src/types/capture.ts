@@ -115,10 +115,26 @@ export interface CaptureStartResponse {
   nextFrame?: CaptureFrameRequestSpec | null;
 }
 
+/**
+ * The outline a client drew over its camera preview for a bottle-flow surface photo, sent as
+ * `quality.guideRegion`: `{ x, y, w, h }` as 0–1 fractions of the frame image AS SENT (x/y =
+ * top-left), not of the visible (cropped) preview. The server measures the glass color inside it
+ * and drops a printed name read far outside it; a missing or invalid region (a side < 0.05, or
+ * anything outside 0–1) means the server's default outline. Send none when the mapping is not
+ * known exactly (uploads, a preview whose crop is unknown).
+ */
+export interface CaptureGuideRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface CaptureFrameRequest {
   imageId?: number;
   imageBlobUrl?: string;
   frameType: CaptureFrameType;
+  /** Advisory frame details (`surface`, `gtin`, metrics, `guideRegion?: CaptureGuideRegion`, …). */
   quality?: Record<string, unknown>;
 }
 

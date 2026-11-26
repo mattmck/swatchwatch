@@ -8,6 +8,7 @@
 
 import type { SupportedConnectorSource } from "./types.js";
 import { normalizeShopifyImages, type ShopifyProductImage } from "./shopify-images.js";
+import { detectShopifyStoreClosed, isStoreClosedError, releaseResponseBody, StoreClosedError } from "./store-closed.js";
 import {
   ConnectorPullOptions,
   ConnectorPullResult,
@@ -18,7 +19,17 @@ import {
 import { detectHexFromColorName, stripHtmlToText } from "./color-name-detection.js";
 import { shopifyProductText } from "../product-text.js";
 import { classifyIngestedProduct, classifyProductCategory } from "../product-category.js";
+import type { ProductCategory } from "swatchwatch-shared";
+import type { SourceKind, SourceSettings } from "../source-settings.js";
+import { parseRetailerTitle, type RetailerTitle } from "./retailer-title.js";
 import { shopifyStoreProductVerdict } from "./store-filters/index.js";
+import {
+  parseEditionCap,
+  shopifyStoreProductLine,
+  shopifyStoreShadeName,
+  stripRetailerExclusiveSuffix,
+  SHOPIFY_TITLE_PARSER_SOURCES,
+} from "./shopify-title.js";
 import {
   normalizeCurrencyCode,
   pickShopifyVariantPrice,
@@ -45,9 +56,10 @@ const RETRY_BASE_DELAY_MS = parseIntEnv(
   100,
   30000
 );
-const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
+export const USER_AGENT = "SwatchWatch/connector-ingestion (+https://github.com/mattmck/swatchwatch)";
 const SHOPIFY_PAGE_LIMIT = 250;
-const MAX_SHOPIFY_PAGES = 30;
+/** Pages of `SHOPIFY_PAGE_LIMIT` products read per run: `SHOPIFY_CONNECTOR_MAX_PAGES`, overridden per source by `metadata.maxPages`. */
+const DEFAULT_MAX_SHOPIFY_PAGES = parseIntEnv(process.env.SHOPIFY_CONNECTOR_MAX_PAGES, 30, 1, 200);
 const DEFAULT_RECENT_DAYS = 120;
 
 // Regex to extract hex color from option values like "#FF6B6B". The literal "#"
@@ -69,7 +81,7 @@ interface ShopifyVariant {
   option3?: string | null;
 }
 
-interface ShopifyProduct {
+export interface ShopifyProduct {
   id?: number | string;
   title?: string | null;
   handle?: string | null;
@@ -469,15 +481,11 @@ function toTimestamp(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function recordTimestamp(record: ConnectorProductRecord): number {
-  const normalized =
-    record.normalized && typeof record.normalized === "object"
-      ? (record.normalized as Record<string, unknown>)
-      : {};
+function productTimestamp(product: ShopifyProduct): number {
   return Math.max(
-    toTimestamp(normalized.publishedAt),
-    toTimestamp(normalized.createdAt),
-    toTimestamp(normalized.updatedAt)
+    toTimestamp(product.published_at),
+    toTimestamp(product.created_at),
+    toTimestamp(product.updated_at)
   );
 }
 
@@ -494,17 +502,19 @@ export class ShopifyGenericConnector implements ProductConnector {
   private readonly baseUrl: string;
   private readonly brandName: string;
   private readonly configuredCurrency: string | null;
+  /** The source's `data_source.metadata` settings (`readSourceSettings`), when the worker passed them. */
+  private readonly settings: SourceSettings | undefined;
   private storeCurrency: Promise<StoreCurrency> | null = null;
 
   constructor(
     source: SupportedConnectorSource,
     baseUrl?: string | null,
-    options: { currency?: string | null } = {}
+    options: { currency?: string | null; settings?: SourceSettings } = {}
   ) {
     this.source = source;
     this.configuredCurrency = options.currency ?? null;
-    // Extract brand name from source (e.g., "MooncatShopify" -> "Mooncat")
-    this.brandName = source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
+    this.settings = options.settings;
+    this.brandName = shopifyBrandName(source);
     this.baseUrl = stripTrailingSlashes(baseUrl || this.defaultBaseUrl());
   }
 
@@ -531,18 +541,31 @@ export class ShopifyGenericConnector implements ProductConnector {
   }
 
   async pullProducts(options: ConnectorPullOptions): Promise<ConnectorPullResult> {
-    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, () =>
-      this.fetchAllProducts()
-    );
+    // Set only when this pull downloaded the catalog; a cached catalog (a continuation's
+    // snapshot) carries no completeness flag, so it never reports one.
+    let fetchedComplete = null as boolean | null;
+    const allProducts = await loadCatalogWithCache<ShopifyProduct>(options.catalogCache, async () => {
+      const fetched = await this.fetchAllProducts();
+      fetchedComplete = fetched.complete;
+      return fetched.products;
+    });
     const storeCurrency = await this.resolveStoreCurrency(allProducts);
-    const normalizedRecords = await Promise.all(
-      allProducts.map((product) =>
-        toNormalizedRecord(product, this.baseUrl, this.brandName, this.source, storeCurrency.currency)
-      )
-    );
-    const filteredRecords = normalizedRecords.filter(
-      (record): record is ConnectorProductRecord => Boolean(record)
-    );
+    // Gate, filter and sort on raw product fields (sync, no AI); only the page window is enriched.
+    const gated: Array<{
+      product: ShopifyProduct;
+      category: ProductCategory;
+      retailer: RetailerListing | undefined;
+      timestamp: number;
+    }> = [];
+    let vendorlessSkipped = 0;
+    for (const product of allProducts) {
+      const gate = gateShopifyProduct(product, this.source, this.settings);
+      if (gate.accept) {
+        gated.push({ product, category: gate.category, retailer: gate.retailer, timestamp: productTimestamp(product) });
+      } else if (gate.vendorless) {
+        vendorlessSkipped += 1;
+      }
+    }
 
     const textFilter = shouldApplyTextFilter(options.searchTerm)
       ? options.searchTerm.trim().toLowerCase()
@@ -552,38 +575,60 @@ export class ShopifyGenericConnector implements ProductConnector {
       ? Date.now() - recentDays * 24 * 60 * 60 * 1000
       : null;
 
-    let filtered = filteredRecords;
+    let filtered = gated;
     if (textFilter) {
-      filtered = filtered.filter((record) => {
-        const normalized =
-          record.normalized && typeof record.normalized === "object"
-            ? (record.normalized as Record<string, unknown>)
-            : {};
+      filtered = filtered.filter(({ product, retailer }) => {
+        const tags = retailer ? retailer.tags : normalizeTags(product.tags);
         const values = [
-          asNonEmptyString(normalized.name),
-          asNonEmptyString(normalized.brand),
-          asNonEmptyString(normalized.handle),
-          ...asStringArray(normalized.tags),
-          ...asStringArray(normalized.collections),
-          ...asStringArray(normalized.finishes),
+          asNonEmptyString(product.title),
+          asNonEmptyString(product.vendor),
+          // The brand the record will carry (a placeholder vendor resolves to the store's brand;
+          // a retailer listing's vendor goes through the source's alias map).
+          retailer ? retailer.brand : resolveBrandStoreVendor(product.vendor, this.settings?.vendorAliases, this.brandName),
+          asNonEmptyString(product.handle),
+          ...tags,
+          // The record's derived collections and finishes, as the enriched record carries them.
+          ...(retailer ? [] : extractTaggedValues(tags, "collection:")),
+          ...(retailer ? [] : extractFinishFromTags(tags)),
         ].filter((entry): entry is string => Boolean(entry));
         return values.some((entry) => entry.toLowerCase().includes(textFilter));
       });
     }
 
     if (cutoffEpoch !== null) {
-      filtered = filtered.filter((record) => recordTimestamp(record) >= cutoffEpoch);
+      filtered = filtered.filter((entry) => entry.timestamp >= cutoffEpoch);
     }
 
-    filtered.sort((a, b) => recordTimestamp(b) - recordTimestamp(a));
+    // Array#sort is stable, so equal timestamps keep catalog order across repeated calls.
+    filtered.sort((a, b) => b.timestamp - a.timestamp);
 
     const offset = Math.max(0, (options.page - 1) * options.pageSize);
-    const windowed = filtered.slice(offset, offset + options.pageSize);
-    const records = windowed.slice(0, options.maxRecords);
+    const windowed = filtered.slice(offset, offset + options.pageSize).slice(0, options.maxRecords);
+    const records = await Promise.all(
+      windowed.map(({ product, category, retailer }) =>
+        enrichShopifyRecord(product, {
+          baseUrl: this.baseUrl,
+          brandName: this.brandName,
+          ...(this.settings ? { vendorAliases: this.settings.vendorAliases } : {}),
+          source: this.source,
+          storeCurrency: storeCurrency.currency,
+          category,
+          ...(retailer ? { retailer } : {}),
+        })
+      )
+    );
 
     return {
       source: this.source as any,
       records,
+      ...(fetchedComplete === null
+        ? {}
+        : {
+            catalog: {
+              externalIds: allProducts.map((product) => String(product.id)),
+              complete: fetchedComplete && allProducts.length > 0,
+            },
+          }),
       metadata: {
         requestUrl: `${this.baseUrl}/products.json`,
         responsePage: options.page,
@@ -599,14 +644,25 @@ export class ShopifyGenericConnector implements ProductConnector {
         connectorType: "generic-shopify",
         storeCurrency: storeCurrency.currency,
         storeCurrencySource: storeCurrency.source,
+        // Retailer listings dropped because no brand could be read from the vendor.
+        ...(usesRetailerListingTitles(this.source, this.settings) ? { vendorlessSkipped } : {}),
       },
     };
   }
 
-  private async fetchAllProducts(): Promise<ShopifyProduct[]> {
+  /** `complete` is true only when the loop ended on a page shorter than the page limit. */
+  private async fetchAllProducts(): Promise<{ products: ShopifyProduct[]; complete: boolean }> {
     const allProducts: ShopifyProduct[] = [];
+    let complete = false;
 
-    for (let page = 1; page <= MAX_SHOPIFY_PAGES; page += 1) {
+    const maxPages = this.settings?.maxPages ?? DEFAULT_MAX_SHOPIFY_PAGES;
+
+    for (let page = 1; page <= maxPages; page += 1) {
+      if (page > 1) {
+        // Politeness: at least SHOPIFY_CONNECTOR_PAGE_DELAY_MS between requests to the store (read per run).
+        const delayMs = parseIntEnv(process.env.SHOPIFY_CONNECTOR_PAGE_DELAY_MS, 1000, 0, 10000);
+        if (delayMs > 0) await sleep(delayMs);
+      }
       const params = new URLSearchParams({
         limit: String(SHOPIFY_PAGE_LIMIT),
         page: String(page),
@@ -624,11 +680,12 @@ export class ShopifyGenericConnector implements ProductConnector {
       allProducts.push(...pageProducts);
 
       if (pageProducts.length === 0 || pageProducts.length < SHOPIFY_PAGE_LIMIT) {
+        complete = true;
         break;
       }
     }
 
-    return allProducts;
+    return { products: allProducts, complete };
   }
 
   private async fetchJson(url: string): Promise<unknown> {
@@ -648,6 +705,19 @@ export class ShopifyGenericConnector implements ProductConnector {
           },
           signal: controller.signal,
         });
+
+        // A password-locked storefront is closed, not broken: stop here (no retry, no bypass).
+        const closedReason = detectShopifyStoreClosed(response);
+        if (closedReason) {
+          // The body is never read: release the connection before stopping.
+          await releaseResponseBody(response);
+          throw new StoreClosedError({
+            source: this.source,
+            reason: closedReason,
+            httpStatus: response.status,
+            url,
+          });
+        }
 
         const bodyText = await response.text();
         if (!response.ok) {
@@ -691,6 +761,7 @@ export class ShopifyGenericConnector implements ProductConnector {
           throw jsonError;
         }
       } catch (error) {
+        if (isStoreClosedError(error)) throw error;
         let normalizedError = error instanceof Error ? error : new Error(String(error));
         if (normalizedError.name === "AbortError") {
           normalizedError = new Error(
@@ -734,6 +805,7 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   SassysaucePolishShopify: "https://sassysaucepolish.com",
   ColorClubShopify: "https://colorclub.com",
   RogueLacquerShopify: "https://roguelacquer.com",
+  SwampGlossShopify: "https://swampgloss.com",
   RedEyedLacquerShopify: "https://redeyedlacquer.com",
   CupcakePolishShopify: "https://www.cupcakepolish.com",
   LoudBabbsShopify: "https://loudbabbs.com",
@@ -755,6 +827,43 @@ export const SHOPIFY_SOURCE_BASE_URLS: Record<string, string> = {
   StellaChromaShopify: "https://stellachroma.com",
   LemmingLacquerShopify: "https://lemminglacquer.com",
   SweetAndSourLacquerShopify: "https://sweetandsourlacquer.com",
+  PolishPickupShopify: "https://polishpickup.com",
+  HarlowAndCoShopify: "https://www.harlowandco.org",
+  BeyondPolishShopify: "https://www.beyondpolish.com",
+  HypnoticPolishShopify: "https://www.hypnoticpolish.com",
+  DeborahLippmannShopify: "https://deborahlippmann.com",
+  LondontownShopify: "https://londontownusa.com",
+  CoteShopify: "https://coteshop.co",
+  ManucuristShopify: "https://manucurist.com",
+  OliveAndJuneShopify: "https://oliveandjune.com",
+  PiggyPaintShopify: "https://piggypaint.com",
+  MavalaShopify: "https://mavala.com",
+  WetNWildShopify: "https://wetnwildbeauty.com",
+  AlchemyLacquersShopify: "https://alchemylacquers.com",
+  PenelopeLuzShopify: "https://penelopeluz.com",
+  NoodlesNailPolishShopify: "https://noodlesnailpolish.com",
+  CndShopify: "https://cnd.com",
+  BarryMShopify: "https://barrym.com",
+  DazzleDryShopify: "https://dazzledry.com",
+  SundaysShopify: "https://dearsundays.com",
+  JinsoonShopify: "https://jinsoon.com",
+  TenovertenShopify: "https://tenoverten.com",
+  NailberryShopify: "https://nailberry.co.uk",
+  DndShopify: "https://dndgel.com",
+  GlamPolishShopify: "https://glampolish.com.au",
+  NailHootShopify: "https://nailhoot.com",
+  MoonShineManiShopify: "https://moonshinemani.com",
+  FunLacquerShopify: "https://funlacquer.com",
+  AnchorAndHeartShopify: "https://anchorandheartlacquer.com",
+  ButterLondonShopify: "https://butterlondon.com",
+  EllaMilaShopify: "https://ellamila.com",
+  KiaraSkyShopify: "https://kiarasky.com",
+  StaticNailsShopify: "https://staticnails.com",
+  PacificaShopify: "https://pacificabeauty.com",
+  RevlonShopify: "https://revlon.com",
+  ModelonesShopify: "https://modelones.com",
+  DreamlandLacquerShopify: "https://dreamlandlacquer.com",
+  EtherealLacquerShopify: "https://ethereallacquer.com",
   HoloTacoShopify: "https://www.holotaco.com",
 };
 
@@ -773,7 +882,54 @@ export const SHOPIFY_SOURCES_PENDING_APPROVAL: ReadonlySet<string> = new Set([
   // SweetAndSourLacquerShopify: written permission received by the owner by email on
   // 2026-10-22 (docs/indie-sources-2026-10.md). Add a new store here until its OK is
   // recorded in data_source.metadata.notes.
+  // Retailer source, pending owner OK; see docs/superpowers/plans/2026-11-06-polish-pickup-retailer-listings.md.
+  "PolishPickupShopify",
+  // Retailer source, pending the store's written OK (Shopify default terms clause); brand sources plan, Task 8.
+  "HypnoticPolishShopify",
+  // Brand stores whose terms could not be read (Mavala: terms page answered 500; CND: no terms
+  // page; Barry M: terms page 404), 2026-11-08; brand sources plan, Task 10.
+  "MavalaShopify",
+  "CndShopify",
+  "BarryMShopify",
+  // Brand stores whose terms carry an automated-access clause (eleven the stock Shopify one, nine their
+  // own), 2026-11-08; pending the owner's email (spec section 7); brand sources plan, Task 12.
+  "DazzleDryShopify",
+  "SundaysShopify",
+  "JinsoonShopify",
+  "TenovertenShopify",
+  "NailberryShopify",
+  "DndShopify",
+  "GlamPolishShopify",
+  "NailHootShopify",
+  "MoonShineManiShopify",
+  "FunLacquerShopify",
+  "AnchorAndHeartShopify",
+  "ButterLondonShopify",
+  "EllaMilaShopify",
+  "KiaraSkyShopify",
+  "StaticNailsShopify",
+  "PacificaShopify",
+  "RevlonShopify",
+  "ModelonesShopify",
+  "DreamlandLacquerShopify",
+  "EtherealLacquerShopify",
 ]);
+
+/** Retailer sources (listings attach to brand shades as extra buy links; never override brand-store data). */
+// Every data_source seeded with metadata.kind = "retailer" must be listed here, or
+// auto-provisioning (createDataSourceIfMissing) creates it as a brand store on a database
+// that has not run its migration (tests/shopify-indie-sources.unit.test.cjs checks the seed).
+export const SHOPIFY_RETAILER_SOURCES: ReadonlySet<string> = new Set([
+  "PolishPickupShopify",
+  "HarlowAndCoShopify",
+  "BeyondPolishShopify",
+  "HypnoticPolishShopify",
+]);
+
+/** True when the Shopify source is a multi-brand retailer rather than a brand store. */
+export function isShopifyRetailerSource(source: string): boolean {
+  return SHOPIFY_RETAILER_SOURCES.has(source);
+}
 
 /** Whether a newly auto-provisioned data_source row for `source` starts enabled. */
 export function isShopifySourceEnabledByDefault(source: string): boolean {
@@ -809,6 +965,120 @@ export function resolveShopifyVendor(vendor: unknown, brandName: string): string
   return normalized;
 }
 
+function collapseVendorKey(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** The `vendorAliases` target for `vendor` (keys matched lower-cased and whitespace-collapsed), else null. */
+function vendorAliasFor(vendor: string | null, aliases: Record<string, string> | undefined): string | null {
+  if (!vendor || !aliases) {
+    return null;
+  }
+  const key = collapseVendorKey(vendor);
+  const alias = Object.entries(aliases).find(([aliasKey]) => collapseVendorKey(aliasKey) === key);
+  return alias ? alias[1] : null;
+}
+
+/**
+ * The brand of a product on a brand store: the source's `vendorAliases` entry for the vendor
+ * first (wet n wild lists products as "Markwins WNW" and "wet n wild Beauty"), else exactly
+ * `resolveShopifyVendor`, so a brand store without aliases is unchanged.
+ */
+export function resolveBrandStoreVendor(
+  vendor: unknown,
+  aliases: Record<string, string> | undefined,
+  brandName: string
+): string {
+  return vendorAliasFor(asNonEmptyString(vendor), aliases) ?? resolveShopifyVendor(vendor, brandName);
+}
+
+/**
+ * The brand a retailer (or feed) listing belongs to: the source's `vendorAliases` entry for the
+ * vendor (matched lower-cased and whitespace-collapsed), else the vendor as `resolveShopifyVendor`
+ * reads it. A brand source falls back to its own brand for a missing or placeholder vendor; a
+ * retailer or feed gets null, because a multi-brand store's own name is never a polish brand.
+ */
+export function resolveRetailerVendor(
+  vendor: unknown,
+  aliases: Record<string, string>,
+  fallbackBrand: string,
+  kind: SourceKind = "brand"
+): string | null {
+  const normalized = asNonEmptyString(vendor);
+  const alias = vendorAliasFor(normalized, aliases);
+  if (alias) {
+    return alias;
+  }
+  if (kind !== "brand" && (!normalized || PLACEHOLDER_VENDORS.has(normalized.toLowerCase()))) {
+    return null;
+  }
+  return resolveShopifyVendor(vendor, fallbackBrand);
+}
+
+/**
+ * The brand of a record from a non-Shopify connector (product feed, sitemap, WooCommerce, Big
+ * Cartel), through the same helpers as a Shopify product: a brand source reads `itemBrand` with
+ * `resolveBrandStoreVendor` (the `vendorAliases` entry first, then the item's brand unless it is
+ * a placeholder, then `settings.brand`); a retailer or feed source with `resolveRetailerVendor` (alias, else the
+ * item's brand unless missing or a placeholder), then `settings.brand`. Null when neither names a
+ * brand (the connectors skip the record and count it as `vendorlessSkipped`).
+ */
+export function resolveConnectorBrand(itemBrand: unknown, settings: SourceSettings): string | null {
+  if (settings.kind === "brand") {
+    const item = asNonEmptyString(itemBrand);
+    const alias = vendorAliasFor(item, settings.vendorAliases);
+    if (alias) return alias;
+    // A placeholder item brand ("Vendor Unknown") never becomes the brand, not even as the fallback.
+    const usableItem = item && !PLACEHOLDER_VENDORS.has(item.toLowerCase()) ? item : null;
+    const fallback = settings.brand ?? usableItem;
+    return fallback ? resolveShopifyVendor(itemBrand, fallback) : null;
+  }
+  return (
+    resolveRetailerVendor(itemBrand, settings.vendorAliases, settings.brand ?? "", settings.kind) ?? settings.brand ?? null
+  );
+}
+
+/**
+ * Whether `source` runs in retailer mode: its settings say it is not a brand store, and it has no
+ * store title parser of its own (Polish Pickup's "Vendor | Shade" titles keep that parser).
+ */
+function usesRetailerListingTitles(source: string, settings: SourceSettings | undefined): settings is SourceSettings {
+  return settings !== undefined && settings.kind !== "brand" && !SHOPIFY_TITLE_PARSER_SOURCES.includes(source);
+}
+
+/** Retailer tags without leading pipes and spaces (Hypnotic Polish tags finishes "| Shimmer", "|| Top Coat"). */
+function stripRetailerTagPipes(tags: string[]): string[] {
+  return tags.map((tag) => tag.replace(/^[|\s]+/, "")).filter(Boolean);
+}
+
+const RETAILER_DISCONTINUED_TAGS: ReadonlySet<string> = new Set(["discontinued", "bp-discontinued"]);
+
+/** A retailer listing as `gateShopifyProduct` read it, handed to `enrichShopifyRecord` unchanged. */
+export interface RetailerListing {
+  kind: SourceKind;
+  /** The listing's brand (`resolveRetailerVendor`). */
+  brand: string;
+  /** `parseRetailerTitle` of the listing title (never a set). */
+  title: RetailerTitle;
+  /** The product's tags with leading pipes stripped. */
+  tags: string[];
+}
+
+export interface ShopifyGateResult {
+  accept: boolean;
+  category: ProductCategory;
+  /** Set on an accepted product of a retailer-mode source. */
+  retailer?: RetailerListing;
+  /** A retailer-mode product dropped because its vendor names no brand. */
+  vendorless?: true;
+}
+
+/** The brand name a source's name spells ("MooncatShopify" -> "Mooncat"). */
+function shopifyBrandName(source: string): string {
+  return source.replace(/Shopify$/, "").replace(/([A-Z])/g, " $1").trim();
+}
+
+/** The source's store URL from `SHOPIFY_SOURCE_BASE_URLS`, else `https://<name without Shopify>.com`. */
 export function defaultShopifyBaseUrl(source: string): string {
   return (
     SHOPIFY_SOURCE_BASE_URLS[source] ||
@@ -816,50 +1086,115 @@ export function defaultShopifyBaseUrl(source: string): string {
   );
 }
 
-async function toNormalizedRecord(
+const MONTH_ABBREVIATION_REGEX = /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/;
+
+/**
+ * The sync ingest decision for one Shopify product: the store filter (store-filters/, #328), the
+ * shared connector gate and the bundle/set checks. In retailer mode (`settings.kind` is not
+ * `brand`, and the source has no store title parser) the product also needs a brand from its
+ * vendor (`resolveRetailerVendor`) and a single-shade listing title (`parseRetailerTitle`); the
+ * accepted result carries that parse as `retailer`.
+ */
+export function gateShopifyProduct(
   product: ShopifyProduct,
-  baseUrl: string,
-  brandName: string,
   source: string,
-  storeCurrency: string | null = null
-): Promise<ConnectorProductRecord | null> {
-  const externalId = asNonEmptyString(product.id);
-  if (!externalId) {
-    return null;
+  settings?: SourceSettings
+): ShopifyGateResult {
+  const reject = { accept: false, category: "accessory" as ProductCategory };
+  if (!asNonEmptyString(product.id) || !asNonEmptyString(product.title)) {
+    return reject;
   }
 
-  const tags = normalizeTags(product.tags);
+  const retailerMode = usesRetailerListingTitles(source, settings);
+  const tags = retailerMode ? stripRetailerTagPipes(normalizeTags(product.tags)) : normalizeTags(product.tags);
   const productType = asNonEmptyString(product.product_type);
 
   // Skip accessories, non-nail products and bundles; keep coats/toppers with their category (#347).
-  // A store-specific filter (store-filters/, #328) decides first for stores the generic gate
-  // cannot classify; null defers to the classifier. Sets and bundles are skipped either way.
+  // A store-specific filter decides first for stores the generic gate cannot classify; null defers
+  // to the classifier. Sets and bundles are skipped either way.
   const gate = classifyIngestedProduct({ title: asNonEmptyString(product.title), productType, tags });
-  const storeVerdict = shopifyStoreProductVerdict(source, product);
+  const storeVerdict = shopifyStoreProductVerdict(source, product, settings);
   const isPolish = storeVerdict ?? gate.accept;
   if (!isPolish || isBundle(tags) || gate.evidence === "set") {
-    return null;
+    return reject;
   }
   // A store filter that keeps a product the June tag blocklist rejected (Cirque tags shades and
   // coats with nail-art tutorial names such as "Abstract Dry Brush") gets the rule category, the
   // one materialization stores, instead of the gate's "accessory".
-  const productCategory =
+  const category =
     storeVerdict === true && gate.evidence === "legacy-tag"
       ? classifyProductCategory({
           shadeName: asNonEmptyString(product.title),
           products: [{ productType, tags }],
         }).category
       : gate.category;
-
-  const name = asNonEmptyString(product.title);
-  if (!name) {
-    return null;
+  if (!retailerMode) {
+    return { accept: true, category };
   }
+  return gateRetailerListing(product, settings, source, tags, category);
+}
+
+/** The retailer-mode step of `gateShopifyProduct` for a product the shared gate accepted. */
+function gateRetailerListing(
+  product: ShopifyProduct,
+  settings: SourceSettings,
+  source: string,
+  tags: string[],
+  category: ProductCategory
+): ShopifyGateResult {
+  const brand = resolveRetailerVendor(product.vendor, settings.vendorAliases, shopifyBrandName(source), settings.kind);
+  if (!brand) {
+    return { accept: false, category: "accessory", vendorless: true };
+  }
+  // A title may start with the raw vendor rather than the alias-resolved brand ("Lippmann - Celeste").
+  const rawVendor = asNonEmptyString(product.vendor);
+  const title = parseRetailerTitle(asNonEmptyString(product.title) as string, brand, rawVendor ? [rawVendor] : []);
+  if (!title || title.isSet) {
+    return { accept: false, category: "accessory" };
+  }
+  return { accept: true, category, retailer: { kind: settings.kind, brand, title, tags } };
+}
+
+export interface ShopifyEnrichContext {
+  baseUrl: string;
+  brandName: string;
+  /** The source's `vendorAliases` (brand mode: consulted before the raw vendor). */
+  vendorAliases?: Record<string, string>;
+  /** The connector source name (store title parsers and retailer release tags are per source). */
+  source: string;
+  storeCurrency: string | null;
+  /** The category `gateShopifyProduct` returned for this product. */
+  category: ProductCategory;
+  /** The retailer listing `gateShopifyProduct` returned (retailer mode only). */
+  retailer?: RetailerListing;
+}
+
+/** Builds the record for a product `gateShopifyProduct` accepted, including the AI color-name lookup. */
+export async function enrichShopifyRecord(
+  product: ShopifyProduct,
+  context: ShopifyEnrichContext
+): Promise<ConnectorProductRecord> {
+  const { baseUrl, brandName, vendorAliases, source, storeCurrency, category: productCategory, retailer } = context;
+  const externalId = asNonEmptyString(product.id) as string;
+  const rawTitle = asNonEmptyString(product.title) as string;
+  // Retailer titles ("Vendor | Shade", or a retailer-mode "Brand Line - Shade - #CODE") are parsed
+  // per store, then any " PPU" exclusive suffix is dropped for every source. The raw title stays in
+  // normalized.rawTitle.
+  const name = stripRetailerExclusiveSuffix(
+    retailer ? retailer.title.shadeName : shopifyStoreShadeName(source, product) ?? rawTitle
+  );
+  // A brand store's title parser may also name the line the title carried (Le Mini Macaron).
+  const storeProductLine = retailer ? null : shopifyStoreProductLine(source, product);
+  const tags = retailer ? retailer.tags : normalizeTags(product.tags);
+  const productType = asNonEmptyString(product.product_type);
 
   const handle = asNonEmptyString(product.handle);
-  const vendor = resolveShopifyVendor(product.vendor, brandName);
-  const collections = extractTaggedValues(tags, "collection:");
-  const finishes = extractFinishFromTags(tags);
+  const vendor = retailer ? retailer.brand : resolveBrandStoreVendor(product.vendor, vendorAliases, brandName);
+  // A retailer's tags are its own merchandising, not the brand's collections, and its listing
+  // never sets the legacy finish identity key: canonical finishes come from the tags at
+  // materialization (tags, then descriptors, then description text).
+  const collections = retailer ? [] : extractTaggedValues(tags, "collection:");
+  const finishes = retailer ? [] : extractFinishFromTags(tags);
   const tagColors = extractColorFromTags(tags);
   const images = normalizeShopifyImages(product.images);
   const imageUrls = images.map((image) => image.url);
@@ -875,8 +1210,9 @@ async function toNormalizedRecord(
     hexSource = "variant-option";
   }
 
-  // Always try color name detection for name_hex (independent of vendor hex)
-  colorName = extractColorNameFromProduct(product);
+  // Always try color name detection for name_hex (independent of vendor hex). A retailer listing
+  // title carries brand, line, size and code, so its lookup uses the parsed shade name.
+  colorName = retailer ? name : extractColorNameFromProduct(product);
   if (colorName) {
     // Brand-aware lookup: "Mooncat Wildberry" is a specific product, not the
     // generic word, so hand the model the vendor, collection, description and tags.
@@ -884,7 +1220,7 @@ async function toNormalizedRecord(
       preferAi: true,
       context: {
         brand: vendor,
-        productLine: productType,
+        productLine: retailer ? retailer.title.productLine : productType,
         collection: collections[0] ?? null,
         description: stripHtmlToText(asNonEmptyString(product.body_html)),
         tags,
@@ -904,6 +1240,10 @@ async function toNormalizedRecord(
     .find((barcode): barcode is string => Boolean(barcode)) || null;
   // Description + descriptors for finish detection (#352); never shown to users.
   const { descriptionText, descriptors } = shopifyProductText(product);
+  // Retailer drops carry their month as a tag ("Nov"); only retailer sources keep it.
+  const releaseTags = SHOPIFY_TITLE_PARSER_SOURCES.includes(source)
+    ? tags.filter((tag) => MONTH_ABBREVIATION_REGEX.test(tag))
+    : null;
   // Brand list price: lowest available variant (else lowest variant), in the store currency.
   const { price, currency } = shopifyProductPrice(product.variants, storeCurrency);
 
@@ -916,6 +1256,9 @@ async function toNormalizedRecord(
       productId: externalId,
       brand: vendor,
       name,
+      rawTitle,
+      editionCap: parseEditionCap(descriptionText),
+      ...(releaseTags ? { releaseTags } : {}),
       handle,
       productType,
       // Connector-gate category (#349); materialization re-classifies with the shade's finishes.
@@ -943,6 +1286,16 @@ async function toNormalizedRecord(
       createdAt: asNonEmptyString(product.created_at),
       updatedAt: asNonEmptyString(product.updated_at),
       publishedAt: asNonEmptyString(product.published_at),
+      ...(storeProductLine ? { productLine: storeProductLine } : {}),
+      ...(retailer
+        ? {
+            productLine: retailer.title.productLine,
+            vendorCode: retailer.title.vendorCode,
+            listingTitle: rawTitle,
+            discontinued: tags.some((tag) => RETAILER_DISCONTINUED_TAGS.has(tag.trim().toLowerCase())),
+            kind: retailer.kind,
+          }
+        : {}),
     },
   };
 }

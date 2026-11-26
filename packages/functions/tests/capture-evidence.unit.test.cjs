@@ -105,6 +105,34 @@ describe("collectCaptureEvidence", () => {
     assert.equal(evidence.shadeNameListed, "Unicorn Skin");
   });
 
+  it("v3: an unverified pick is evidence of its own, never the listed pick", () => {
+    const evidence = collectCaptureEvidence({}, [
+      labelFrame({ surface: "bottom", extracted: { shadeName: "Cinnamon Apple Sangria", shadeNamePick: "Cinnamon Cider 2.0" } }),
+    ]);
+    assert.equal(evidence.shadeNamePick, "Cinnamon Cider 2.0");
+    assert.equal(evidence.shadeNameListed, undefined);
+    assert.equal(extractFrameEvidence({ extracted: { shadeNamePick: "X" } }).shadeNamePick, "X", "a pick alone is frame evidence");
+    const front = labelFrame({ surface: "front", extracted: { shadeNamePick: "Unicorn Skin" } });
+    assert.equal(collectCaptureEvidence({}, [front]).shadeNamePick, undefined, "never from the front");
+  });
+
+  it("v3: the shade name is incomplete when the frame that supplied it says so", () => {
+    const partial = labelFrame({ surface: "box", extracted: { shadeName: "RION'S BEL", shadeNameComplete: false } });
+    const whole = labelFrame({ surface: "bottom", extracted: { shadeName: "Orion's Belt" } });
+    assert.equal(collectCaptureEvidence({}, [partial]).shadeNameIncomplete, true);
+    assert.equal(collectCaptureEvidence({}, [whole, partial]).shadeNameIncomplete, undefined, "the name came from the whole read");
+    assert.equal(collectCaptureEvidence({}, [partial, whole]).shadeNameIncomplete, true);
+  });
+
+  it("v3: keeps the front's printed name apart as frontShadeName (never the shade name)", () => {
+    const front = labelFrame({ surface: "front", extracted: { brand: "Picture Polish", shadeName: "camelot" } });
+    const evidence = collectCaptureEvidence({}, [front]);
+    assert.equal(evidence.shadeName, undefined);
+    assert.equal(evidence.frontShadeName, "camelot");
+    const typed = labelFrame({ surface: "front", extracted: { shadeName: "camelot", source: "request_quality" } });
+    assert.equal(collectCaptureEvidence({}, [typed]).frontShadeName, undefined, "only a name the pipeline read off the front");
+  });
+
   it("counts only known surfaces", () => {
     const evidence = collectCaptureEvidence({}, [
       labelFrame({ surface: "front" }),

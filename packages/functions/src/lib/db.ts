@@ -29,13 +29,26 @@ function isRetrySafeQuery(text: string): boolean {
   return /^\s*select\b/i.test(text) || /^\s*update\s+ingestion_job\b/i.test(text);
 }
 
-function isRetryableConnectionError(error: unknown): boolean {
+/**
+ * Connection failures worth another attempt. Includes the server refusing a new connection
+ * because it is full (SQLSTATE 53300, #548). Retrying covers a brief spike only: the retries
+ * span well under a second, while other instances keep idle connections for
+ * PG_IDLE_TIMEOUT_MS (30 s). What keeps the server from filling up is the Function App
+ * scale limit (`function_app_scale_limit` x `pg_pool_max` <= `pg_app_connection_limit`).
+ */
+export function isRetryableConnectionError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
 
+  if ((error as { code?: unknown }).code === "53300") {
+    return true;
+  }
+
   const message = error.message.toLowerCase();
   return (
+    message.includes("remaining connection slots are reserved") ||
+    message.includes("too many clients already") ||
     message.includes("connection terminated due to connection timeout") ||
     message.includes("connect etimedout") ||
     message.includes("econnrefused") ||

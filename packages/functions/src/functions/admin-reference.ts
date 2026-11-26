@@ -1154,6 +1154,10 @@ async function listAdminJobs(
       const metrics = row.metricsJson as Record<string, unknown> | null;
       const recordsProcessedRaw =
         metrics && typeof metrics.recordsProcessed === "number" ? metrics.recordsProcessed : undefined;
+      const pipeline = metrics && typeof metrics.pipeline === "object" && metrics.pipeline !== null
+        ? (metrics.pipeline as Record<string, unknown>)
+        : null;
+      const stage = typeof pipeline?.stage === "string" && pipeline.stage.trim() ? pipeline.stage : undefined;
 
       return {
         ingestionJobId: row.ingestionJobId,
@@ -1165,6 +1169,7 @@ async function listAdminJobs(
         completedAt: row.completedAt || undefined,
         errorSummary: row.errorSummary || undefined,
         recordsProcessed: recordsProcessedRaw,
+        ...(stage ? { stage } : {}),
       };
     });
 

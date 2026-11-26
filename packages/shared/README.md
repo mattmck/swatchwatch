@@ -255,6 +255,20 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `sumListPrices(rows)` | `{ byCurrency: [{ currency, total, count }], unpricedCount, latestSeenAt }` over rows carrying `buyPrice` / `buyCurrency` / `buyPriceSeenAt`: decimal-safe (whole minor units per `Intl` currency digits), never converted or summed across currencies, rows without a usable price are counted in `unpricedCount`, never guessed. Used by the web Looks shopping list, the wishlist value lines and the mobile wishlist views |
 | `listPriceOf`, `formatListAmount`, `formatListPriceAsOf`, `formatListPriceTotals`, `formatListPriceSummary`, `formatWishlistValueLine(count, totals)` | Price validation and text: "12 polishes · $148.00 (9 priced) + €20.00 (2) · 1 without a price" |
 
+### `matching/` (bottle text matcher: text printed on a bottle → a shade of one brand)
+
+Pure TypeScript (Hermes-safe, no dependencies) for the apps' on-device text recognition, the web and the server resolver. Measured against Apple Vision output on the bottle eval; numbers live in `NAME_MATCH_RULES`.
+
+| Export | Meaning |
+|---|---|
+| `normalizeMatchText(text)`, `levenshteinDistance(a, b)`, `editSimilarity(a, b)` | Comparison key (NFKD, lower-case, `&` → and, marks and apostrophes dropped, `a-z0-9` only) and `1 − distance / max length` (0 when either side is empty) |
+| `RecognizedTextLine` (`{ text, confidence, x, y }`, centre of the box in 0–1), `TextRegion`, `DEFAULT_TEXT_REGION` (0.18–0.82), `TextPhraseOptions` (`minConfidence` 0.3, `region`, `maxJoin` 1–3), `buildTextPhrases(recognitions, options?)` | Lines of one or more recognitions → `{ phrases, tokens }`: singles, adjacent pairs (both orders) and triples (forward and reversed), joined per recognition after the confidence and centre filters |
+| `MatchListEntry` (`{ shadeId, name, aliases? }`), `NameRank` (`shadeId`, `shadeIds` = every owner of the name), `rankNames(phrases, entries, options?)` | One row per distinct normalised name with its best phrase similarity, best first; non-code aliases count as extra names of the shade; a read phrase that is generic label text is not ranked (`skipStopPhrases`, default on: "NAIL POLISH" would otherwise edit-match "Nail Police") |
+| `NAME_MATCH_RULES` (`minSimilarity` 0.8, `minLead` 0.25, `exactSimilarity` 0.999, `minChars` 3), `GENERIC_LABEL_NAMES`, `NameDecision`, `NameDecisionOptions` (`exactBeatsLead`, `minChars`, thresholds), `decideName(ranked, options?)`, `matchName(phrases, entries, options?)` | The decision: an exact name wins without a lead when the runner-up (another shade) is below it (`rule: "exact"`), else the top name needs 0.8 and a 0.25 lead (`rule: "lead"`); a name more than one shade carries is never decided. Generic label names (`Nail Polish`, `Top Coat`, …) can never match from text. Only `exact` identifies a shade on its own: a lead cannot tell a misread from a real shade the list lacks (leave-one-out over the catalog, 2026-11-11: 63 same-brand near-twins such as Zoya Polly/Lolly) |
+| `isBrandText(phraseKey, brandKey)`, `NameRankOptions.brandNames` | `rankNames` (and `decideName` / `matchName` / `matchBottleText` options) does not rank a read phrase that is the brand's own text: the brand within a misread (`editSimilarity` ≥ 0.75) or a truncated/split fragment (≥ 3 chars, shorter, ≥ 0.8 to the brand's prefix). Pass the brand: "Starrily" misread "Starrly" would otherwise decide the shade "Stars" (a wrong match on the full-size eval). A shade named like its brand or a fragment of it cannot be identified by text; default none, behaviour unchanged |
+| `isVendorCodeAlias(alias)`, `buildVendorCodeIndex(entries)`, `findVendorCodeShades(tokens, index)`, `findPrintedGtins(tokens)` | Vendor codes (no space, a digit, 4+ characters) match by equality after normalisation; printed 12/13-digit GTINs with a valid check digit |
+| `matchBottleText({ recognitions, entries, options? })` → `{ result, gtins, codeShadeIds }`, `BottleTextResult` (`matched` via `code` or `name` / `candidates` / `none`), `BottleTextCandidate`, `BottleTextOptions` | One call: a vendor code naming exactly one shade wins, else the name decision; a code and a confident name on different shades give `candidates`, never a match, and so does a name several shades carry (every owner listed). `matched` carries `rule` (`BottleTextRule`: `exact` / `lead` / `code`): only `exact` is safe to add without confirmation; treat `lead` and `code` (codes are dense, a misread code is a sibling's) as "likely, needs a second signal" |
+
 ### `color/` (OKLAB math, thresholds, hex reconciliation, color families, harmonies, Pair it)
 
 | Export | Description |
@@ -296,9 +310,30 @@ Retail barcode validation for Rapid Add scanners (same rules as the web's `lib/b
 | `AdminUserIdentity` | Linked external identity (`externalId`, `email`, `createdAt`, `lastSeenAt`) |
 | `AdminUserDetailResponse` | `GET`/`PATCH /api/users-admin/{id}`: `user`, `identities`, `suspendedReason`, `suspendedByUserId`, newest 20 `auditEvents` |
 | `AdminUserUpdateRequest` | `PATCH /api/users-admin/{id}` body: `handle`, `suspended`, `suspendedReason`, `note` (role is not editable: assigned in Entra) |
-| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge \| shade.vendor_hex_promote \| shade.vendor_hex_demote` (the `shade.*` actions, #321, have no target user; the shade id is in `changes`), `changes`, `note`, `createdAt` |
+| `AdminAuditEvent` / `AdminAuditAction` | `admin_audit_event` row: actor, target, `user.update \| user.suspend \| user.unsuspend \| user.merge \| shade.vendor_hex_promote \| shade.vendor_hex_demote \| shade.catalog_merge \| shade.catalog_delete \| data_source.permission \| data_source.enable \| data_source.disable \| data_source.images \| brand.create \| brand.profile_update` (the `shade.*`, `data_source.*` and `brand.*` actions have no target user; the shade, source or brand id is in `changes`), `changes`, `note`, `createdAt` |
 | `AdminUserMergeRequest` | Admin payload for duplicate-account repair (`sourceUserId`, `targetUserId`) |
 | `AdminUserMergeResponse` | Admin merge result summary (moved row counts incl. `mergedManicureRows` + merge status/message) |
+
+### `types/sources-admin.ts` (admin Sources tab)
+
+| Type | Description |
+|------|-------------|
+| `SOURCE_PERMISSION_STATUSES` / `SourcePermissionStatus` | `not_needed \| not_asked \| asked \| granted \| declined` |
+| `SOURCE_PERMISSION_CHANNELS` / `SourcePermissionChannel` | How the OK was given: `email \| dm \| form \| phone \| other` |
+| `SourcePermission` | Stored `data_source.metadata.permission`: status, `askedAt`, `decidedAt`, `grantedBy`, `channel`, `summary`, `imagesGranted`, `recordedByUserId`, `recordedAt` |
+| `AdminSourceKind` | `brand \| retailer \| feed` (`sourceKindFromMetadata`) |
+| `AdminSourceLastJob` / `AdminSourceListItem` | One `data_source` row for `GET /api/sources-admin`: kind, connector, `needsStoreOk` (false for open-data sources), on/off, permission, verification summary, last job (with its pipeline `stage`), listing and shade counts |
+| `AdminSourceListResponse` / `AdminSourceDetailResponse` | List payload; one source with notes and its audit history (`GET /api/sources-admin/{id}`) |
+| `AdminSourcePermissionRequest` | `PUT /api/sources-admin/{id}/permission` body, discriminated by `action`: `asked`, `granted`, `declined` or `images` (toggle `imagesGranted` on a grant) |
+| `AdminSourceEnabledRequest` | `PUT /api/sources-admin/{id}/enabled` body: `enabled`, `override?` |
+| `BRAND_PLATFORMS` / `BrandPlatform` | `shopify \| woocommerce \| bigcartel \| custom \| feed \| none \| unknown` |
+| `BRAND_BLOCKER_PRESETS` | The three quick-pick blockers in the brand panel (custom site, Cloudflare, no official store) |
+| `BrandIngestProfile` | `brand_ingest_profile` row as the API returns it: `websiteUrl`, `platform`, `blocker`, `notes`, `ownDataSourceId`, `updatedAt` |
+| `AdminBrandSourceRef` | A store or retailer linked to a brand: `dataSourceId`, `displayName`, `kind`, `enabled`, `permissionStatus`, and `link` (how it was matched: own stores `explicit` (profile link), `metadata` (`metadata.brand`) or `name` (display name equals the brand or an alias, letters and digits only); retailers `listings`) |
+| `BrandSupply` | `own \| retailer \| both \| none` (the Supplied by filter) |
+| `AdminBrandListItem` / `AdminBrandListResponse` | Brand row for `GET /api/brands-admin`: color and other shade counts, own store, retailers, profile, latest ingest |
+| `AdminBrandProfileRequest` | `PUT /api/brands-admin/{id}/profile` body: `websiteUrl`, `platform`, `blocker`, `notes`, `ownDataSourceId`; a value sets it, `null` clears it, a missing key keeps it |
+| `AdminBrandCreateRequest` / `AdminBrandCreateResponse` | `POST /api/brands-admin` body (`name`, optional `profile`) and result (`brand`; `brand_exists` is a 409 with the brand id) |
 
 ### `types/shade-review.ts`
 
@@ -341,7 +376,7 @@ Looks (`/polishes/looks`) vocabulary and saved looks (`GET/POST/DELETE /api/look
 |---|---|
 | `FEATURE_FLAG_NAMES` | `["shareableWishlist", "shareableLooks", "bottleCapture"]` — the flags `GET /api/config/flags` reports (internal flags never appear) |
 | `PublicFeatureFlagName` | Union of `FEATURE_FLAG_NAMES` |
-| `FeatureFlagsResponse` | `{ flags: Record<PublicFeatureFlagName, boolean> }` |
+| `FeatureFlagsResponse` | `{ flags: Record<PublicFeatureFlagName, boolean>; aiReplayMode?: "record" \| "replay" }` (`aiReplayMode` only from a local host running the AI record/replay harness) |
 
 ### `types/wishlist-share.ts`
 
@@ -441,6 +476,7 @@ The "add it as new" card for a bottle the catalog could not match. Pure.
 | `CaptureQuestion` | Open question payload used by status/finalize/answer responses |
 | `CaptureStartRequest` / `CaptureStartResponse` | Start capture session payloads; the response's optional `brandHint?` (`CaptureBrandHintEcho`) and `nextFrame?` exist only while `BOTTLE_CAPTURE_ENABLED` is on |
 | `CaptureFrameRequest` / `CaptureFrameResponse` | Add frame payloads (`imageId` or `imageBlobUrl`); the response's optional `check` is the read-only verdict for a `barcode` frame with a valid on-device decoded `quality.gtin` (#21), and `nextFrame?` the next photo ask (bottle flow) |
+| `CaptureGuideRegion` | `quality.guideRegion` on a bottle-flow surface frame: the preview outline the client drew as `{ x, y, w, h }` 0–1 fractions of the frame image as sent (not of the cropped preview); the server measures the glass color inside it and drops a printed name read far outside it. Web sends it for shutter/auto-shutter surface photos (`apps/web/src/lib/guide-region.ts`); uploads and mobile send none |
 | `CaptureFinalizeResponse` | Finalize response with session status and optional question |
 | `CaptureStatusResponse` | Session status payload with confidence/accepted entity/question, and `nextFrame?` (bottle flow; `null` on a terminal session) |
 | `CaptureAnswerRequest` / `CaptureAnswerResponse` | Answer question payloads for adaptive loop: `answer` is optional (required unless `skipSurface?` is sent; `skipSurface` skips a bottle photo of that surface); the response's `nextFrame?` is returned for a `skipSurface` answer |
@@ -501,14 +537,15 @@ The "add it as new" card for a bottle the catalog could not match. Pure.
 | Type | Description |
 |------|-------------|
 | `IngestionSourceName` | Allowed generated source names for connector ingestion jobs (OpenBeautyFacts, MakeupAPI, HoloTacoShopify, Shopify sources, CosIng, etc.) |
-| `ConnectorProtocol` | Connector protocol group: `"HoloTaco" \| "Shopify" \| "OpenBeautyFacts" \| "MakeupAPI" \| "GS1" \| "Custom"` |
+| `ConnectorProtocol` | Connector protocol group: `"HoloTaco" \| "Shopify" \| "OpenBeautyFacts" \| "MakeupAPI" \| "GS1" \| "ProductFeed" \| "SitemapJsonLd" \| "WooCommerce" \| "BigCartel" \| "Custom"`; generated per source into `SOURCE_PROTOCOL_MAP` from the source-name suffix (`Shopify`, `Feed`, `Sitemap`, `WooCommerce`, `BigCartel`) |
 | `IngestionJobStatus` | Job lifecycle status: `queued \| running \| succeeded \| failed \| cancelled` |
+| `INGESTION_STORE_CLOSED_STAGE` / `isStoreClosedIngestionJob` | `metrics.pipeline.stage` (`store_closed`) of a job whose store was closed or locked (#529; status `succeeded`), and the check the admin views use to label it "Store closed" |
 | `IngestionLogLevel` | Job log level: `debug \| info \| warn \| error` |
 | `IngestionLogEntry` | One job log line in `metrics.logs`: `{ ts, level, msg, data? }`; the single omission marker also carries `omitted` |
 | `IngestionLogOmission` | Roll-up on the marker entry of a bounded job log: `{ count, byLevel, firstTs?, lastTs? }` for the lines dropped between the start of the run and the newest lines |
 | `IngestionJobRunRequest` | Request payload for `POST /api/ingestion/jobs` (includes optional `recentDays`, `materializeToInventory`, `detectHexFromImage`, `overwriteDetectedHex`, and `exhaustive` for full-catalog pulls) |
 | `BulkIngestionRequest` | Request payload for `POST /api/ingestion/bulk` (`sources: IngestionSourceName[]`, optional `options` for `materializeToInventory`, `detectHexFromImage`, and `overwriteDetectedHex`) |
-| `BulkIngestionResponse` | Bulk run response: `{ enqueued: number, jobs: IngestionJobRecord[] }` |
+| `BulkIngestionResponse` | Bulk run response: `{ enqueued: number, jobs: IngestionJobRecord[], skipped?: { source, reason: "already_running", jobId }[] }` (`skipped`: sources with a job still queued or running, #532) |
 | `IngestionJobRecord` | Ingestion job summary payload (source, status, timestamps, metrics, error) |
 | `IngestionJobRunResponse` | Job-trigger response wrapper: `{ job }` |
 | `IngestionJobListResponse` | Job list payload: `{ jobs, total }` |
@@ -555,13 +592,25 @@ Admin bottle eval samples (`/api/bottle-eval-admin/*`): a labeled bottle (catalo
 | `FinishNormalizationListResponse` | Response wrapper for finish normalization list endpoint |
 | `FinishTypeListResponse` | Response wrapper for finish list endpoint |
 | `HarmonyTypeListResponse` | Response wrapper for harmony list endpoint |
-| `IngestionJob` | Jobs-tab oriented ingestion job row shape (status/timing/error/processed count) |
+| `IngestionJob` | Jobs-tab oriented ingestion job row shape (status/timing/error/processed count, pipeline `stage`) |
 | `AdminJobsListResponse` | Admin jobs page/list payload wrapper (`jobs`, `total`, `page`, `pageSize`) |
 
 Export note:
 - `HarmonyType` is already used by `types/palette.ts` for palette selection values.
 - `types/reference.ts` harmony row type is re-exported from package root as `ReferenceHarmonyType`.
 - These reference contracts are consumed by the web `use-reference-data` hook for API-backed finish/harmony option loading with fallback support.
+
+### `admin/sources-admin.ts` (admin Sources tab rules)
+
+| Export | Description |
+|--------|-------------|
+| `deriveSourcePermission({ metadata, enabled, fetchable, kind? })` | Returns `{ permission, stored }`. A non-fetchable source is `not_needed`. A stored `metadata.permission` wins (malformed fields are dropped); otherwise written permission in `verification` is granted (images allowed when `metadata.imagesPermitted` says so, else only for a brand store, `kind` defaults to `brand`), `termsScrapingClause === false` is not needed, anything else is not asked |
+| `isPermissionOk(status)` | `granted` or `not_needed`: turning the source on needs no `override` |
+| `classifyBrandSupply(ownStores, retailers)` | `own`, `retailer`, `both` or `none` for the Supplied by filter |
+| `sourceDisplayName(name)` | `HypnoticPolishShopify` → "Hypnotic Polish": strips the connector suffix and splits camel case |
+| `SOURCE_RUN_DEFAULTS` | The options a Run from the Sources tab sends: exhaustive, materialize to inventory, detect hex from image, no overwrite of detected hex, `page: 1`, `pageSize: 100` |
+
+Tested in `src/admin/sources-admin.test.ts`.
 
 ## Utilities
 

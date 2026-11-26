@@ -73,7 +73,7 @@ import {
   viewForSurface,
 } from "@/lib/bottle-rapid-add";
 import { readStickyHints, safeLocalStorage, writeStickyHints } from "@/lib/sticky-hints-store";
-import { useFeatureFlags } from "@/lib/use-feature-flags";
+import { useFeatureFlagsState } from "@/lib/use-feature-flags";
 import {
   ADD_GUARD_EVENTS,
   addGuardTelemetry,
@@ -83,6 +83,7 @@ import {
 } from "@/lib/add-guard";
 import { trackDupeWarningOutcome, trackDupeWarningShown } from "@/lib/metrics-events";
 import {
+  actionFailureMessage,
   buildFrameQuality,
   buildStartMetadata,
   canAddFrame,
@@ -91,17 +92,20 @@ import {
   stillFrameTarget,
   canCheck,
   canFinalize,
+  frameCapMessage,
   framesReducer,
   INITIAL_SESSION_STATE,
-  MAX_CAPTURE_FRAMES,
   planLiveBarcode,
   rapidAddPhase,
+  resolveCaptureMode,
   scanBadge,
   sessionReducer,
   summarizeFrames,
   type CaptureFrameEntry,
   type QuestionAction,
+  type RapidAddAction,
 } from "@/lib/rapid-add-flow";
+import { guideRegionForFrame } from "@/lib/guide-region";
 import { assessFrameQuality, FRAME_QUALITY_WARNING_COPY } from "@/lib/camera";
 import {
   EMPTY_SHELF,
@@ -172,10 +176,20 @@ const CAMERA_FLASH_MS = 2500;
 export default function RapidAddPage() {
   const { finishTypes } = useReferenceData();
   const finishOptions = useMemo(() => buildFinishOptions(finishTypes), [finishTypes]);
-  const flags = useFeatureFlags();
+  const { flags, loaded: flagsLoaded } = useFeatureFlagsState();
   // Guided bottle sequence (flag on); "More options" falls back to today's chips and finalize.
   const [moreOptions, setMoreOptions] = useState(false);
-  const bottleSequence = flags.bottleCapture && !moreOptions;
+  /** The flag value this scan's capture session started with (null before it starts). */
+  const [lockedBottleCapture, setLockedBottleCapture] = useState<boolean | null>(null);
+  // Nothing starts until the flags have loaded, and a session keeps the mode it started in (#527).
+  const captureMode = resolveCaptureMode({
+    flagsLoaded,
+    bottleCaptureFlag: flags.bottleCapture,
+    moreOptions,
+    lockedBottleCapture,
+  });
+  const bottleCapture = captureMode.bottleCapture;
+  const bottleSequence = captureMode.bottleSequence;
   const [sticky, setSticky] = useState<StickyHints>(EMPTY_STICKY_HINTS);
   const [bottle, setBottle] = useState(INITIAL_BOTTLE_FLOW_STATE);
   /** What the server has read from this bottle's photos so far (bottle sequence only). */
@@ -206,11 +220,13 @@ export default function RapidAddPage() {
 
   const [session, dispatch] = useReducer(sessionReducer, INITIAL_SESSION_STATE);
   const [frames, dispatchFrames] = useReducer(framesReducer, []);
+  /** The last action that failed and how to run it again; shown while its message is the error. */
+  const [failedAction, setFailedAction] = useState<{ message: string; retry: () => void } | null>(null);
   const phase = rapidAddPhase(session);
   const frameSummary = summarizeFrames(frames);
   const hasHints = Boolean(brandHint.trim() || shadeHint.trim());
 
-  // Shelf mode: this session's verdicts across scans, in sessionStorage per user.
+  // Shelf mode: verdicts across scans, in localStorage per user (7-day expiry, wiped on sign-out).
   const [shelf, dispatchShelf] = useReducer(shelfReducer, EMPTY_SHELF);
   const [shelfKey, setShelfKey] = useState<string | null>(null);
   const [shelfPendingKey, setShelfPendingKey] = useState<string | null>(null);
@@ -225,7 +241,8 @@ export default function RapidAddPage() {
   const sessionRef = useRef(session);
   const framesRef = useRef(frames);
   const hintsRef = useRef({ brand: brandHint, shadeName: shadeHint, finish: finishHint, collection: collectionHint });
-  const bottleCaptureRef = useRef(flags.bottleCapture);
+  const bottleCaptureRef = useRef(bottleCapture);
+  const captureReadyRef = useRef(captureMode.ready);
   const bottleSequenceRef = useRef(bottleSequence);
   const bottleRef = useRef(bottle);
   const stickyRef = useRef(sticky);
@@ -235,8 +252,9 @@ export default function RapidAddPage() {
     sessionRef.current = session;
     framesRef.current = frames;
     hintsRef.current = { brand: brandHint, shadeName: shadeHint, finish: finishHint, collection: collectionHint };
-    bottleCaptureRef.current = flags.bottleCapture;
+    bottleCaptureRef.current = bottleCapture;
     bottleSequenceRef.current = bottleSequence;
+    captureReadyRef.current = captureMode.ready;
   });
 
   const applyBottle = useCallback((action: BottleFlowAction) => {
@@ -244,6 +262,13 @@ export default function RapidAddPage() {
     bottleRef.current = next;
     setBottle(next);
     return next;
+  }, []);
+
+  /** A save failed: say what and why, keep its buttons usable and offer "Try again" (#527). */
+  const failAction = useCallback((action: RapidAddAction, error: unknown, retry: () => void) => {
+    const message = actionFailureMessage(action, error);
+    setFailedAction({ message, retry });
+    dispatch({ type: "failed", error: message });
   }, []);
 
   /** Sticky hints in state and ref; `persist` also stores them for this user. */
@@ -340,6 +365,8 @@ export default function RapidAddPage() {
     if (!sessionPromiseRef.current) {
       dispatch({ type: "busy", busy: "starting" });
       const scan = scanRef.current;
+      // The session's mode is fixed here, so a flag can't switch paths mid-scan.
+      setLockedBottleCapture(bottleCaptureRef.current);
       sessionPromiseRef.current = startCapture({
         metadata: buildStartMetadata({
           barcode: barcode ?? sessionRef.current.barcode,
@@ -498,6 +525,11 @@ export default function RapidAddPage() {
 
   const handleCapture = useCallback(
     (event: CameraCaptureEvent) => {
+      // Flags still loading: which path this scan takes isn't known yet, so nothing starts.
+      if (!captureReadyRef.current) {
+        if (event.trigger !== "live-scan") setCameraFlash({ tone: "info", text: "Getting ready… try again in a moment." });
+        return;
+      }
       if (event.trigger === "live-scan" && event.barcode) {
         const { gtin } = event.barcode;
         const action = planLiveBarcode(sessionRef.current, gtin);
@@ -554,7 +586,7 @@ export default function RapidAddPage() {
         return;
       }
       if (!canAddFrame(framesRef.current)) {
-        dispatch({ type: "failed", error: `That's the most frames for one scan (${MAX_CAPTURE_FRAMES}). Tap Find match.` });
+        setCameraFlash({ tone: "info", text: frameCapMessage({ bottleSequence: bottleSequenceRef.current }) });
         return;
       }
       const warnings = assessFrameQuality(event.frame.metrics);
@@ -577,6 +609,12 @@ export default function RapidAddPage() {
           mimeType: event.file?.type,
           fileSize: event.file?.size,
           surface: target.surface,
+          guideRegion: guideRegionForFrame({
+            bottleCapture: bottleCaptureRef.current,
+            surface: target.surface,
+            trigger: event.trigger,
+            shown: event.shownGuide,
+          }),
         }),
       };
       framesRef.current = [...framesRef.current, { ...frame, status: "uploading", attempts: 1 }];
@@ -715,7 +753,7 @@ export default function RapidAddPage() {
       dispatch({ type: "verdict_resolved", verdict: verdictAfterBottleAdd(verdict, updated.inventoryItemId) });
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it to your collection.") });
+      failAction("add", error, () => void handleBottleAdd(verdict));
     }
   }
 
@@ -729,7 +767,9 @@ export default function RapidAddPage() {
       dispatch({ type: "verdict_resolved", verdict: verdictAfterCreate(created, verdict.card, edits, status) });
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it. Try again.") });
+      failAction(status === "owned" ? "create_owned" : "create_wishlist", error, () =>
+        void handleCreate(verdict, edits, status),
+      );
     }
   }
 
@@ -753,11 +793,13 @@ export default function RapidAddPage() {
   function resetScan() {
     scanRef.current += 1;
     sessionPromiseRef.current = null;
+    setFailedAction(null);
     dispatch({ type: "reset" });
     dispatchFrames({ type: "reset" });
     sessionRef.current = INITIAL_SESSION_STATE;
     framesRef.current = [];
     applyBottle({ type: "reset" });
+    setLockedBottleCapture(null);
     setReadSoFar(null);
     setManualSurface(null);
     setQualityHint(null);
@@ -811,7 +853,7 @@ export default function RapidAddPage() {
       if (shouldAutoCheck(next, uploaded) && !sessionRef.current.verdict) await runBottleCheck();
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't skip that photo. Try again.") });
+      failAction("skip", error, () => void handleSkipSurface());
     }
   }
 
@@ -827,7 +869,7 @@ export default function RapidAddPage() {
       dispatch({ type: "verdict_resolved", verdict: { ...checked, relationship: "wishlisted", wishlistedNow: true } });
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't add it to your wishlist.") });
+      failAction("wishlist", error, () => void handleAddToWishlist(verdict));
     }
   }
 
@@ -860,7 +902,7 @@ export default function RapidAddPage() {
       }
     } catch (error) {
       if (scanRef.current !== scan) return;
-      dispatch({ type: "failed", error: errorMessage(error, "Couldn't update the quantity.") });
+      failAction("undo", error, () => void handleUndoQuantity());
     }
   }
 
@@ -888,7 +930,8 @@ export default function RapidAddPage() {
       // Keep the ownership snapshot right for the next label scan.
       void loadSnapshot();
     } catch (error) {
-      setShelfError(errorMessage(error, "Couldn't save that. Try again."));
+      // The entry's buttons stay enabled, so tapping the same one again retries.
+      setShelfError(actionFailureMessage(action, error));
     } finally {
       setShelfPendingKey(null);
     }
@@ -949,6 +992,7 @@ export default function RapidAddPage() {
         : defaultCameraGuide(frameType);
   const viewfinderStatus: ViewfinderStatus | null =
     cameraFlash ??
+    (!captureMode.ready ? { tone: "info", text: "Getting ready…" } : null) ??
     (session.verdict
       ? { tone: "success", text: verdictHeadline(session.verdict), action: { label: "See result", onClick: scrollToVerdict } }
       : badge
@@ -956,6 +1000,31 @@ export default function RapidAddPage() {
         : session.error
           ? { tone: "warning", text: session.error }
           : null);
+
+  const retryAction = failedAction && failedAction.message === session.error && !busy ? failedAction : null;
+  const errorAlert = session.error ? (
+    <div role="alert" className="flex flex-wrap items-start gap-2 text-sm text-destructive">
+      <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1">{session.error}</span>
+      {phase === "resolving" && !busy && session.captureId ? (
+        <Button type="button" variant="outline" size="sm" onClick={() => void handleRetryResolve()}>
+          Try again
+        </Button>
+      ) : retryAction ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setFailedAction(null);
+            retryAction.retry();
+          }}
+        >
+          Try again
+        </Button>
+      ) : null}
+    </div>
+  ) : null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-16">
@@ -1000,12 +1069,14 @@ export default function RapidAddPage() {
           }
           onScanNext={handleScanNext}
         />
+        {/* A failed Add / Wishlist / create shows right under the card whose buttons retry it. */}
+        {errorAlert && <div className="mt-3">{errorAlert}</div>}
         </div>
       )}
 
       <Card ref={cameraSectionRef} className="scroll-mt-4">
         <CardContent className="space-y-4">
-          {flags.bottleCapture && (
+          {bottleCapture && (
             <BatchBrandField
               hints={sticky}
               finishOptions={finishOptions}
@@ -1026,8 +1097,9 @@ export default function RapidAddPage() {
           )}
 
           <CameraCapture
-            scanBarcodes={scanning}
+            scanBarcodes={scanning && captureMode.ready}
             captureDisabled={
+              !captureMode.ready ||
               phase === "verdict" ||
               phase === "resolving" ||
               !canAddFrame(frames) ||
@@ -1080,7 +1152,7 @@ export default function RapidAddPage() {
             />
           )}
 
-          {flags.bottleCapture && phase === "collecting" && (
+          {bottleCapture && phase === "collecting" && (
             <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setMoreOptions((on) => !on)}>
               {moreOptions ? "Back to guided photos" : "More options"}
             </Button>
@@ -1107,14 +1179,18 @@ export default function RapidAddPage() {
             size="lg"
             className="w-full"
             onClick={() => (bottleSequence ? void runBottleCheck() : void handleFinalize())}
-            disabled={!finalizeEnabled}
+            disabled={!finalizeEnabled || !captureMode.ready}
           >
             {matching ? <Loader2 className="animate-spin" aria-hidden /> : <Search aria-hidden />}
             {matching ? "Matching…" : "Find match"}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            {frameSummary.uploading > 0
+            {!captureMode.ready
+              ? "Getting ready…"
+              : frameSummary.uploading > 0
               ? "Uploading frames…"
+              : !canAddFrame(frames)
+              ? frameCapMessage({ bottleSequence })
               : bottleSequence
                 ? "Nothing is added until you tap Add."
                 : "A match is added to your collection; if you already own it you can undo the extra bottle."}
@@ -1122,17 +1198,7 @@ export default function RapidAddPage() {
         </div>
       )}
 
-      {session.error && (
-        <div role="alert" className="flex flex-wrap items-start gap-2 text-sm text-destructive">
-          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1">{session.error}</span>
-          {phase === "resolving" && !busy && session.captureId && (
-            <Button type="button" variant="outline" size="sm" onClick={() => void handleRetryResolve()}>
-              Try again
-            </Button>
-          )}
-        </div>
-      )}
+      {phase !== "verdict" && errorAlert}
 
       <ShelfList
         entries={shelf.entries}

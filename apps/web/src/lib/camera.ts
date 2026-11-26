@@ -194,6 +194,33 @@ export function computeFrameQuality(
   };
 }
 
+/**
+ * What the camera hook does on a `visibilitychange` (#527). Hiding the tab releases a running
+ * (or starting) camera and remembers to bring it back; showing the tab again restarts it only
+ * when it was released that way, so a camera the user stopped stays off. Permission was already
+ * granted for the first start, so the restart normally asks nothing.
+ */
+export type CameraVisibilityPlan =
+  | { action: "release"; resumeOnVisible: true }
+  | { action: "resume"; resumeOnVisible: false }
+  | { action: "none"; resumeOnVisible: boolean };
+
+export function planCameraVisibility(input: {
+  visible: boolean;
+  /** The stream is live or still starting. */
+  active: boolean;
+  /** The camera was released by an earlier hide and not stopped by the user since. */
+  resumeOnVisible: boolean;
+}): CameraVisibilityPlan {
+  if (!input.visible) {
+    return input.active
+      ? { action: "release", resumeOnVisible: true }
+      : { action: "none", resumeOnVisible: input.resumeOnVisible };
+  }
+  if (input.resumeOnVisible && !input.active) return { action: "resume", resumeOnVisible: false };
+  return { action: "none", resumeOnVisible: false };
+}
+
 export const FRAME_QUALITY_WARNING_COPY: Record<FrameQualityWarning, string> = {
   "too-dark": "Looks dark — move into better light.",
   "too-bright": "Looks washed out — avoid glare on the label.",

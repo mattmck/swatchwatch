@@ -1,4 +1,5 @@
 import { app, InvocationContext, Timer } from "@azure/functions";
+import { INGESTION_STORE_CLOSED_STAGE } from "swatchwatch-shared";
 import {
   applyAiBatchShadeDetections,
   getIngestionJobById,
@@ -32,6 +33,7 @@ import {
 } from "../lib/ingestion-continuation";
 import { appendJobLogEntries, createJobLogEntry } from "../lib/job-log";
 import { isFeatureEnabled } from "../lib/feature-flags";
+import { readSourceSettings } from "../lib/source-settings";
 
 const DEFAULT_BATCH_POLL_SCHEDULE = "0 * * * * *";
 const DEFAULT_MAX_JOBS_PER_POLL = 10;
@@ -384,6 +386,9 @@ async function applyCompletedBatch(
     tokenMetricProperties
   );
 
+  // A retailer or feed job applies through its listings only and fills detected finishes only
+  // (the materializer's fill-only adoption); an unknown metadata.kind throws and fails the job.
+  const sourceKind = readSourceSettings(job.sourceMetadata, job.source).kind;
   const applyMetrics = await applyAiBatchShadeDetections(
     job.dataSourceId,
     parsedDetections.map((row) => ({
@@ -392,7 +397,8 @@ async function applyCompletedBatch(
       detectedFinishes: row.detection?.finishes || null,
       provenance: row.detection ? provenanceFromDetection(row.detection) : null,
     })),
-    entry.overwriteDetectedHex
+    entry.overwriteDetectedHex,
+    { sourceKind }
   );
 
   const parseErrors = parsedDetections.filter((row) => row.error).length;
@@ -672,7 +678,13 @@ async function processAwaitingAiBatchJob(
     return;
   }
 
-  const completionMetrics = withPipelineMetrics(appliedBatchMetrics, "succeeded", "completed", {
+  // A job whose store closed mid-run (the worker recorded `storeClosed` and handed over its
+  // pending batches) keeps its store_closed outcome once the batches are applied.
+  const completedStage =
+    appliedBatchMetrics.storeClosed && typeof appliedBatchMetrics.storeClosed === "object"
+      ? INGESTION_STORE_CLOSED_STAGE
+      : "completed";
+  const completionMetrics = withPipelineMetrics(appliedBatchMetrics, "succeeded", completedStage, {
     workerCompletedAt: polledAt,
   });
 

@@ -1,7 +1,7 @@
 // Builds the service worker precache list from the static export (`out/`).
 // Node only; used by scripts/build-sw.mjs and the unit tests.
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, posix } from "node:path";
 
 /** Pages that must open offline. `/` is the installed PWA's start_url. */
@@ -52,8 +52,25 @@ export function listFiles(dir, base = "") {
 }
 
 /**
+ * Next.js build ids of the export: the `_next/static/<id>/` folders that hold the build manifest.
+ * Next picks a random id on every build and writes it into each exported page.
+ */
+export function findBuildIds(outDir) {
+  const dir = join(outDir, "_next", "static");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((name) => existsSync(join(dir, name, "_buildManifest.js")))
+    .sort();
+}
+
+/**
  * @returns {{ urls: string[], version: string, skipped: string[] }} sorted precache URLs, a hash
  * over their paths and contents (the cache name suffix), and anything skipped for size.
+ *
+ * The version leaves out the Next.js build id in the pages: it is the only thing that differs
+ * between two builds of the same source, and hashing it gave every deploy (also one that changed
+ * nothing in the web app) a new `sw.js`, so installed clients saw "Update available" each time.
+ * Without it an unchanged build gives a byte-identical `sw.js` and the browser installs nothing.
  */
 export function buildPrecache(outDir) {
   const existing = new Set(listFiles(outDir));
@@ -79,10 +96,17 @@ export function buildPrecache(outDir) {
   for (const file of PRECACHE_FILES) add(file, file);
 
   const sorted = [...urls].sort();
+  const buildIds = findBuildIds(outDir);
   const hash = createHash("sha256");
   for (const u of sorted) {
-    const file = u.endsWith("/") ? routeToFile(u) : u;
-    hash.update(u).update("\0").update(readFileSync(join(outDir, file))).update("\0");
+    const isPage = u.endsWith("/");
+    let body = readFileSync(join(outDir, isPage ? routeToFile(u) : u));
+    if (isPage && buildIds.length > 0) {
+      let html = body.toString("utf8");
+      for (const id of buildIds) html = html.replaceAll(id, "");
+      body = Buffer.from(html, "utf8");
+    }
+    hash.update(u).update("\0").update(body).update("\0");
   }
   return { urls: sorted, version: hash.digest("hex").slice(0, 12), skipped };
 }

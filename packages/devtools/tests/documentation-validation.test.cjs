@@ -229,6 +229,27 @@ test('CLAUDE.md: has environment variables section', () => {
   assert.match(content, /AZURE_AD_B2C/i, 'should mention Azure AD B2C variables');
 });
 
+test('CLAUDE.md: stays under 20,000 characters (Copilot review limit, session context)', () => {
+  const claudePath = path.resolve(__dirname, '../../../CLAUDE.md');
+  const content = readMarkdown(claudePath);
+
+  assert.ok(
+    content.length <= 20000,
+    `CLAUDE.md is ${content.length} characters; move detail into docs/agents/ to keep it at most 20,000`
+  );
+});
+
+test('CLAUDE.md: every docs/agents/*.md file it mentions exists', () => {
+  const repoRoot = path.resolve(__dirname, '../../..');
+  const content = readMarkdown(path.resolve(repoRoot, 'CLAUDE.md'));
+  const mentioned = [...new Set(content.match(/docs\/agents\/[A-Za-z0-9._-]+\.md/g) || [])];
+
+  assert.ok(mentioned.length > 0, 'CLAUDE.md should point to docs/agents/ topic files');
+  mentioned.forEach((rel) => {
+    assert.ok(fileExists(repoRoot, rel), `CLAUDE.md mentions ${rel}, which should exist`);
+  });
+});
+
 // Test symlinks to CLAUDE.md
 test('agent instruction files: .cursorrules is a symlink to CLAUDE.md', () => {
   const cursorrules = path.resolve(__dirname, '../../../.cursorrules');

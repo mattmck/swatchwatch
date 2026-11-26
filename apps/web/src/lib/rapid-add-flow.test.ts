@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { EMPTY_STICKY_HINTS, type CaptureQuestion, type StickyHints } from "swatchwatch-shared";
 import type { ScannedBarcode } from "./barcode-scan";
 import {
+  actionFailureMessage,
   buildFrameQuality,
   buildQuestionView,
   buildStartMetadata,
@@ -10,11 +11,13 @@ import {
   canCheck,
   canCheckBarcodeFromMetadata,
   canFinalize,
+  frameCapMessage,
   framesReducer,
   INITIAL_SESSION_STATE,
   MAX_CAPTURE_FRAMES,
   planLiveBarcode,
   rapidAddPhase,
+  resolveCaptureMode,
   scanBadge,
   sessionReducer,
   shouldCheckBarcodeFrame,
@@ -228,6 +231,22 @@ describe("buildStartMetadata / buildFrameQuality", () => {
     });
     assert.equal("gtin" in noBarcode, false);
     assert.equal("fileName" in noBarcode, false);
+    assert.equal("guideRegion" in noBarcode, false);
+  });
+
+  it("sends the guide outline only when one is given", () => {
+    const base = {
+      source: "web-camera" as const,
+      width: 900,
+      height: 1600,
+      sourceWidth: 1080,
+      sourceHeight: 1920,
+      metrics: { brightness: 0.5, contrast: 0.2, sharpness: 0.05 },
+      surface: "glass" as const,
+    };
+    const region = { x: 0.3, y: 0.4, w: 0.4, h: 0.2 };
+    assert.deepEqual(buildFrameQuality({ ...base, guideRegion: region }).guideRegion, region);
+    assert.equal("guideRegion" in buildFrameQuality({ ...base, guideRegion: null }), false);
   });
 });
 
@@ -483,5 +502,73 @@ describe("planLiveBarcode", () => {
 
   it("waits while a finished session resolves", () => {
     assert.equal(planLiveBarcode({ ...INITIAL_SESSION_STATE, status: "matched" }, other), "wait");
+  });
+});
+
+describe("resolveCaptureMode", () => {
+  const base = { flagsLoaded: true, bottleCaptureFlag: true, moreOptions: false, lockedBottleCapture: null };
+
+  it("is not ready, and reads the flag as off, until the flags have loaded", () => {
+    assert.deepEqual(resolveCaptureMode({ ...base, flagsLoaded: false }), {
+      ready: false,
+      bottleCapture: false,
+      bottleSequence: false,
+    });
+  });
+
+  it("follows the loaded flag and the More options switch", () => {
+    assert.deepEqual(resolveCaptureMode(base), { ready: true, bottleCapture: true, bottleSequence: true });
+    assert.deepEqual(resolveCaptureMode({ ...base, moreOptions: true }), {
+      ready: true,
+      bottleCapture: true,
+      bottleSequence: false,
+    });
+    assert.deepEqual(resolveCaptureMode({ ...base, bottleCaptureFlag: false }), {
+      ready: true,
+      bottleCapture: false,
+      bottleSequence: false,
+    });
+  });
+
+  it("keeps the mode a session started with, whatever the flag reads later", () => {
+    assert.deepEqual(resolveCaptureMode({ ...base, bottleCaptureFlag: true, lockedBottleCapture: false }), {
+      ready: true,
+      bottleCapture: false,
+      bottleSequence: false,
+    });
+    assert.deepEqual(
+      resolveCaptureMode({ ...base, flagsLoaded: false, bottleCaptureFlag: false, lockedBottleCapture: true }),
+      { ready: true, bottleCapture: true, bottleSequence: true },
+    );
+  });
+});
+
+describe("actionFailureMessage", () => {
+  it("says what failed, why, and to try again", () => {
+    assert.equal(
+      actionFailureMessage("add", new Error("Service unavailable.")),
+      "Couldn't add it to your collection: Service unavailable. Try again.",
+    );
+    assert.equal(
+      actionFailureMessage("create_wishlist", new Error("Brand is required")),
+      "Couldn't add it to your wishlist: Brand is required. Try again.",
+    );
+    assert.equal(actionFailureMessage("skip", new Error("Conflict")), "Couldn't skip that photo: Conflict. Try again.");
+  });
+
+  it("falls back to a network error when the failure has no message", () => {
+    assert.equal(actionFailureMessage("wishlist", "boom"), "Couldn't add it to your wishlist: network error. Try again.");
+    assert.equal(actionFailureMessage("undo", new Error("  ")), "Couldn't update the quantity: network error. Try again.");
+  });
+});
+
+describe("frameCapMessage", () => {
+  it("says enough photos were taken and what Find match does", () => {
+    assert.equal(
+      frameCapMessage({ bottleSequence: true }),
+      "That's enough photos. Tap Find match to see what we found.",
+    );
+    // The legacy path's Find match adds the match, so the copy says so.
+    assert.match(frameCapMessage({ bottleSequence: false }), /^That's enough photos\. Tap Find match .*add it to your collection\.$/);
   });
 });

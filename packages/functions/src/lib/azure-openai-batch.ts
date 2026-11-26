@@ -10,6 +10,7 @@ import {
   type HexDetectionTokenUsage,
 } from "./ai-color-detection";
 import { resolveAzureOpenAiConfig } from "./azure-openai-config";
+import { applyChatCompletionModelParams } from "./azure-openai-request";
 import type { FinishCatalog } from "./finishes";
 
 const DEFAULT_BATCH_API_VERSION = "2025-03-01-preview";
@@ -174,13 +175,18 @@ async function parseBatchApiResponse<T>(response: Response, action: string): Pro
 }
 
 function toJsonlLine(request: VisionHexBatchRequest, deployment: string, finishCatalog: FinishCatalog): string {
-  const body = {
-    model: deployment,
-    ...buildHexDetectionRequestPayload(
+  // Batch lines name the batch deployment, so a gpt-5 / o-series one gets its own token fields.
+  const { payload } = applyChatCompletionModelParams(
+    buildHexDetectionRequestPayload(
       request.imageUrlOrDataUri,
       { vendorContext: request.vendorContext, finishCatalog },
       false
     ),
+    deployment
+  );
+  const body = {
+    model: deployment,
+    ...payload,
   };
 
   return JSON.stringify({

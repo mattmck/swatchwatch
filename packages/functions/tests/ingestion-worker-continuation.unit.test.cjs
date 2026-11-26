@@ -60,6 +60,9 @@ let job = null;
 const JOB_ID = 7;
 
 let materializeMock = async (records) => ({ processed: records.length, hexDetected: records.length });
+// data_source.metadata of the job's source (source kind, image permission, …).
+let sourceMetadata = {};
+let sourceEnabled = true;
 registerMock("ingestion-repo", {
   getIngestionJobById: async (jobId) =>
     job && jobId === JOB_ID
@@ -79,13 +82,21 @@ registerMock("ingestion-repo", {
     job.metrics = clone(metrics);
     events.push({ type: "succeeded", metrics: clone(metrics) });
   },
+  trackIngestionStoreClosed: (_id, closed) => {
+    events.push({ type: "store_closed_event", closed });
+  },
+  markIngestionJobStoreClosed: async (_id, closed, metrics) => {
+    job.status = "succeeded";
+    job.metrics = clone(metrics);
+    events.push({ type: "store_closed", closed, metrics: clone(metrics) });
+  },
   markIngestionJobFailed: async (_id, error, metrics) => {
     job.status = "failed";
     job.error = error;
     job.metrics = clone(metrics);
     events.push({ type: "failed", error, metrics: clone(metrics) });
   },
-  getDataSourceByName: async () => ({ dataSourceId: 3, baseUrl: "https://shop.example" }),
+  getDataSourceByName: async () => ({ dataSourceId: 3, baseUrl: "https://shop.example", metadata: sourceMetadata, enabled: sourceEnabled, name: "HoloTacoShopify" }),
   upsertExternalProducts: async (_id, records) => ({
     processed: records.length,
     inserted: records.length,
@@ -116,9 +127,11 @@ class FakeConnector {
     this.source = source;
   }
   async pullProducts(options) {
-    events.push({ type: "pull", page: options.page, catalogCache: options.catalogCache });
-    const page = pages[options.page] || { records: [], metadata: {} };
-    return { source: this.source, records: page.records, metadata: { ...page.metadata } };
+    events.push({ type: "pull", page: options.page, catalogCache: options.catalogCache, deadlineMs: options.deadlineMs });
+    // A page may be a function of the pull (a crawling connector answering several pulls of one page).
+    const entry = pages[options.page];
+    const page = (typeof entry === "function" ? await entry(options) : entry) || { records: [], metadata: {} };
+    return { source: this.source, records: page.records, metadata: { ...page.metadata }, ...(page.catalog ? { catalog: page.catalog } : {}) };
   }
 }
 registerMock("connectors/holo-taco-shopify", { HoloTacoShopifyConnector: FakeConnector });
@@ -126,6 +139,21 @@ registerMock("connectors/shopify-generic", { ShopifyGenericConnector: FakeConnec
 registerMock("connectors/open-beauty-facts", { OpenBeautyFactsConnector: FakeConnector });
 registerMock("connectors/makeup-api", { MakeupApiConnector: FakeConnector });
 registerMock("lib/connector-raw-storage", { saveConnectorRawSnapshot: async () => {} });
+// Listing freshness (a complete catalog marks missing listings); recorded, no database.
+let freshnessCalls = [];
+registerMock("lib/listing-freshness", {
+  markExternalProductsMissing: async (_client, dataSourceId, catalog) => {
+    freshnessCalls.push({ dataSourceId, catalog });
+    events.push({ type: "freshness" });
+    return { marked: 0, cleared: 0, skipped: false };
+  },
+});
+registerMock("lib/db", {
+  transaction: async (fn) => fn({ query: async () => ({ rows: [], rowCount: 0 }) }),
+  query: async () => ({ rows: [], rowCount: 0 }),
+  getPool: () => ({}),
+  closePool: async () => {},
+});
 registerMock("lib/auth", { withAdmin: (handler) => handler });
 registerMock("lib/http", { withCors: (handler) => handler });
 registerMock("lib/queue-management", { getQueueStats: async () => ({}), purgeQueue: async () => ({}) });
@@ -139,6 +167,8 @@ const {
 } = require("../dist/functions/ingestion");
 const { planPoisonedIngestionMessage } = require("../dist/functions/ingestion-worker");
 const { readResumeMessageFromMetrics } = require("../dist/lib/ingestion-continuation");
+const { ConnectorCheckpointSupersededError } = require("../dist/lib/connectors/types");
+const { StoreClosedError } = require("../dist/lib/connectors/store-closed");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -197,11 +227,14 @@ let fakeNow = 0;
 beforeEach(() => {
   events = [];
   pages = {};
+  freshnessCalls = [];
   job = { status: "queued", metrics: {} };
   fakeNow = 1_000_000;
   Date.now = () => fakeNow;
   sendMessageMock = async () => {};
   materializeMock = async (records) => ({ processed: records.length, hexDetected: records.length });
+  sourceMetadata = {};
+  sourceEnabled = true;
   delete process.env.INGESTION_WORKER_TIME_BUDGET_MS;
   delete process.env.HEX_DETECTION_BATCH_ENABLED;
   delete process.env.HEX_DETECTION_BATCH_MAX_IN_FLIGHT;
@@ -914,5 +947,429 @@ describe("ingestion-job-poison handler", () => {
     await poisonHandler().handler(makePayload(), context);
 
     assert.equal(job.status, "running");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Source kinds (brand sources plan, Task 3)
+// ---------------------------------------------------------------------------
+
+describe("processIngestionJobQueueMessage — source kinds", () => {
+  const materializeOptions = async (metadata, request) => {
+    sourceMetadata = metadata;
+    pages[1] = { records: makeRecords(1, 3), metadata: { hasMore: false } };
+    const seen = [];
+    materializeMock = async (records, options) => {
+      seen.push(options);
+      return { processed: records.length };
+    };
+    await processIngestionJobQueueMessage(makePayload({ request: { source: "MooncatShopify", ...request } }), context);
+    assert.ok(seen.length > 0, "expected a materialization call");
+    return seen[0];
+  };
+
+  it("forces fill-only writes, no images and adoption for a retailer job", async () => {
+    const options = await materializeOptions({ kind: "retailer" }, { overwriteDetectedHex: true });
+    assert.equal(options.overwriteDetectedHex, false);
+    assert.equal(options.storeImages, false);
+    assert.equal(options.sourceKind, "retailer");
+    assert.equal(options.sourceName, "MooncatShopify");
+  });
+
+  it("keeps a permitted retailer's images but still writes fill-only", async () => {
+    const options = await materializeOptions(
+      { kind: "retailer", imagesPermitted: true },
+      { overwriteDetectedHex: true }
+    );
+    assert.equal(options.overwriteDetectedHex, false);
+    assert.equal(options.storeImages, true);
+  });
+
+  it("fails the job on an unknown source kind instead of treating it as a brand", async () => {
+    sourceMetadata = { kind: "wholesale" };
+    pages[1] = { records: makeRecords(1, 3), metadata: { hasMore: false } };
+    let materialized = 0;
+    materializeMock = async (records) => {
+      materialized += 1;
+      return { processed: records.length };
+    };
+    try {
+      await processIngestionJobQueueMessage(makePayload({ request: { source: "MooncatShopify" } }), context);
+    } catch {
+      // The worker may rethrow after marking the job failed.
+    }
+    assert.equal(materialized, 0);
+    const failed = events.find((e) => e.type === "failed");
+    assert.ok(failed, "expected the job to be marked failed");
+    assert.match(String(failed.error), /Unknown source kind "wholesale"/);
+  });
+
+  it("stores no images when an admin turned downloadImages off for the source", async () => {
+    const options = await materializeOptions({ ingestion: { downloadImages: false } }, { detectHexFromImage: true });
+    assert.equal(options.storeImages, false);
+    assert.equal(options.detectHexFromImage, false);
+  });
+
+  it("skips AI hex detection when an admin turned detectHex off for the source", async () => {
+    const options = await materializeOptions({ ingestion: { detectHex: false } }, { detectHexFromImage: true });
+    assert.equal(options.storeImages, true);
+    assert.equal(options.detectHexFromImage, false);
+  });
+
+  it("never lets downloadImages grant a retailer image permission", async () => {
+    const options = await materializeOptions({ kind: "retailer", ingestion: { downloadImages: true } }, {});
+    assert.equal(options.storeImages, false);
+  });
+
+  it("keeps the request's overwrite flag for a brand source", async () => {
+    const options = await materializeOptions({}, { overwriteDetectedHex: true });
+    assert.equal(options.overwriteDetectedHex, true);
+    assert.equal(options.storeImages, true);
+    assert.equal(options.sourceKind, "brand");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Crawling connectors (sitemap + JSON-LD): partial pulls with catalogComplete === false
+// ---------------------------------------------------------------------------
+
+describe("processIngestionJobQueueMessage — partial crawl pulls", () => {
+  const partial = (crawledPages, extra = {}) => ({
+    records: [],
+    metadata: { catalogComplete: false, crawledPages, totalPages: 400, crawlPullEstimateMs: 10000, ...extra },
+  });
+  const complete = (records) => ({
+    records,
+    metadata: { catalogComplete: true, crawledPages: 400, totalPages: 400, sourcePageCount: 1 },
+    catalog: { externalIds: records.map((record) => record.externalId), complete: true },
+  });
+  // Answers the pulls of page 1 in order; every pull spends `spendMs` of the clock.
+  const sequence = (results, spendMs = 1000) => {
+    let call = 0;
+    return async () => {
+      fakeNow += spendMs;
+      return results[Math.min(call++, results.length - 1)];
+    };
+  };
+  const pulls = () => events.filter((e) => e.type === "pull");
+
+  for (const exhaustive of [false, true]) {
+    it(`pulls the same page again until the crawl is complete (exhaustive: ${exhaustive})`, async () => {
+      pages[1] = sequence([partial(150), partial(300), complete(makeRecords(1, 3))]);
+
+      await processIngestionJobQueueMessage(makePayload({ request: { exhaustive } }), context);
+
+      assert.deepEqual(pulls().map((e) => e.page), [1, 1, 1]);
+      assert.deepEqual(materializeCalls(), [["p1-0", "p1-1", "p1-2"]]);
+      assert.equal(job.status, "succeeded");
+      assert.equal(enqueued().length, 0);
+      // Partial pulls never run listing freshness; the complete one does, once.
+      assert.equal(freshnessCalls.length, 1);
+      assert.deepEqual(freshnessCalls[0].catalog.externalIds, ["p1-0", "p1-1", "p1-2"]);
+      assert.ok(events.findIndex((e) => e.type === "freshness") < events.findIndex((e) => e.type === "materialize"));
+    });
+  }
+
+  it("passes the invocation deadline to every pull", async () => {
+    process.env.INGESTION_WORKER_TIME_BUDGET_MS = "60000";
+    const startedAt = fakeNow;
+    pages[1] = sequence([partial(150), complete(makeRecords(1, 1))]);
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.deepEqual(pulls().map((e) => e.deadlineMs), [startedAt + 60000, startedAt + 60000]);
+  });
+
+  it("saves the crawl progress after a partial pull", async () => {
+    pages[1] = sequence([partial(150), complete(makeRecords(1, 1))]);
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    const firstPull = events.findIndex((e) => e.type === "pull");
+    const saved = events.slice(firstPull).find((e) => e.type === "metrics");
+    assert.equal(saved.metrics.crawledPages, 150);
+    assert.equal(saved.metrics.catalogComplete, false);
+  });
+
+  it("hands off to a continuation at the same page when another pull would not fit the budget", async () => {
+    process.env.INGESTION_WORKER_TIME_BUDGET_MS = "60000";
+    // 35 s spent + a 30 s pull estimate >= 60 s.
+    pages[1] = sequence([partial(150, { crawlPullEstimateMs: 30000 })], 35000);
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(pulls().length, 1);
+    assert.equal(materializeCalls().length, 0);
+    const messages = enqueued();
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].checkpoint.nextPage, 1);
+    assert.equal(messages[0].checkpoint.recordOffset, 0);
+    assert.equal(messages[0].checkpoint.continuationCount, 1);
+    assert.equal(job.status, "running");
+    assert.equal(job.metrics.pipeline.stage, "continuation_queued");
+  });
+
+  it("runs listing freshness when a continuation's pull completes the crawl, and not again", async () => {
+    pages[1] = sequence([complete(makeRecords(1, 2))]);
+    const first = makePayload({ checkpoint: checkpoint({ continuationCount: 1 }) });
+    job = { status: "running", metrics: { checkpoint: checkpoint({ continuationCount: 1 }) } };
+
+    await processIngestionJobQueueMessage(first, context);
+    assert.equal(freshnessCalls.length, 1);
+
+    // A later continuation of the same job carries the freshness totals and skips it.
+    freshnessCalls = [];
+    events = [];
+    pages[1] = sequence([complete(makeRecords(1, 2))]);
+    const again = { ...job.metrics.checkpoint, nextPage: 1, recordOffset: 0, continuationCount: 2 };
+    assert.equal(job.metrics.workerTotals.persistence.listingsMarkedMissing, 0);
+    job = { status: "running", metrics: { ...job.metrics, checkpoint: again } };
+    await processIngestionJobQueueMessage(makePayload({ checkpoint: again }), context);
+    assert.equal(pulls().length, 1);
+    assert.equal(freshnessCalls.length, 0);
+  });
+
+  // A crawling connector reports each give-up through `options.log` when it records it.
+  const givingUp = (failures, result) => async (options) => {
+    fakeNow += 1000;
+    for (const { url, reason } of failures) {
+      options.log("warn", `Crawl gave up on a page: ${url} (${reason})`, { url, reason });
+    }
+    if (result instanceof Error) throw result;
+    return result;
+  };
+  const failures = [{ url: "https://x.example/a", reason: "HTTP 503" }, { url: "https://x.example/b", reason: "HTTP 500" }];
+  const giveUpWarnings = () => (job.metrics.logs || []).filter((entry) => /Crawl gave up on a page/.test(entry.msg));
+
+  it("logs one warning per page the crawl gave up on and keeps the list out of the job metrics", async () => {
+    let call = 0;
+    pages[1] = async (options) =>
+      call++ === 0
+        ? givingUp(failures, partial(150, { failedPages: 2, failedThisPull: failures }))(options)
+        : complete(makeRecords(1, 1));
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    const warnings = giveUpWarnings();
+    assert.equal(warnings.length, 2);
+    assert.equal(warnings[0].level, "warn");
+    assert.match(warnings[0].msg, /https:\/\/x\.example\/a \(HTTP 503\)/);
+    assert.equal(job.metrics.failedThisPull, undefined);
+    assert.equal(job.metrics.failedPages, 2);
+  });
+
+  it("keeps the give-up warnings when the pull then throws", async () => {
+    pages[1] = givingUp(failures, new Error("blob storage unavailable"));
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(job.status, "failed");
+    assert.equal(giveUpWarnings().length, 2);
+  });
+
+  it("still reports the give-ups to the function log when the job was taken over during the pull", async () => {
+    pages[1] = async (options) => {
+      const result = await givingUp(failures, partial(150, { failedThisPull: failures }))(options);
+      job.status = "cancelled";
+      return result;
+    };
+    const warned = [];
+    const watching = { ...context, warn: (message) => warned.push(String(message)) };
+
+    await processIngestionJobQueueMessage(makePayload(), watching);
+
+    assert.equal(warned.filter((message) => /Crawl gave up on a page/.test(message)).length, 2);
+  });
+
+  it("stops after a partial pull when the job was cancelled, without writing or pulling again", async () => {
+    pages[1] = async () => {
+      job.status = "cancelled";
+      return partial(150);
+    };
+
+    await processIngestionJobQueueMessage(makePayload({ request: { exhaustive: true } }), context);
+
+    assert.equal(pulls().length, 1);
+    assert.equal(job.status, "cancelled");
+    const pullIndex = events.findIndex((e) => e.type === "pull");
+    assert.ok(!events.slice(pullIndex).some((e) => ["metrics", "enqueue", "succeeded", "failed"].includes(e.type)));
+  });
+
+  it("stops without processing or queueing when a newer invocation superseded the crawl checkpoint", async () => {
+    pages[1] = async () => {
+      throw new ConnectorCheckpointSupersededError("SitemapJsonLd checkpoint superseded");
+    };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(materializeCalls().length, 0);
+    assert.equal(enqueued().length, 0);
+    assert.equal(job.status, "running");
+    const pullIndex = events.findIndex((e) => e.type === "pull");
+    assert.ok(!events.slice(pullIndex).some((e) => ["metrics", "succeeded", "failed"].includes(e.type)));
+  });
+});
+
+describe("processIngestionJobQueueMessage — disabled source", () => {
+  it("fails the job at start with stage source_disabled and never pulls", async () => {
+    sourceEnabled = false;
+    pages[1] = { records: makeRecords(1, 5), metadata: {} };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(events.filter((e) => e.type === "pull").length, 0);
+    assert.equal(enqueued().length, 0);
+    const failed = events.find((e) => e.type === "failed");
+    assert.ok(failed, "expected the job to be marked failed");
+    assert.equal(failed.error, "Source HoloTacoShopify is disabled; the job was not run");
+    assert.equal(failed.metrics.failedStage, "source_disabled");
+  });
+});
+
+describe("processIngestionJobQueueMessage — known-blocked source", () => {
+  it("fails the job at start with stage source_blocked and never pulls, even when the row is enabled", async () => {
+    sourceMetadata = { blocked: "robots" };
+    pages[1] = { records: makeRecords(1, 5), metadata: {} };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(events.filter((e) => e.type === "pull").length, 0);
+    assert.equal(enqueued().length, 0);
+    const failed = events.find((e) => e.type === "failed");
+    assert.ok(failed, "expected the job to be marked failed");
+    assert.equal(failed.error, "Source HoloTacoShopify is known-blocked (robots); the job was not run");
+    assert.equal(failed.metrics.failedStage, "source_blocked");
+  });
+});
+
+describe("processIngestionJobQueueMessage — listing freshness on the Shopify path", () => {
+  // A Shopify page that downloaded the catalog (`fetchedComplete`) reports it on the pull.
+  const shopifyPage = (records) => ({
+    records,
+    metadata: { sourcePageCount: 1 },
+    catalog: { externalIds: records.map((record) => record.externalId), complete: true },
+  });
+
+  it("a fresh job whose first pull returns a catalog runs freshness once", async () => {
+    pages[1] = shopifyPage(makeRecords(1, 3));
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(events.filter((e) => e.type === "pull").length, 1);
+    assert.equal(freshnessCalls.length, 1);
+    assert.deepEqual(freshnessCalls[0].catalog.externalIds, ["p1-0", "p1-1", "p1-2"]);
+    assert.equal(job.status, "succeeded");
+    assert.equal(job.metrics.workerTotals.persistence.listingsMarkedMissing, 0);
+  });
+
+  it("a continuation whose pull also returns a catalog (cache-miss re-download) does not run it again", async () => {
+    pages[1] = shopifyPage(makeRecords(1, 3));
+    await processIngestionJobQueueMessage(makePayload(), context);
+    assert.equal(freshnessCalls.length, 1);
+
+    // The next invocation of the same job re-downloads (its catalog cache missed) and reports
+    // the catalog again; the job's totals say freshness already ran.
+    freshnessCalls = [];
+    events = [];
+    pages[1] = shopifyPage(makeRecords(1, 3));
+    const again = { ...checkpoint({ continuationCount: 1 }), nextPage: 1, recordOffset: 0 };
+    job = { status: "running", metrics: { ...job.metrics, checkpoint: again } };
+    await processIngestionJobQueueMessage(makePayload({ checkpoint: again }), context);
+    assert.equal(events.filter((e) => e.type === "pull").length, 1);
+    assert.equal(freshnessCalls.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Store closed (#529)
+// ---------------------------------------------------------------------------
+
+describe("processIngestionJobQueueMessage — store closed", () => {
+  const closedError = () =>
+    new StoreClosedError({
+      source: "HoloTacoShopify",
+      reason: "password_page",
+      httpStatus: 401,
+      url: "https://shop.example/products.json?limit=250&page=1",
+    });
+
+  it("ends the job succeeded at stage store_closed, without a failure, freshness marking or records", async () => {
+    pages[1] = async () => {
+      throw closedError();
+    };
+
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(job.status, "succeeded");
+    assert.equal(events.filter((e) => e.type === "failed").length, 0, "never marked failed (no ingestion.job_failed)");
+    const closed = events.find((e) => e.type === "store_closed");
+    assert.ok(closed, "markIngestionJobStoreClosed was called");
+    assert.deepEqual(closed.closed, { source: "HoloTacoShopify", reason: "password_page", httpStatus: 401, detail: null });
+    assert.equal(job.metrics.pipeline.status, "succeeded");
+    assert.equal(job.metrics.pipeline.stage, "store_closed");
+    assert.equal(job.metrics.storeClosed.reason, "password_page");
+    assert.equal(job.metrics.storeClosed.httpStatus, 401);
+    assert.equal(job.metrics.storeClosed.detectedStage, "connector_pull");
+    assert.ok(
+      job.metrics.logs.some((entry) => entry.level === "warn" && /password-protected/.test(entry.msg)),
+      "the reason is in the job log"
+    );
+    assert.deepEqual(materializeCalls(), [], "no catalog rows touched");
+    assert.equal(freshnessCalls.length, 0, "no listing marked missing");
+    assert.deepEqual(enqueued(), [], "no continuation or retry queued");
+  });
+
+  it("hands pending AI batches to the poller instead of stranding them", async () => {
+    process.env.HEX_DETECTION_BATCH_ENABLED = "true";
+    pages[1] = { records: makeRecords(1, 100), metadata: {} };
+    pages[2] = async () => {
+      throw closedError();
+    };
+    let batchNumber = 0;
+    materializeMock = async (records) => ({
+      processed: records.length,
+      aiBatch: { batchId: `batch-${++batchNumber}`, status: "submitted", requestCount: records.length },
+    });
+
+    await processIngestionJobQueueMessage(makePayload({ request: { exhaustive: true, pageSize: 100 } }), context);
+
+    // Running at awaiting_ai with nothing to resume: the poller applies the batches, then
+    // completes the job at store_closed (it reads metrics.storeClosed).
+    assert.equal(job.status, "running");
+    assert.equal(job.metrics.pipeline.stage, "awaiting_ai");
+    assert.equal(job.metrics.resumeMessage, undefined);
+    assert.deepEqual(job.metrics.aiBatches.map((b) => b.batchId), ["batch-1", "batch-2"]);
+    assert.equal(job.metrics.storeClosed.reason, "password_page");
+    assert.equal(events.filter((e) => e.type === "failed").length, 0);
+    assert.equal(events.filter((e) => e.type === "store_closed").length, 0, "not finished yet");
+    assert.equal(events.filter((e) => e.type === "store_closed_event").length, 1, "ingestion.store_closed emitted once");
+    assert.equal(freshnessCalls.length, 0);
+    assert.deepEqual(enqueued(), []);
+  });
+
+  it("a later run of a store-closed source starts normally", async () => {
+    pages[1] = async () => {
+      throw closedError();
+    };
+    await processIngestionJobQueueMessage(makePayload(), context);
+    assert.equal(job.metrics.pipeline.stage, "store_closed");
+
+    // The next run is a new job; the store has reopened.
+    events = [];
+    job = { status: "queued", metrics: {} };
+    pages = { 1: { records: makeRecords(1, 2), metadata: {} } };
+    await processIngestionJobQueueMessage(makePayload(), context);
+
+    assert.equal(job.status, "succeeded");
+    assert.equal(job.metrics.pipeline.stage, "completed");
+    assert.deepEqual(materializeCalls(), [["p1-0", "p1-1"]]);
+  });
+
+  it("a poisoned copy of the message never fails a store-closed job", () => {
+    const decision = planPoisonedIngestionMessage(
+      { status: "succeeded", metrics: { pipeline: { status: "succeeded", stage: "store_closed" } } },
+      undefined
+    );
+    assert.equal(decision.action, "ignore");
   });
 });

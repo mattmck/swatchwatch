@@ -40,6 +40,9 @@ const {
   GLASS_PROMPT_VERSION,
   GLASS_FALLBACK_TOP_BY_AREA,
   SKIN_TONE_REFERENCE_HEXES,
+  GLASS_SKIN_GUARD_DISTANCE,
+  GLASS_SKIN_DOMINANT_FRACTION,
+  isSkinGuarded,
   pickFallbackChip,
   buildGlassPalettePayload,
   measureGlassHex,
@@ -92,7 +95,9 @@ describe("glass-color constants", () => {
     assert.equal(GLASS_HEX_METHOD_PALETTE_PICK, "palette-pick-bottle");
     assert.equal(GLASS_HEX_METHOD_FALLBACK, "palette-top");
     assert.equal(GLASS_HEX_FALLBACK_CONFIDENCE, 0.3);
-    assert.equal(GLASS_PROMPT_VERSION, "glass-palette-pick/2026-10-v1");
+    assert.equal(GLASS_PROMPT_VERSION, "glass-palette-pick/2026-11-v2");
+    assert.equal(GLASS_SKIN_GUARD_DISTANCE, 0.04);
+    assert.equal(GLASS_SKIN_DOMINANT_FRACTION, 0.3);
     assert.equal(GLASS_FALLBACK_TOP_BY_AREA, 3);
     assert.deepEqual(
       [...SKIN_TONE_REFERENCE_HEXES],
@@ -134,6 +139,48 @@ describe("glass-color — pickFallbackChip", () => {
     const p = chip("A", "#808080", 0.3);
     const q = chip("B", "#808080", 0.3);
     assert.equal(pickFallbackChip([q, p]).label, "A");
+  });
+});
+
+describe("glass-color — isSkinGuarded (the hand, not a nude lacquer)", () => {
+  // Real chips from the bottle eval (2026-11-10), measured on the glass guide region.
+  it("a minor skin chip at the edge of the region is the hand", () => {
+    const hand = chip("D", "#F7C7B8", 0.04);
+    const lacquer = chip("A", "#383559", 0.11);
+    assert.equal(isSkinGuarded(hand, [lacquer, hand]), true);
+    assert.equal(isSkinGuarded(lacquer, [lacquer, hand]), false);
+  });
+
+  it("a nude lacquer that fills the region is kept (Lily Rose, Donut Spunk, Latte)", () => {
+    const lilyRose = [chip("A", "#F6CAB7", 0.51), chip("B", "#B68964", 0.12), chip("C", "#EABBA9", 0.1)];
+    assert.equal(isSkinGuarded(lilyRose[0], lilyRose), false);
+    const donutSpunk = [chip("A", "#E7C7A8", 0.56), chip("B", "#D5BCA5", 0.05)];
+    assert.equal(isSkinGuarded(donutSpunk[0], donutSpunk), false);
+    const latte = [chip("A", "#F9BA92", 0.35), chip("B", "#552817", 0.2), chip("C", "#E9AA89", 0.17)];
+    assert.equal(isSkinGuarded(latte[0], latte), false);
+  });
+
+  it("a skin chip that is not the largest is guarded even when large", () => {
+    const candidates = [chip("A", "#3A3835", 0.4), chip("B", "#F8D5B8", 0.35)];
+    assert.equal(isSkinGuarded(candidates[1], candidates), true);
+  });
+
+  it("orange and brown lacquers farther than the guard distance are never guarded", () => {
+    const candidates = [chip("A", "#C98507", 0.28), chip("B", "#B87705", 0.31)];
+    assert.equal(isSkinGuarded(candidates[0], candidates), false);
+  });
+
+  it("largestUnguardedChip: the nude lacquer, not a darker chip (Le Mini Macaron Latte, sample 87)", () => {
+    const { largestUnguardedChip } = require("../dist/lib/glass-color");
+    const latte = [chip("A", "#F9BA92", 0.35), chip("B", "#552817", 0.2), chip("C", "#F7C7B8", 0.12)];
+    assert.equal(isSkinGuarded(latte[2], latte), true, "the model's pick, a minor skin-near chip");
+    assert.equal(largestUnguardedChip(latte).label, "A");
+    assert.equal(largestUnguardedChip([chip("A", "#F8D5B8", 0.2), chip("B", "#F7C7B8", 0.1)]), null);
+  });
+
+  it("pickFallbackChip never answers a guarded chip when another chip exists", () => {
+    const candidates = [chip("A", "#F8D5B8", 0.25), chip("B", "#808080", 0.2), chip("C", "#5A3537", 0.24)];
+    assert.notEqual(pickFallbackChip(candidates).label, "A");
   });
 });
 
@@ -232,6 +279,50 @@ describe("glass-color — measureGlassHex", () => {
     assert.equal(result.audit.modelCalls, 1);
     assert.equal(result.audit.reason, "model_error");
     assert.equal(chatCalls.length, 1, "one call at most");
+  });
+
+  it("measures only the guide region when one is given", async () => {
+    // Skin all around, a magenta square in the middle: the whole frame is mostly skin.
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">' +
+      '<rect width="100" height="100" fill="#F0C8A0"/><rect x="35" y="35" width="30" height="30" fill="#B4004E"/></svg>';
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+    const whole = await measureGlassHex(image, quiet);
+    assert.ok(whole.audit.candidates.some((c) => c.fraction > 0.5), "the whole frame is mostly skin");
+    const region = await measureGlassHex(image, { ...quiet, region: { x: 0.38, y: 0.38, w: 0.24, h: 0.24 } });
+    assert.ok(region);
+    assert.ok(parseInt(region.hex.slice(1, 3), 16) > 0x90 && parseInt(region.hex.slice(3, 5), 16) < 0x30, `magenta, got ${region.hex}`);
+    for (const candidate of region.audit.candidates) assert.ok(candidate.hex !== "#F0C8A0");
+  });
+
+  it("a model pick of the hand is replaced by the lacquer (reason skin_guard)", async () => {
+    // 20% skin at the edge, 80% magenta: the model answers the skin chip.
+    const image = await skinAndMagenta(0.2);
+    chatImpl = async (request) => {
+      const payload = request.buildPayload(false);
+      const userText = payload.messages[1].content.find((p) => p.type === "text").text;
+      assert.ok(userText.length > 0);
+      return answer('{"choice":"__SKIN__","confidence":0.9}')();
+    };
+    // Resolve the skin chip's letter first (the extractor assigns them).
+    const probe = await measureGlassHex(image, quiet);
+    const skinLabel = probe.audit.candidates.find((c) => parseInt(c.hex.slice(3, 5), 16) > 0x90).label;
+    chatImpl = answer(`{"choice":"${skinLabel}","confidence":0.9}`);
+    const result = await measureGlassHex(image, quiet);
+    assert.equal(result.method, GLASS_HEX_METHOD_FALLBACK);
+    assert.equal(result.audit.reason, "skin_guard");
+    assert.equal(result.audit.choice, skinLabel);
+    assert.ok(parseInt(result.hex.slice(3, 5), 16) < 0x30, `magenta, got ${result.hex}`);
+  });
+
+  it("a model pick of a dominant nude chip is kept", async () => {
+    const image = await skinAndMagenta(0.8);
+    const probe = await measureGlassHex(image, quiet);
+    const nude = probe.audit.candidates.find((c) => parseInt(c.hex.slice(3, 5), 16) > 0x90);
+    chatImpl = answer(`{"choice":"${nude.label}","confidence":0.9}`);
+    const result = await measureGlassHex(image, quiet);
+    assert.equal(result.method, GLASS_HEX_METHOD_PALETTE_PICK);
+    assert.equal(result.hex, nude.hex);
   });
 
   it("a 1x1 image cannot be measured", async () => {

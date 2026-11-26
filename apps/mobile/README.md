@@ -121,7 +121,7 @@ registration must keep exposing the `access_as_user` scope the web already uses.
 ```
 src/
   app/                    Expo Router routes (mirror the web's route groups)
-    _layout.tsx           providers + Stack.Protected: (app) when signed in, sign-in otherwise
+    _layout.tsx           providers + Stack.Protected: (app) when signed in, sign-in otherwise (each guard sets `redirectTo`: the default fallback is `/auth`, which redirects into `(app)` and looped)
     sign-in.tsx
     (app)/_layout.tsx     stack over the tabs (detail, add a polish, match, looks, gaps, insights, import)
     (app)/(tabs)/         Collection (index), Search, Add (Rapid Add), Profile
@@ -206,7 +206,9 @@ src/
   `nextFrame` ("Show the front of the bottle", "Now the bottom", "Turn it so we see the color",
   with a hint, "Step n of m" and **Can't see it**, which calls `POST /api/capture/{id}/answer`
   with `skipSurface`). The shutter and "Choose a photo" take the asked-for surface (sent as
-  `quality.surface`); the Barcode / Label / Color chips move under **More options** and apply to
+  `quality.surface`; no `quality.guideRegion` is sent: the native preview draws no outline and
+  the `expo-camera` preview-to-picture crop is not established per platform, so the server uses
+  its default outline); the Barcode / Label / Color chips move under **More options** and apply to
   the next photo only. The barcode scanner keeps running and still short-circuits to a verdict.
   When the server asks for nothing more and a photo is in, the check runs on its own (read-only,
   no `finalize`). The pure state is `bottleFlowReducer` / `deriveBottleCameraView` /
@@ -241,7 +243,7 @@ src/
 - **Export collection** (Profile card and the Insights header, `src/lib/share-export.ts`): downloads `GET /api/polishes/export` with the bearer token, writes it to a `collection-export` folder in the app cache (`expo-file-system`) and opens the OS share sheet (`expo-sharing`). The folder is emptied before each export, right after the share sheet closes on iOS, and on sign-out; on Android the file stays until then because the receiving app may still be reading it. The web preview downloads the file instead. The contents are never logged.
 - **Getting started and empty states** (#372 on the web, `src/components/getting-started.tsx`, `empty-state.tsx`, `src/lib/onboarding.ts`): while the user owns fewer than 5 polishes, and until 20 once started, the Home panel opens with a checklist card: Import a spreadsheet (`/import`), Scan a bottle (Add tab), Search the catalog (Search tab), a 20-swatch strip painted with the owned polishes' display hexes (oldest first), and Dismiss. The rules (goal 20, show below 5, started / dismissed / opened-step state) are the web's, moved to `swatchwatch-shared` (`onboarding.ts`); opened steps show a ✓ like the web. State is stored per user in AsyncStorage under the cache prefix (`swatchwatch.cache.v1:<userId>:getting-started`, no expiry) so sign-out wipes it. A brand-new user (nothing owned or wishlisted) sees only the card and one line instead of empty counts and buttons. Empty states with Browse the catalog / Import / Scan: Collection, Looks (no owned color polishes), Gaps and Insights; Manis points back to the Collection. No `onboarding.step_clicked` telemetry on mobile yet. `/import` is the CSV import wizard from the same batch.
 
-- **Stale-while-revalidate** (`src/lib/api-cache.ts`): the first page of each Collection filter set (keyed by the canonical filter set, `polishFiltersKey`, so family / category / untried / sort views never share a cached page), the Home counts, the Insights stats and the first page of the mani log (without photo URLs) are saved in AsyncStorage per user (7-day expiry, wiped on sign-out) and shown immediately while the fresh response loads. If the request fails the saved copy stays on screen with a banner. The signed-in user and token endpoint are stored with the session, so launching without a connection opens the saved data instead of the sign-in screen; the session is validated again as soon as a request reaches the API (a 401 or a rejected refresh token returns to sign-in).
+- **Stale-while-revalidate** (`src/lib/api-cache.ts`): the first page of each Collection filter set (keyed by the canonical filter set, `polishFiltersKey`, so family / category / untried / sort views never share a cached page), the Home counts, the Insights stats and the first page of the mani log (without photo URLs) are saved in AsyncStorage per user (7-day expiry, wiped on sign-out) and shown immediately while the fresh response loads. If the request fails the saved copy stays on screen with a banner. The signed-in user and token endpoint are stored with the session, so launching without a connection opens the saved data instead of the sign-in screen; the session is validated again as soon as a request reaches the API (a 401 or a rejected refresh token returns to sign-in; a 401 on a request sent without a token, such as a refetch right after sign-out, is ignored).
 
 ## Match to Collection
 

@@ -245,6 +245,20 @@ CREATE TABLE brand_alias (
   UNIQUE (brand_id, alias)
 );
 
+-- Admin Sources tab (migration 20261111120000000): what we know about a brand's web presence.
+CREATE TABLE brand_ingest_profile (
+  brand_id BIGINT PRIMARY KEY REFERENCES brand(brand_id) ON DELETE CASCADE,
+  website_url TEXT,
+  platform TEXT,
+  blocker TEXT,
+  notes TEXT,
+  own_data_source_id BIGINT REFERENCES data_source(data_source_id) ON DELETE SET NULL,
+  updated_by_user_id BIGINT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT brand_ingest_profile_platform_check
+    CHECK (platform IN ('shopify', 'woocommerce', 'bigcartel', 'custom', 'feed', 'none', 'unknown'))
+);
+
 CREATE TABLE product_line (
   product_line_id BIGSERIAL PRIMARY KEY,
   brand_id BIGINT NOT NULL REFERENCES brand(brand_id),
@@ -271,6 +285,8 @@ CREATE TABLE shade (
   -- 'admin' = finishes set in the Hex Labeling tool (migration 20261024053633287_shade-finishes-source); ingestion
   -- and the product-text backfill never change an 'admin' list (ingestion otherwise merges vendor tag finishes in).
   finishes_source TEXT NOT NULL DEFAULT 'rule' CHECK (finishes_source IN ('rule', 'admin')),
+  -- 'retailer' = created from a retailer listing (e.g. Polish Pickup); a brand store may take the catalog data over (migration 20261106120000000).
+  catalog_authority TEXT NOT NULL DEFAULT 'brand_store' CHECK (catalog_authority IN ('brand_store', 'retailer')),
   created_by_user_id BIGINT REFERENCES app_user(user_id) ON DELETE SET NULL, -- creator of a user-API shade; NULL for catalog/ingestion rows (migration 024)
   color_name TEXT,
   vendor_hex TEXT,                               -- hex published by the vendor (e.g. Shopify variant option), or an admin-promoted manual label
@@ -550,7 +566,16 @@ CREATE TABLE admin_audit_event (
       'shade.vendor_hex_promote', 'shade.vendor_hex_demote',
       -- MakeupAPI dedupe backfill (migration 20261026045216957): one per merged / deleted catalog
       -- shade; target_user_id NULL, shade ids (and the deleted row as JSON) in changes
-      'shade.catalog_merge', 'shade.catalog_delete'
+      'shade.catalog_merge', 'shade.catalog_delete',
+      -- Brand-store corrections (migration 20261110150000000, lib/brand-store-correction.ts): a
+      -- brand store's re-run moved or renamed the shade its listing points at (actor = the admin
+      -- who queued the job; shade id, brand and name before/after in changes). Its merges are
+      -- 'shade.catalog_merge' rows.
+      'shade.catalog_correct',
+      -- admin Sources tab (migration 20261111120000000): data source permission / on-off / images
+      -- and brand create / profile edits; target_user_id NULL, ids in changes
+      'data_source.permission', 'data_source.enable', 'data_source.disable', 'data_source.images',
+      'brand.create', 'brand.profile_update'
     ))
 );
 
@@ -1039,6 +1064,7 @@ CREATE TABLE external_product (
   raw_json JSONB NOT NULL,                     -- raw provider payload for audit
   normalized_json JSONB,                       -- normalized fields extracted
   etag TEXT,
+  missing_since TIMESTAMPTZ,                   -- set when absent from a complete catalog fetch of the source; NULL = currently listed (migration 20261106120000000)
   UNIQUE(data_source_id, external_id),
   UNIQUE(data_source_id, gtin, external_id)
 );
@@ -1051,6 +1077,7 @@ CREATE INDEX idx_external_product_gtin_compact
   ON external_product ((regexp_replace(gtin, '[[:space:]-]', '', 'g')))
   WHERE gtin IS NOT NULL;
 CREATE INDEX idx_external_product_source_time ON external_product(data_source_id, fetched_at DESC);
+CREATE INDEX idx_external_product_live ON external_product(data_source_id) WHERE missing_since IS NULL;
 
 -- Which connector product(s) each shade was materialized from (migration
 -- 20261017061344201_add-shade-source-product). Drives the "Buy from brand" link (#267):

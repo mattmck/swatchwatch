@@ -1,5 +1,7 @@
 # Indie Shopify sources — survey, October 2026 (#273, #328)
 
+> **Later work (November 2026):** the brand-sources plan (`docs/brand-sources-evaluation-2026-11.md`, Phase C) registers further stores, including the twenty whose terms carry an automated-access clause, disabled and pending the owner's email.
+
 Survey of the next indie stores for the generic Shopify connector
 (`packages/functions/src/lib/connectors/shopify-generic.ts`), run on **2026-10-18**. It re-checks the
 2026-10-17 pass recorded in the comment above the indie rows in `docs/seed_data_sources.sql` and adds
@@ -84,7 +86,7 @@ and is not in the repo yet has terms that forbid automated access:
 | Sweet & Sour Lacquer (sweetandsourlacquer.com) | ✅ 200 | Shopify default clause | Not added in batch 2: needed written OK (added in batch 3) |
 | Maniology (maniology.com), What's Up Nails (whatsupnails.com) | ✅ 200 | "scrape" clause (stamping brands) | Not added |
 | Nails.INC (nailsinc.com) | ✅ 200 | `/pages/terms-conditions`: no copying, reproducing or republishing content without written permission; no commercial use | Not added (also not indie) |
-| Ninja Polish (ninjapolish.com) | ✅ 200 | Content may not be reproduced without written consent; multi-brand reseller (`vendor: Various`) | Not added |
+| Ninja Polish (ninjapolish.com) | ✅ 200 | Content may not be reproduced without written consent; multi-brand retailer (`vendor: Various`) | Not added |
 | F.U.N Lacquer, Glam Polish, Moon Shine Mani, Dreamland Lacquer | ✅ 200 | Scraping clause (re-checked) | Not added (as on 2026-10-17) |
 | Tonic Polish, Bluebird Lacquer | ❌ 401 (password page) | – | Skip |
 | Colores de Carol, Glisten & Glow, Masura, Killer Colors | ❌ not Shopify products.json | – | Skip |
@@ -104,6 +106,28 @@ audit query now read coat wording in the title before the tags, so its top coats
 without store agreements; the other routes in `docs/data-sources-research.md` are needed. Batch 3 (below the
 2026-10-22 update at the top) adds about 237 shades and 10 coats/treatments from the three stores that gave
 written permission.
+
+## Polish Pickup (retailer) — 2026-11-06
+
+Polish Pickup (polishpickup.com) is not an indie brand but a monthly multi-brand pre-order shop, so it is
+registered as a **retailer** source (`PolishPickupShopify`, `data_source.metadata.kind = 'retailer'`):
+its listings add buy links and fill gaps on the brands' shades but never override a brand store's data
+(CLAUDE.md, "Retailer sources and listing freshness").
+
+| Store | Source | Products | Store filter | Approval basis | Terms |
+|---|---|---|---|---|---|
+| Polish Pickup (polishpickup.com) | `PolishPickupShopify` | 92 (`/products.json` works; current month only, older months unpublished; USD) | `store-filters/polish-pickup.ts`: keeps the 70 `PPU` polishes; drops `Merchandise`, `Hand & Nail`, `Gift Cards`; the 16 `IPU` add-ons (coats, treatments, stamping plates, scrubs) go to the generic gate | Registered disabled (`pendingApproval`); not yet confirmed with the store | robots.txt allows crawling; terms: storefront terms apply |
+
+Titles are `Vendor | Shade` or `<Type> by Vendor | Shade`, parsed by `connectors/shopify-title.ts`. Run it by
+hand from Admin Jobs on the opening Friday and again after the window closes (the second run marks that
+month's listings missing only when it fetched a complete, non-empty catalog: `markExternalProductsMissing`
+skips an empty or truncated catalog, so a store that publishes nothing between windows keeps the old
+listings live until a later complete run). Status: registered disabled, pending the owner's OK.
+Post-release order: migrate, run each brand store once (renames `X PPU` shades and re-detects them once; a raw-title duplicate is reported in the job log for an admin merge), and only then enable Polish Pickup after the owner's OK.
+
+Notes text to append once the store agrees (same format as above):
+
+> Polish Pickup Shopify store (multi-brand indie pre-order retailer, US). Verified 2026-11-06: /products.json returns 200 with 92 products (current month only; product_type PPU 70, IPU 16, Merchandise, Hand & Nail, Gift Cards); robots.txt allows crawling. Retailer source: listings are buy links only and never override brand-store data. Acceptable use confirmed by `<name, role>` at Polish Pickup on `<YYYY-MM-DD>` via `<channel>`: `<summary>`.
 
 ## How each store was checked
 
@@ -159,6 +183,15 @@ catalogs: see `docs/data-sources-research.md`).
 4. **Painted Polish** — only if a Big Cartel connector is worth building.
 
 ILNP and KBShimmer, the two most-requested indies, can only come in with the store's cooperation.
+
+**Update 2026-11-25 (ILNP):** the owner reported on 2026-11-11 that ILNP is temporarily allowing
+SwatchWatch to read its catalog. Its Store API answers plain requests (200, 745 products on
+2026-11-25) but robots.txt still disallows `/wp-json/`, so migration `20261125120000000_unblock-ilnp-woocommerce`
+lifted the known-blocked state and set `metadata.robotsOverride`. The source stays pending until the
+OK (who, channel, end date) is recorded in the admin Sources tab. KBShimmer is still known-blocked:
+Cloudflare challenges every path (robots.txt included), so it needs either a Cloudflare skip rule
+from KBShimmer or a third-party unlocker; the unlocker work is parked on branch
+`feat/kbshimmer-brightdata-unlocker`.
 
 ## Exact `data_source.metadata.notes` text
 

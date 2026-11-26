@@ -245,7 +245,8 @@ export function assertReviewable(shade: LockedShade | undefined): LockedShade {
 export interface MergeShadeOptions {
   sourceShadeId: number;
   targetShadeId: number;
-  adminUserId: number;
+  /** Recorded as `reviewed_by_user_id`; null for an automatic catalog merge without an admin (ingestion). */
+  adminUserId: number | null;
   /** Add the source name as an alias of the target when it differs (default true). */
   keepNameAsAlias?: boolean;
   note?: string | null;

@@ -28,6 +28,7 @@ import {
   sampleLuminance,
   type CapturedFrame,
 } from "@/lib/frame-capture";
+import { guideRegionInFrame, type ShownGuide } from "@/lib/guide-region";
 import type { FrameSource } from "@/lib/rapid-add-flow";
 import { safeLocalStorage } from "@/lib/sticky-hints-store";
 import { cn } from "@/lib/utils";
@@ -90,6 +91,12 @@ export interface CameraCaptureEvent {
   source: FrameSource;
   trigger: CaptureTrigger;
   file?: File;
+  /**
+   * The outline drawn over the preview when a shutter or auto-shutter photo was taken, mapped to
+   * fractions of `frame` (`guideRegionInFrame`); absent for uploads, live reads, or when it could
+   * not be measured exactly.
+   */
+  shownGuide?: ShownGuide;
 }
 
 export interface CameraCaptureProps {
@@ -182,6 +189,7 @@ export function CameraCapture({
 }: CameraCaptureProps) {
   const guide = guideProp ?? defaultCameraGuide(frameType);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const guideRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scannerRef = useRef<Promise<BarcodeScanner> | null>(null);
   const onCaptureRef = useRef(onCapture);
@@ -324,6 +332,24 @@ export function CameraCapture({
     }
   }
 
+  /**
+   * Where the drawn outline lies in the video frame right now. The preview is `object-cover` and
+   * not mirrored (`<video>` below); the still is the whole frame scaled uniformly, so these
+   * fractions hold for the uploaded image too.
+   */
+  function measureShownGuide(video: HTMLVideoElement): ShownGuide | undefined {
+    const outline = guideRef.current;
+    if (!outline) return undefined;
+    const box = video.getBoundingClientRect();
+    const drawn = outline.getBoundingClientRect();
+    const region = guideRegionInFrame({
+      guide: { left: drawn.left - box.left, top: drawn.top - box.top, width: drawn.width, height: drawn.height },
+      element: { width: box.width, height: box.height },
+      frame: { width: video.videoWidth, height: video.videoHeight },
+    });
+    return region ? { guide, region } : undefined;
+  }
+
   async function handleShutter(trigger: "shutter" | "auto" = "shutter") {
     const video = videoRef.current;
     if (!video) return;
@@ -331,6 +357,7 @@ export function CameraCapture({
     setProcessing(true);
     try {
       const frame = captureFrameFromSource(video);
+      const shownGuide = measureShownGuide(video);
       const barcode = await detectStill(frame);
       if (barcode) lastReportedRef.current = { gtin: barcode.gtin, at: Date.now() };
       onCaptureRef.current({
@@ -339,6 +366,7 @@ export function CameraCapture({
         barcode,
         source: "web-camera",
         trigger,
+        shownGuide,
       });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : "Couldn't capture a frame.");
@@ -411,6 +439,7 @@ export function CameraCapture({
         {isLive && (
           <>
             <div
+              ref={guideRef}
               aria-hidden
               className={cn(
                 "pointer-events-none absolute overflow-hidden border-2 shadow-[0_0_0_9999px_rgba(0,0,0,0.25)] transition-[border-color]",
