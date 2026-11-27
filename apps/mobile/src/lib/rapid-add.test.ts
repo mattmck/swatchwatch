@@ -12,7 +12,9 @@ import {
   framesReducer,
   isRetryableStatus,
   MAX_CAPTURE_FRAMES,
+  nativeShotTarget,
   normalizeNativeBarcode,
+  shouldCheckLiveBarcode,
   summarizeFrames,
   verdictForCandidate,
   withDupes,
@@ -279,5 +281,49 @@ describe("createdCandidate", () => {
     const candidate = createdCandidate({ id: "7", brand: "Essie", name: "Ballet Slippers" }, "wishlist", null);
     assert.deepEqual(candidate.ownership, { relationship: "wishlisted" });
     assert.equal("hex" in candidate, false);
+  });
+});
+
+describe("shouldCheckLiveBarcode", () => {
+  const scanned = normalizeNativeBarcode({ data: "012345678905", type: "upc_a" })!;
+
+  it("flag off: a live barcode is checked at once, as before", () => {
+    assert.equal(shouldCheckLiveBarcode(scanned, { bottleSequence: false }), true);
+  });
+
+  it("bottle sequence: never, so an unknown barcode goes on to the prompts (#553)", () => {
+    assert.equal(shouldCheckLiveBarcode(scanned, { bottleSequence: true }), false);
+  });
+});
+
+describe("nativeShotTarget", () => {
+  const scanned = normalizeNativeBarcode({ data: "012345678905", type: "upc_a" })!;
+  const bottom = { surface: "bottom" as const, frameType: "label" as const };
+  const base = { chipType: "barcode" as const, manualType: null, view: bottom, barcode: scanned };
+
+  it("flag off: the chip's type, a library photo never a barcode frame", () => {
+    assert.deepEqual(nativeShotTarget({ ...base, bottleSequence: false, trigger: "shutter" }), { frameType: "barcode", surface: null });
+    assert.deepEqual(nativeShotTarget({ ...base, bottleSequence: false, trigger: "file" }), { frameType: "label", surface: null });
+  });
+
+  it("bottle sequence: a shutter or library photo with a barcode in view is the prompted surface", () => {
+    for (const trigger of ["shutter", "file"] as const) {
+      assert.deepEqual(nativeShotTarget({ ...base, bottleSequence: true, trigger }), { frameType: "label", surface: "bottom" });
+    }
+  });
+
+  it("bottle sequence: a live read stays a barcode frame with no surface", () => {
+    assert.deepEqual(nativeShotTarget({ ...base, bottleSequence: true, trigger: "live-scan" }), { frameType: "barcode", surface: null });
+  });
+
+  it("a More options type is a plain frame; nothing asked takes a label photo", () => {
+    assert.deepEqual(nativeShotTarget({ ...base, bottleSequence: true, manualType: "color", trigger: "shutter" }), {
+      frameType: "color",
+      surface: null,
+    });
+    assert.deepEqual(nativeShotTarget({ ...base, bottleSequence: true, view: null, trigger: "shutter" }), {
+      frameType: "label",
+      surface: null,
+    });
   });
 });
