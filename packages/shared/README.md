@@ -440,6 +440,8 @@ Client-side state for the bottle photo flow (front, bottom, glass, optional box)
 | `bottleFlowReducer(state, action)` | Handles `session_started`, `frame_uploaded`, `surface_skipped`, `check_received` and `reset`; an absent `nextFrame` means the server asked for nothing more |
 | `deriveBottleCameraView(state, { brandKnown })` | What the camera shows (`BottleCameraView`: surface, prompt, hint, reason, optional, step of total); `null` = nothing left to ask, call check |
 | `shouldAutoCheck(state, uploadedFrames)` | True right after an upload when the server asked for nothing more and at least one frame is uploaded |
+| `shouldCheckBarcodeFrame(session, barcode, { bottleSequence })` | Whether a freshly decoded barcode is checked at once: never in the bottle sequence (the frame's `nextFrame` decides), nor while photographing the label or once a verdict shows (#553) |
+| `stillFrameTarget(event, view)` / `StillFrameTrigger` | The frame type and surface a photo is sent as: a shutter, auto-shutter or file photo is the prompted surface's frame even with a barcode in view; a live barcode read stays a barcode frame |
 
 ### `capture/sticky-hints.ts`
 

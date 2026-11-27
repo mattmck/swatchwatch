@@ -147,3 +147,38 @@ export function deriveBottleCameraView(
 export function shouldAutoCheck(state: BottleFlowClientState, uploadedFrames: number): boolean {
   return state.sessionStarted && state.nextFrame === null && uploadedFrames >= 1;
 }
+
+/** What took a photo: a barcode read off the live preview, the shutter, the auto-shutter or a picked file. */
+export type StillFrameTrigger = "live-scan" | "shutter" | "auto" | "file";
+
+/**
+ * A freshly decoded barcode is checked right away (its frame's upload response carries the
+ * verdict, no OCR; without a frame, one `check` call). Not once a verdict is showing or the
+ * user is photographing the label for an unknown barcode, and never in the guided bottle
+ * sequence: there the barcode is one more piece of evidence and the server's `nextFrame` decides
+ * whether to ask for another photo or to check (a catalog match plans no further frame, so
+ * `shouldAutoCheck` runs the check by itself). Shared by the web and the Expo app.
+ */
+export function shouldCheckBarcodeFrame<B>(
+  session: { labelRequested: boolean; verdict: unknown },
+  barcode: B | null,
+  opts: { bottleSequence: boolean },
+): barcode is B {
+  return Boolean(barcode) && !opts.bottleSequence && !session.labelRequested && !session.verdict;
+}
+
+/**
+ * The frame type and bottle surface a captured photo is sent as. In the bottle sequence a photo
+ * the user took (shutter, auto-shutter or a picked file) is the prompted surface's frame even when
+ * a barcode is in view (a bottle's bottom often has its sticker), so the label is still read; the
+ * barcode rides along in its quality. A live read off the preview stays a barcode frame.
+ * `view` is the prompt being shown, or null when none is (flag off, a manual photo type, or
+ * nothing left to ask).
+ */
+export function stillFrameTarget(
+  event: { frameType: CaptureFrameType; barcode: unknown; trigger: StillFrameTrigger },
+  view: { surface: BottleSurface; frameType: CaptureFrameType } | null,
+): { frameType: CaptureFrameType; surface: BottleSurface | null } {
+  if (view && event.trigger !== "live-scan") return { frameType: view.frameType, surface: view.surface };
+  return { frameType: event.frameType, surface: event.barcode ? null : (view?.surface ?? null) };
+}
