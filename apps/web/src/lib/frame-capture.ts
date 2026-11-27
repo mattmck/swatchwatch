@@ -67,15 +67,42 @@ function measureQuality(canvas: HTMLCanvasElement): FrameQualityMetrics {
   return sampleLuminance(canvas)?.metrics ?? { brightness: 0, contrast: 0, sharpness: 0 };
 }
 
-/** Snapshot `source` (a playing `<video>`, canvas or bitmap) into a capture frame. */
+/** A part of a frame in 0–1 fractions (`x`, `y` = top-left). */
+export interface FrameCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The source pixels a crop covers (whole pixels, at least 1×1, inside the frame). */
+export function cropPixels(
+  size: { width: number; height: number },
+  crop: FrameCrop | null | undefined,
+): { sx: number; sy: number; sw: number; sh: number } {
+  if (!crop) return { sx: 0, sy: 0, sw: size.width, sh: size.height };
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  const sx = Math.min(size.width - 1, Math.floor(clamp(crop.x) * size.width));
+  const sy = Math.min(size.height - 1, Math.floor(clamp(crop.y) * size.height));
+  const right = Math.max(sx + 1, Math.min(size.width, Math.ceil(clamp(crop.x + crop.w) * size.width)));
+  const bottom = Math.max(sy + 1, Math.min(size.height, Math.ceil(clamp(crop.y + crop.h) * size.height)));
+  return { sx, sy, sw: right - sx, sh: bottom - sy };
+}
+
+/**
+ * Snapshot `source` (a playing `<video>`, canvas or bitmap) into a capture frame; with `crop`,
+ * only that part of it (`sourceWidth` / `sourceHeight` are then the cropped pixels).
+ */
 export function captureFrameFromSource(
   source: DrawableSource,
   maxEdge: number = CAPTURE_FRAME_MAX_EDGE,
+  crop?: FrameCrop | null,
 ): CapturedFrame {
-  const { width: sourceWidth, height: sourceHeight } = drawableSize(source);
-  if (!sourceWidth || !sourceHeight) {
+  const full = drawableSize(source);
+  if (!full.width || !full.height) {
     throw new Error("The camera isn't ready yet. Try again in a moment.");
   }
+  const { sx, sy, sw: sourceWidth, sh: sourceHeight } = cropPixels(full, crop);
   const { width, height } = computeScaledSize(sourceWidth, sourceHeight, maxEdge);
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -87,7 +114,7 @@ export function captureFrameFromSource(
   ctx.fillStyle = "#FFFFFF";
   ctx.fillRect(0, 0, width, height);
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(source, 0, 0, width, height);
+  ctx.drawImage(source, sx, sy, sourceWidth, sourceHeight, 0, 0, width, height);
 
   return {
     dataUrl: canvas.toDataURL("image/jpeg", CAPTURE_FRAME_JPEG_QUALITY),

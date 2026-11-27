@@ -4,7 +4,9 @@
  * wires these reducers to the camera, the barcode scanner and the capture API.
  */
 import {
+  FRAME_QUALITY_THRESHOLDS,
   hintsToStartMetadata,
+  parseBottleSurface,
   type BottleSurface,
   type CaptureFrameType,
   type CaptureGuideRegion,
@@ -12,6 +14,7 @@ import {
   type CaptureStatus,
   type StickyHints,
 } from "swatchwatch-shared";
+import type { AutoShutterArrival } from "./auto-shutter";
 import type { ScannedBarcode } from "./barcode-scan";
 import type { FrameQualityMetrics } from "./camera";
 import type { CaptureOutcome, CaptureVerdict } from "./capture-verdict";
@@ -49,10 +52,12 @@ export type FramesAction =
   | { type: "upload_succeeded"; localId: string; frameId: string }
   | { type: "upload_failed"; localId: string; error: string }
   | { type: "removed"; localId: string }
+  | { type: "dropped"; localId: string }
   | { type: "reset" };
 
 /**
- * New frames start "uploading" (they are sent immediately). A failed frame stays in the
+ * New frames start "uploading" (sent at once; in the bottle sequence one after another, in the
+ * order taken, and one still waiting may be `dropped`). A failed frame stays in the
  * list with its error so the user can retry it; only failed frames can be removed, since
  * an uploaded frame is already part of the server-side session.
  */
@@ -84,6 +89,9 @@ export function framesReducer(
       );
     case "removed":
       return state.filter((frame) => !(frame.localId === action.localId && frame.status === "failed"));
+    case "dropped":
+      // A photo taken ahead that was never sent, because the server asked for nothing more.
+      return state.filter((frame) => !(frame.localId === action.localId && frame.status === "uploading"));
     case "reset":
       return [];
   }
@@ -300,6 +308,60 @@ export function stillFrameTarget(
 ): { frameType: CaptureFrameType; surface: BottleSurface | null } {
   if (view && event.trigger !== "live-scan") return { frameType: view.frameType, surface: view.surface };
   return { frameType: event.frameType, surface: event.barcode ? null : (view?.surface ?? null) };
+}
+
+/**
+ * The bottle surfaces of photos taken but not yet answered by the server, in the order taken
+ * (`deriveBottleCaptureView`'s `pending`). A barcode-only frame has no surface.
+ */
+export function pendingSurfaces(frames: readonly Pick<CaptureFrameEntry, "status" | "quality">[]): BottleSurface[] {
+  const out: BottleSurface[] = [];
+  for (const frame of frames) {
+    if (frame.status !== "uploading") continue;
+    const surface = parseBottleSurface(frame.quality.surface);
+    if (surface) out.push(surface);
+  }
+  return out;
+}
+
+/**
+ * What the auto-shutter waits for before the next bottle photo (`AutoShutterArrival`):
+ * - the first photo waits for the bottle to be brought into the outline (`empty`);
+ * - the same side again (the server asked for a retry), or a side asked for right after a live
+ *   barcode read that was not also used as that side's photo: the bottle is already there (`none`);
+ * - any other later photo waits until the outline looks different from the last photo, i.e. the
+ *   bottle was turned (`changed`). It usually has been by the time the prompt arms, because the
+ *   next side is asked for as soon as a photo is taken.
+ */
+export function autoShutterArrival(input: {
+  frames: readonly Pick<CaptureFrameEntry, "frameType" | "quality">[];
+  surface: BottleSurface | null;
+}): AutoShutterArrival {
+  const last = input.frames[input.frames.length - 1];
+  if (!last) return "empty";
+  const lastSurface = parseBottleSurface(last.quality.surface);
+  if (!lastSurface) return last.frameType === "barcode" ? "none" : "changed";
+  return input.surface !== null && lastSurface === input.surface ? "none" : "changed";
+}
+
+/**
+ * Whether the moment a live barcode was read can also be the photo of the outlined surface.
+ * Only the bottom: its sticker usually carries the barcode and the shade name together, and the
+ * user takes the "barcode read" feedback as that side being done. The outline's region must have
+ * been sharp and bright enough for a label then; otherwise the bottom is asked for as usual.
+ */
+export function canUseBarcodeStill(input: {
+  bottleSequence: boolean;
+  surface: BottleSurface | null;
+  regionMetrics: FrameQualityMetrics | null | undefined;
+}): boolean {
+  if (!input.bottleSequence || input.surface !== "bottom" || !input.regionMetrics) return false;
+  const { brightness, sharpness } = input.regionMetrics;
+  return (
+    sharpness >= FRAME_QUALITY_THRESHOLDS.minSharpness * 0.75 &&
+    brightness >= FRAME_QUALITY_THRESHOLDS.minBrightness &&
+    brightness <= 0.96
+  );
 }
 
 /**

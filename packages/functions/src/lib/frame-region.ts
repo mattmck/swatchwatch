@@ -5,9 +5,10 @@ import type { BottleSurface } from "swatchwatch-shared";
  * Where the shown bottle is in a Rapid Add bottle frame (Bottle Flow slice A).
  *
  * A client may send the outline it showed as `quality.guideRegion` ({ x, y, w, h } as 0–1
- * fractions of the frame it sends, x/y = top-left); without one the server assumes the outline
- * the web client draws (`AUTO_SHUTTER_REGIONS` in `apps/web/src/lib/auto-shutter.ts`, centred in
- * the frame because the preview fills its box with `object-cover`). The glass color is measured
+ * fractions of the frame it sends, x/y = top-left); without one (an upload, the mobile app) the
+ * server assumes a centred default (`AUTO_SHUTTER_REGIONS` in `apps/web/src/lib/auto-shutter.ts`;
+ * the web's own camera photos are cut around a smaller outline and always carry their region,
+ * see `docs/agents/capture-barcodes-bottle.md` → "Web capture"). The glass color is measured
  * on that region only, so the hand and the room around the bottle never become the lacquer.
  *
  * Sticker reads are not cropped: a held bottle's sticker often lies partly outside the outline
@@ -27,7 +28,7 @@ export interface NormalizedRegion {
 /** [left, top, right, bottom] as 0–1 fractions of the image. */
 export type NormalizedBox = readonly [number, number, number, number];
 
-/** The outline the web client draws per surface (`AUTO_SHUTTER_REGIONS`), the default guide. */
+/** The default guide per surface for a frame without a region (`AUTO_SHUTTER_REGIONS` in the web client). */
 export const DEFAULT_GUIDE_REGIONS: Readonly<Record<BottleSurface, NormalizedRegion>> = {
   front: { x: 0.3, y: 0.15, w: 0.4, h: 0.7 },
   bottom: { x: 0.28, y: 0.25, w: 0.44, h: 0.5 },

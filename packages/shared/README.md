@@ -440,6 +440,9 @@ Client-side state for the bottle photo flow (front, bottom, glass, optional box)
 | `bottleFlowReducer(state, action)` | Handles `session_started`, `frame_uploaded`, `surface_skipped`, `check_received` and `reset`; an absent `nextFrame` means the server asked for nothing more |
 | `deriveBottleCameraView(state, { brandKnown })` | What the camera shows (`BottleCameraView`: surface, prompt, hint, reason, optional, step of total); `null` = nothing left to ask, call check |
 | `shouldAutoCheck(state, uploadedFrames)` | True right after an upload when the server asked for nothing more and at least one frame is uploaded |
+| `deriveBottleCaptureView(state, { brandKnown, pending })` | `{ view, reading }`: what the camera shows while photos are still being read (`pending` = surfaces taken but not yet answered). Asks for the next surface of the local order that is not captured, skipped or pending; `view: null` with `reading: true` = wait for the server. With nothing pending it is `deriveBottleCameraView`, except that a server ask for a surface already photographed or an optional one waits until the local order is done |
+| `serverWantsNoMoreFrames(state)` | True when a started session's latest answer asked for nothing more: a photo taken ahead and not yet sent is dropped |
+| `onlyOptionalBoxLeft(state, { brandKnown })` | True when the only thing left to photograph is the optional box: the client checks now instead of waiting for a photo or a skip |
 
 ### `capture/sticky-hints.ts`
 
