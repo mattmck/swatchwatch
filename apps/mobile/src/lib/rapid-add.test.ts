@@ -157,6 +157,12 @@ describe("buildFrameQuality surface", () => {
     assert.equal(buildFrameQuality({ ...base, surface: "bottom" }).surface, "bottom");
   });
 
+  it("sends the drawn outline as guideRegion only when there is one", () => {
+    const region = { x: 0.3, y: 0.2, w: 0.4, h: 0.6 };
+    assert.deepEqual(buildFrameQuality({ ...base, surface: "front", guideRegion: region }).guideRegion, region);
+    assert.equal("guideRegion" in buildFrameQuality({ ...base, surface: "front", guideRegion: null }), false);
+  });
+
   it("omits the surface key when absent or null", () => {
     assert.ok(!("surface" in buildFrameQuality(base)));
     assert.ok(!("surface" in buildFrameQuality({ ...base, surface: null })));

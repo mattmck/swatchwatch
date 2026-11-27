@@ -13,7 +13,7 @@
  * DOM-free so it can be unit tested in Node; the sampling glue (a ~160px luminance thumbnail every
  * `sampleIntervalMs`, cropped with `cropLuminance`) lives in `components/rapid-add/camera-capture.tsx`.
  */
-import type { BottleSurface, CaptureFrameType } from "swatchwatch-shared";
+import { DEFAULT_GUIDE_REGIONS, type BottleSurface, type CaptureFrameType } from "swatchwatch-shared";
 import { FRAME_QUALITY_THRESHOLDS, type FrameQualityMetrics } from "./camera";
 
 const LABEL_RULES = {
@@ -121,16 +121,14 @@ export interface NormalizedRegion {
 /**
  * The default part of the frame per guide, centred (the video fills its box with `object-cover`,
  * so the centre of the frame is the centre of the outline). The camera component measures the
- * outline it actually draws and uses these only when that fails; the capture API mirrors them as
- * its default guide regions for photos that come without one (uploads, the mobile app).
+ * outline it actually draws and uses these only when that fails. The bottle surfaces' values are
+ * the shared `DEFAULT_GUIDE_REGIONS`, which the capture API uses for photos that come without a
+ * region (uploads) and the Expo app draws as its outline.
  */
 export const AUTO_SHUTTER_REGIONS: Record<AutoShutterGuide, NormalizedRegion> = {
   barcode: { x: 0.15, y: 0.38, w: 0.7, h: 0.24 },
-  label: { x: 0.3, y: 0.15, w: 0.4, h: 0.7 },
-  front: { x: 0.3, y: 0.15, w: 0.4, h: 0.7 },
-  bottom: { x: 0.28, y: 0.25, w: 0.44, h: 0.5 },
-  glass: { x: 0.38, y: 0.38, w: 0.24, h: 0.24 },
-  box: { x: 0.22, y: 0.2, w: 0.56, h: 0.6 },
+  label: DEFAULT_GUIDE_REGIONS.front,
+  ...DEFAULT_GUIDE_REGIONS,
 };
 
 /** Copy the `region` of a `width`×`height` luminance buffer (at least 1×1). */
