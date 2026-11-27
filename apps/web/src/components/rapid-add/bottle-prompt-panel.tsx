@@ -13,8 +13,10 @@ const SURFACE_LABEL: Record<BottleSurface, string> = {
 };
 
 export interface BottlePromptPanelProps {
-  /** What to photograph now; `null` once the server asked for nothing more. */
+  /** What to photograph now; `null` once the server asked for nothing more, or while it reads the last photos. */
   view: BottleCameraView | null;
+  /** Photos taken are still being read (the next side is asked for meanwhile). */
+  reading?: boolean;
   captured: readonly BottleSurface[];
   skipped: readonly BottleSurface[];
   /** Skipping is in flight, or a frame is still uploading. */
@@ -24,7 +26,15 @@ export interface BottlePromptPanelProps {
 }
 
 /** The guided bottle sequence's prompt: the current surface, its hint, step n of m, surface chips and "Can't see it". */
-export function BottlePromptPanel({ view, captured, skipped, disabled, onSelectSurface, onSkip }: BottlePromptPanelProps) {
+export function BottlePromptPanel({
+  view,
+  reading = false,
+  captured,
+  skipped,
+  disabled,
+  onSelectSurface,
+  onSkip,
+}: BottlePromptPanelProps) {
   return (
     <div className="rounded-lg border border-border/60 bg-muted/40 p-3" aria-live="polite">
       {view ? (
@@ -43,6 +53,8 @@ export function BottlePromptPanel({ view, captured, skipped, disabled, onSelectS
             Step {view.step} of {view.total}
           </p>
         </div>
+      ) : reading ? (
+        <p className="font-medium">Got the photos. Reading them now, this takes a few seconds…</p>
       ) : (
         <p className="font-medium">That&apos;s everything we need. Tap Find match, or pick a surface for another photo.</p>
       )}

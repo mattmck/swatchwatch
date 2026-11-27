@@ -7,8 +7,10 @@ import {
   INITIAL_BOTTLE_FLOW_STATE,
   bottleFlowReducer,
   createPolishRequestFromCard,
-  deriveBottleCameraView,
+  deriveBottleCaptureView,
   isBatchMode,
+  onlyOptionalBoxLeft,
+  serverWantsNoMoreFrames,
   shouldAutoCheck,
   surfaceFromQuality,
   switchBrand,
@@ -84,10 +86,16 @@ import {
 import { trackDupeWarningOutcome, trackDupeWarningShown } from "@/lib/metrics-events";
 import {
   actionFailureMessage,
+  autoShutterArrival,
   buildFrameQuality,
   buildStartMetadata,
   canAddFrame,
   canCheckBarcodeFromMetadata,
+  canUseBarcodeStill,
+  FRAME_UPLOAD_TIMEOUT_MS,
+  pendingSurfaces,
+  surfaceAlreadyPending,
+  withTimeout,
   shouldCheckBarcodeFrame,
   stillFrameTarget,
   canCheck,
@@ -280,6 +288,11 @@ export default function RapidAddPage() {
 
   // One capture session per scanned item; concurrent frames share the same start request.
   const sessionPromiseRef = useRef<Promise<string> | null>(null);
+  /**
+   * Bottle-sequence photos are sent one after another, in the order taken: the next side is asked
+   * for as soon as a photo is taken, and the server plans each answer from the photos before it.
+   */
+  const uploadChainRef = useRef<Promise<void>>(Promise.resolve());
   /** Bumped when a scan is abandoned, so a slow request of the old scan never lands on the next one. */
   const scanRef = useRef(0);
   const cameraSectionRef = useRef<HTMLDivElement | null>(null);
@@ -485,17 +498,30 @@ export default function RapidAddPage() {
   const uploadFrame = useCallback(
     async (frame: Pick<CaptureFrameEntry, "localId" | "frameType" | "dataUrl" | "quality">, barcode: ScannedBarcode | null) => {
       const scan = scanRef.current;
+      // Taken ahead of the server's answer, and that answer asked for nothing more (a barcode
+      // matched, say): the photo is not needed, so it is dropped instead of read.
+      if (bottleSequenceRef.current && serverWantsNoMoreFrames(bottleRef.current)) {
+        framesRef.current = framesRef.current.filter((f) => f.localId !== frame.localId);
+        dispatchFrames({ type: "dropped", localId: frame.localId });
+        return;
+      }
       try {
         const captureId = await ensureSession(barcode);
         const checking =
           frame.frameType === "barcode" &&
           shouldCheckBarcodeFrame(sessionRef.current, barcode, { bottleSequence: bottleSequenceRef.current });
         if (checking) dispatch({ type: "busy", busy: "checking" });
-        const res = await addCaptureFrame(captureId, {
+        const request = addCaptureFrame(captureId, {
           frameType: frame.frameType,
           imageBlobUrl: frame.dataUrl,
           quality: frame.quality,
         });
+        // In the bottle sequence the next photo waits for this one, so it may not hang forever.
+        const res = await (bottleSequenceRef.current
+          ? withTimeout(request, FRAME_UPLOAD_TIMEOUT_MS, "it took too long")
+          : request);
+        // The scan was abandoned (Scan next) while this photo was being read: it belongs to no scan now.
+        if (scanRef.current !== scan) return;
         dispatchFrames({ type: "upload_succeeded", localId: frame.localId, frameId: res.frameId });
         if (res.readSoFar && scanRef.current === scan) setReadSoFar(res.readSoFar);
         if (checking && barcode) {
@@ -506,12 +532,19 @@ export default function RapidAddPage() {
             surface: surfaceFromQuality(frame.quality),
             nextFrame: res.nextFrame,
           });
-          setManualSurface(null);
           const uploaded =
             framesRef.current.filter((f) => f.status === "uploaded" && f.localId !== frame.localId).length + 1;
-          if (shouldAutoCheck(next, uploaded) && !sessionRef.current.verdict) await runBottleCheck();
+          // Once every photo taken has been read: check when the server wants nothing more, or
+          // only the optional box (most bottles have none; waiting for a tap there looks stuck).
+          const waiting = framesRef.current.some((f) => f.status === "uploading" && f.localId !== frame.localId);
+          const done =
+            shouldAutoCheck(next, uploaded) ||
+            (!waiting && onlyOptionalBoxLeft(next, { brandKnown: Boolean(stickyRef.current.brandId) }));
+          if (done && !sessionRef.current.verdict) await runBottleCheck();
         }
       } catch (error) {
+        // A failure of an abandoned scan's photo must not land on the next scan.
+        if (scanRef.current !== scan) return;
         dispatchFrames({
           type: "upload_failed",
           localId: frame.localId,
@@ -521,6 +554,22 @@ export default function RapidAddPage() {
       }
     },
     [ensureSession, checkBarcode, applyBottle, runBottleCheck],
+  );
+
+  /** Send a photo: at once on the legacy path, after the photos before it in the bottle sequence. */
+  const sendFrame = useCallback(
+    (frame: Pick<CaptureFrameEntry, "localId" | "frameType" | "dataUrl" | "quality">, barcode: ScannedBarcode | null) => {
+      if (!bottleSequenceRef.current) {
+        void uploadFrame(frame, barcode);
+        return;
+      }
+      const scan = scanRef.current;
+      uploadChainRef.current = uploadChainRef.current.then(() =>
+        // A photo of a scan that was abandoned meanwhile is never sent.
+        scanRef.current === scan ? uploadFrame(frame, barcode) : undefined,
+      );
+    },
+    [uploadFrame],
   );
 
   const handleCapture = useCallback(
@@ -593,6 +642,10 @@ export default function RapidAddPage() {
       setQualityHint(warnings.length ? FRAME_QUALITY_WARNING_COPY[warnings[0]] : null);
 
       const target = stillFrameTarget(event, activeViewRef.current);
+      // An auto shot of a side whose photo is already waiting (a barcode read just supplied it).
+      if (bottleSequenceRef.current && event.trigger === "auto" && surfaceAlreadyPending(framesRef.current, target.surface)) {
+        return;
+      }
       const frame = {
         localId: newLocalId(),
         frameType: target.frameType,
@@ -619,9 +672,55 @@ export default function RapidAddPage() {
       };
       framesRef.current = [...framesRef.current, { ...frame, status: "uploading", attempts: 1 }];
       dispatchFrames({ type: "added", frame });
-      void uploadFrame(frame, event.barcode ?? sessionRef.current.barcode);
+      // A surface picked by hand is for one photo.
+      setManualSurface(null);
+      sendFrame(frame, event.barcode ?? sessionRef.current.barcode);
+
+      // A barcode read off the bottom sticker: the same moment is the bottom photo too, so the
+      // name on the sticker is read even though the user takes "barcode read" as that side done.
+      // It is sent after the barcode frame, and dropped if the barcode already matched.
+      const still = event.surfaceStill;
+      const view = activeViewRef.current;
+      if (
+        event.trigger === "live-scan" &&
+        still &&
+        view &&
+        canAddFrame(framesRef.current) &&
+        !surfaceAlreadyPending(framesRef.current, view.surface) &&
+        canUseBarcodeStill({
+          bottleSequence: bottleSequenceRef.current,
+          surface: view.surface,
+          regionMetrics: still.regionMetrics,
+        })
+      ) {
+        const surfaceFrame = {
+          localId: newLocalId(),
+          frameType: view.frameType,
+          dataUrl: still.frame.dataUrl,
+          quality: buildFrameQuality({
+            source: event.source,
+            width: still.frame.width,
+            height: still.frame.height,
+            sourceWidth: still.frame.sourceWidth,
+            sourceHeight: still.frame.sourceHeight,
+            metrics: still.frame.metrics,
+            barcode: event.barcode,
+            surface: view.surface,
+            guideRegion: guideRegionForFrame({
+              bottleCapture: bottleCaptureRef.current,
+              surface: view.surface,
+              trigger: "auto",
+              shown: still.shownGuide,
+            }),
+          }),
+        };
+        framesRef.current = [...framesRef.current, { ...surfaceFrame, status: "uploading", attempts: 1 }];
+        dispatchFrames({ type: "added", frame: surfaceFrame });
+        trackEvent("rapid_add.barcode_still_used", { surface: view.surface });
+        sendFrame(surfaceFrame, event.barcode ?? sessionRef.current.barcode);
+      }
     },
-    [uploadFrame, ensureSession, checkBarcode, scrollToVerdict],
+    [sendFrame, ensureSession, checkBarcode, scrollToVerdict],
   );
   useEffect(() => {
     handleCaptureRef.current = handleCapture;
@@ -632,7 +731,7 @@ export default function RapidAddPage() {
     if (!frame) return;
     dispatchFrames({ type: "upload_started", localId });
     dispatch({ type: "error_dismissed" });
-    void uploadFrame(frame, session.barcode);
+    sendFrame(frame, session.barcode);
   }
 
   async function resolveVerdict(captureId: string, displayHint?: string) {
@@ -793,6 +892,8 @@ export default function RapidAddPage() {
   function resetScan() {
     scanRef.current += 1;
     sessionPromiseRef.current = null;
+    // The next scan's photos do not wait behind a request of this one.
+    uploadChainRef.current = Promise.resolve();
     setFailedAction(null);
     dispatch({ type: "reset" });
     dispatchFrames({ type: "reset" });
@@ -850,7 +951,10 @@ export default function RapidAddPage() {
       setManualSurface(null);
       dispatch({ type: "status_received", status: res.status, question: res.question });
       const uploaded = framesRef.current.filter((f) => f.status === "uploaded").length;
-      if (shouldAutoCheck(next, uploaded) && !sessionRef.current.verdict) await runBottleCheck();
+      const done =
+        shouldAutoCheck(next, uploaded) ||
+        (uploaded > 0 && onlyOptionalBoxLeft(next, { brandKnown: Boolean(stickyRef.current.brandId) }));
+      if (done && !sessionRef.current.verdict) await runBottleCheck();
     } catch (error) {
       if (scanRef.current !== scan) return;
       failAction("skip", error, () => void handleSkipSurface());
@@ -961,8 +1065,15 @@ export default function RapidAddPage() {
   const busy = session.busy !== null;
   const hintsLocked = session.captureId !== null;
 
-  const bottleView = bottleSequence ? deriveBottleCameraView(bottle, { brandKnown: Boolean(sticky.brandId) }) : null;
+  // The next side is asked for as soon as a photo is taken, while the server still reads it.
+  const pending = bottleSequence ? pendingSurfaces(frames) : [];
+  const capturePlan = bottleSequence
+    ? deriveBottleCaptureView(bottle, { brandKnown: Boolean(sticky.brandId), pending })
+    : { view: null, reading: false };
+  const bottleView = capturePlan.view;
   const activeView = manualSurface && bottleSequence ? viewForSurface(manualSurface, bottleView) : bottleView;
+  /** Starting the session does not hold up the next photo in the bottle sequence; anything else does. */
+  const captureBusy = bottleSequence ? busy && session.busy !== "starting" : busy;
   useEffect(() => {
     activeViewRef.current = activeView;
   });
@@ -973,7 +1084,7 @@ export default function RapidAddPage() {
   const showAddFrames = bottleSequence && session.verdict?.kind === "add";
   // One auto-shot per prompt: the key changes with every frame taken, so the next prompt re-arms it.
   const autoCaptureKey =
-    phase !== "collecting" || busy
+    phase !== "collecting" || captureBusy
       ? null
       : bottleSequence
         ? activeView
@@ -990,9 +1101,22 @@ export default function RapidAddPage() {
       : session.labelRequested
         ? "label"
         : defaultCameraGuide(frameType);
+  // In the bottle sequence a read barcode is one clue, not the end: say what is still happening
+  // instead of a green "Scanned", which reads as done.
+  const sequenceStatus: ViewfinderStatus | null =
+    bottleSequence && phase === "collecting"
+      ? matching
+        ? { tone: "info", text: "Finding your polish…" }
+        : capturePlan.reading
+          ? { tone: "info", text: activeView ? "Reading that photo… keep going" : "Reading your photos…" }
+          : badge && activeView
+            ? { tone: "info", text: "Barcode read. A few photos to go." }
+            : null
+      : null;
   const viewfinderStatus: ViewfinderStatus | null =
     cameraFlash ??
     (!captureMode.ready ? { tone: "info", text: "Getting ready…" } : null) ??
+    sequenceStatus ??
     (session.verdict
       ? { tone: "success", text: verdictHeadline(session.verdict), action: { label: "See result", onClick: scrollToVerdict } }
       : badge
@@ -1088,7 +1212,8 @@ export default function RapidAddPage() {
           {bottleSequence && phase === "collecting" && (
             <BottlePromptPanel
               view={activeView}
-              captured={bottle.captured}
+              reading={capturePlan.reading || matching}
+              captured={[...bottle.captured, ...pending]}
               skipped={bottle.skipped}
               disabled={busy || frameSummary.uploading > 0}
               onSelectSurface={(surface) => setManualSurface(surface)}
@@ -1103,13 +1228,17 @@ export default function RapidAddPage() {
               phase === "verdict" ||
               phase === "resolving" ||
               !canAddFrame(frames) ||
-              (bottleSequence && (!activeView || busy || frameSummary.uploading > 0))
+              (bottleSequence && (!activeView || captureBusy))
             }
             frameType={activeView?.frameType ?? frameType}
             onFrameTypeChange={setFrameType}
             hideFrameTypeOptions={bottleSequence}
             onCapture={handleCapture}
             autoCaptureKey={autoCaptureKey}
+            autoCaptureArrival={
+              bottleSequence ? autoShutterArrival({ frames, surface: activeView?.surface ?? null }) : "empty"
+            }
+            onAutoShutter={(report) => trackEvent("rapid_add.auto_shutter", { ...report, blockers: JSON.stringify(report.blockers) })}
             guide={cameraGuide}
             status={viewfinderStatus}
             onCameraError={(kind) => trackEvent("rapid_add.camera_error", { kind })}

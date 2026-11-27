@@ -442,6 +442,9 @@ Client-side state for the bottle photo flow (front, bottom, glass, optional box)
 | `shouldAutoCheck(state, uploadedFrames)` | True right after an upload when the server asked for nothing more and at least one frame is uploaded |
 | `shouldCheckBarcodeFrame(session, barcode, { bottleSequence })` | Whether a freshly decoded barcode is checked at once: never in the bottle sequence (the frame's `nextFrame` decides), nor while photographing the label or once a verdict shows (#553) |
 | `stillFrameTarget(event, view)` / `StillFrameTrigger` | The frame type and surface a photo is sent as: a shutter, auto-shutter or file photo is the prompted surface's frame even with a barcode in view; a live barcode read stays a barcode frame |
+| `deriveBottleCaptureView(state, { brandKnown, pending })` | `{ view, reading }`: what the camera shows while photos are still being read (`pending` = surfaces taken but not yet answered). Asks for the next surface of the local order that is not captured, skipped or pending; `view: null` with `reading: true` = wait for the server. With nothing pending it is `deriveBottleCameraView`, except that a server ask for a surface already photographed or an optional one waits until the local order is done |
+| `serverWantsNoMoreFrames(state)` | True when a started session's latest answer asked for nothing more: a photo taken ahead and not yet sent is dropped |
+| `onlyOptionalBoxLeft(state, { brandKnown })` | True when the only thing left to photograph is the optional box: the client checks now instead of waiting for a photo or a skip |
 
 ### `capture/sticky-hints.ts`
 
