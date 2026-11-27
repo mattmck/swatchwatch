@@ -143,6 +143,76 @@ export function deriveBottleCameraView(
   };
 }
 
+/**
+ * What the camera shows while photos are still being read (`pending`: the surfaces of photos
+ * taken but not yet answered by the server, in the order taken). The server takes a few seconds
+ * per photo, so the client does not wait for each answer: it asks for the next surface of the
+ * local order that is not captured, skipped or pending, and `view: null` with `reading: true`
+ * means every surface it can predict is in, so it waits for the server. With nothing pending
+ * this is `deriveBottleCameraView` (the server's own ask), with one exception: an ask for a
+ * surface that was already photographed (a retry), or an optional ask (the box), waits until the
+ * rest of the local order has been photographed or skipped. The user has usually turned the
+ * bottle to the next side by the time a photo's answer arrives, so going back at once would
+ * photograph the wrong side, and the walk should not stop at an optional photo half way.
+ */
+export function deriveBottleCaptureView(
+  state: BottleFlowClientState,
+  opts: { brandKnown: boolean; pending: readonly BottleSurface[] },
+): { view: BottleCameraView | null; reading: boolean } {
+  const order: BottleSurface[] = opts.brandKnown
+    ? BOTTLE_DEFAULT_SURFACE_ORDER.filter((surface) => surface !== "front")
+    : [...BOTTLE_DEFAULT_SURFACE_ORDER];
+  const surface = order.find(
+    (s) => !state.captured.includes(s) && !state.skipped.includes(s) && !opts.pending.includes(s),
+  );
+  const reading = opts.pending.length > 0;
+  if (!reading) {
+    const asked = deriveBottleCameraView(state, opts);
+    const later =
+      state.sessionStarted &&
+      asked !== null &&
+      surface !== undefined &&
+      surface !== asked.surface &&
+      (asked.optional || state.captured.includes(asked.surface));
+    if (!later) return { view: asked, reading: false };
+  }
+  if (!surface) return { view: null, reading: true };
+  return {
+    view: {
+      surface,
+      frameType: BOTTLE_SURFACE_FRAME_TYPE[surface],
+      prompt: DEFAULT_SURFACE_PROMPTS[surface],
+      hint: null,
+      reason: null,
+      optional: false,
+      step: order.indexOf(surface) + 1,
+      total: order.length,
+    },
+    reading,
+  };
+}
+
+/**
+ * True when a photo that is still waiting to be sent is no longer wanted: the session has
+ * started and the server's latest answer asked for nothing more (a barcode matched, say), so
+ * the client drops the photo and checks instead of spending seconds reading it.
+ */
+export function serverWantsNoMoreFrames(state: BottleFlowClientState): boolean {
+  return state.sessionStarted && state.nextFrame === null;
+}
+
+/**
+ * True when the only thing left to photograph is the optional box (asked of every bottle
+ * without a barcode, or without a brand once the front has been tried): the client checks now instead of waiting for the user to photograph or
+ * skip it, since most bottles have no box and a name match does not need one. The box can still
+ * be shown afterwards.
+ */
+export function onlyOptionalBoxLeft(state: BottleFlowClientState, opts: { brandKnown: boolean }): boolean {
+  if (!state.sessionStarted || state.nextFrame?.optional !== true || state.nextFrame.surface !== "box") return false;
+  // Not while the local order still has a side to photograph: the box ask is deferred until then.
+  return deriveBottleCaptureView(state, { ...opts, pending: [] }).view?.surface === "box";
+}
+
 /** True right after a frame upload when the server asked for nothing more and at least one frame is uploaded. */
 export function shouldAutoCheck(state: BottleFlowClientState, uploadedFrames: number): boolean {
   return state.sessionStarted && state.nextFrame === null && uploadedFrames >= 1;

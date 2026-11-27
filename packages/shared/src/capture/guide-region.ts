@@ -7,9 +7,10 @@
  *
  * Both clients' previews fill their box with a centred cover crop of the camera frame (the web's
  * `<video>` with `object-fit: cover`, the Expo app's `expo-camera` aspect-fill preview), so the
- * visible area is a crop of the frame, while the uploaded still is the whole frame scaled
- * uniformly, so fractions of the camera frame are fractions of the upload. Shared by the web
- * (`apps/web/src/lib/guide-region.ts` re-exports it) and the Expo app.
+ * visible area is a crop of the frame; `guideRegionInFrame` gives the outline in fractions of the
+ * whole camera frame. The Expo app uploads the whole frame scaled uniformly, so those are its
+ * region; the web then cuts the photo around the outline and re-expresses the region in fractions
+ * of the cut (`planGuideCrop` in `apps/web/src/lib/guide-region.ts`, which re-exports this file).
  */
 import type { BottleSurface, CaptureGuideRegion } from "../types/capture";
 import type { StillFrameTrigger } from "./bottle-flow";
@@ -29,10 +30,11 @@ export interface ElementRect extends Size {
 export const GUIDE_REGION_MIN_SIDE = 0.05;
 
 /**
- * The outline drawn per bottle surface, as 0–1 fractions of the preview (x/y = top-left). The web
- * draws these over its `object-cover` preview (its `AUTO_SHUTTER_REGIONS`), the Expo app over its
- * aspect-fill camera preview, and the capture API measures a frame on the matching region of the
- * frame itself when a client sends no `quality.guideRegion` (`frame-region.ts`).
+ * The default region per bottle surface, as 0–1 fractions (x/y = top-left). The Expo app draws
+ * these over its aspect-fill camera preview; the web draws smaller outlines and falls back to
+ * these (its `AUTO_SHUTTER_REGIONS`) when the drawn one cannot be measured; and the capture API
+ * measures a frame on the matching region of the frame itself when a client sends no
+ * `quality.guideRegion` (`frame-region.ts`).
  */
 export const DEFAULT_GUIDE_REGIONS: Readonly<Record<BottleSurface, CaptureGuideRegion>> = {
   front: { x: 0.3, y: 0.15, w: 0.4, h: 0.7 },

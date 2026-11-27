@@ -5,9 +5,11 @@ import { DEFAULT_GUIDE_REGIONS, GUIDE_REGION_MIN_SIDE, type BottleSurface } from
  * Where the shown bottle is in a Rapid Add bottle frame (Bottle Flow slice A).
  *
  * A client may send the outline it showed as `quality.guideRegion` ({ x, y, w, h } as 0–1
- * fractions of the frame it sends, x/y = top-left); without one the server assumes the outline
- * the clients draw (`DEFAULT_GUIDE_REGIONS` in `swatchwatch-shared`, centred in the frame because
- * both previews fill their box with a centred cover crop). The glass color is measured
+ * fractions of the frame it sends, x/y = top-left); without one (an upload) the server assumes a
+ * centred default (`DEFAULT_GUIDE_REGIONS` in `swatchwatch-shared`, which the Expo app also draws
+ * over its preview and sends as its region; the web's own camera photos are cut around a smaller
+ * outline and always carry their region, see `docs/agents/capture-barcodes-bottle.md` → "Web
+ * capture"). The glass color is measured
  * on that region only, so the hand and the room around the bottle never become the lacquer.
  *
  * Sticker reads are not cropped: a held bottle's sticker often lies partly outside the outline
@@ -27,7 +29,10 @@ export interface NormalizedRegion {
 /** [left, top, right, bottom] as 0–1 fractions of the image. */
 export type NormalizedBox = readonly [number, number, number, number];
 
-/** The outline the clients draw per surface and the smallest usable region side, from `swatchwatch-shared`. */
+/**
+ * The default guide per surface for a frame without a region, and the smallest usable region
+ * side, from `swatchwatch-shared` (the web's `AUTO_SHUTTER_REGIONS` fallback uses the same values).
+ */
 export { DEFAULT_GUIDE_REGIONS, GUIDE_REGION_MIN_SIDE };
 
 /** How far (fraction of the image) a name may sit outside the reported bottle box and still be on it. */

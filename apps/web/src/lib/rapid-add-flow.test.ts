@@ -4,6 +4,7 @@ import { EMPTY_STICKY_HINTS, type CaptureQuestion, type StickyHints } from "swat
 import type { ScannedBarcode } from "./barcode-scan";
 import {
   actionFailureMessage,
+  autoShutterArrival,
   buildFrameQuality,
   buildQuestionView,
   buildStartMetadata,
@@ -11,10 +12,12 @@ import {
   canCheck,
   canCheckBarcodeFromMetadata,
   canFinalize,
+  canUseBarcodeStill,
   frameCapMessage,
   framesReducer,
   INITIAL_SESSION_STATE,
   MAX_CAPTURE_FRAMES,
+  pendingSurfaces,
   planLiveBarcode,
   rapidAddPhase,
   resolveCaptureMode,
@@ -23,6 +26,8 @@ import {
   shouldCheckBarcodeFrame,
   stillFrameTarget,
   summarizeFrames,
+  surfaceAlreadyPending,
+  withTimeout,
   type CaptureFrameEntry,
   type RapidAddSessionState,
 } from "./rapid-add-flow";
@@ -570,5 +575,85 @@ describe("frameCapMessage", () => {
     );
     // The legacy path's Find match adds the match, so the copy says so.
     assert.match(frameCapMessage({ bottleSequence: false }), /^That's enough photos\. Tap Find match .*add it to your collection\.$/);
+  });
+});
+
+describe("photos taken ahead of the server (bottle sequence)", () => {
+  const taken = (surface: string | null, status: CaptureFrameEntry["status"], frameType: CaptureFrameEntry["frameType"] = "label") => ({
+    frameType,
+    status,
+    quality: surface ? { surface } : {},
+  });
+
+  it("framesReducer drops a photo that is still waiting, never one already sent or failed", () => {
+    let state = framesReducer([], { type: "added", frame: frame("a") });
+    state = framesReducer(state, { type: "added", frame: frame("b") });
+    state = framesReducer(state, { type: "added", frame: frame("c") });
+    state = framesReducer(state, { type: "upload_succeeded", localId: "a", frameId: "f1" });
+    state = framesReducer(state, { type: "upload_failed", localId: "c", error: "offline" });
+    state = framesReducer(state, { type: "dropped", localId: "a" });
+    state = framesReducer(state, { type: "dropped", localId: "c" });
+    assert.deepEqual(state.map((f) => f.localId), ["a", "b", "c"]);
+    state = framesReducer(state, { type: "dropped", localId: "b" });
+    assert.deepEqual(state.map((f) => f.localId), ["a", "c"]);
+  });
+
+  it("pendingSurfaces lists the surfaces still being read, in the order taken", () => {
+    const frames = [
+      taken("front", "uploaded"),
+      taken(null, "uploading", "barcode"),
+      taken("bottom", "uploading"),
+      taken("glass", "failed", "color"),
+      taken("glass", "uploading", "color"),
+      taken("nonsense", "uploading"),
+    ];
+    assert.deepEqual(pendingSurfaces(frames), ["bottom", "glass"]);
+    assert.deepEqual(pendingSurfaces([]), []);
+  });
+
+  it("the first photo waits for the bottle to be brought in", () => {
+    assert.equal(autoShutterArrival({ frames: [], surface: "front" }), "empty");
+  });
+
+  it("a later side waits for the bottle to be turned", () => {
+    assert.equal(autoShutterArrival({ frames: [taken("front", "uploading")], surface: "bottom" }), "changed");
+    assert.equal(autoShutterArrival({ frames: [taken(null, "uploaded")], surface: "bottom" }), "changed");
+  });
+
+  it("the same side again, or a side asked for right after a barcode read, does not wait for a change", () => {
+    assert.equal(autoShutterArrival({ frames: [taken("front", "uploaded")], surface: "front" }), "none");
+    assert.equal(autoShutterArrival({ frames: [taken(null, "uploaded", "barcode")], surface: "bottom" }), "none");
+  });
+
+  it("uses the barcode moment as the bottom photo only when the outline was sharp and bright enough", () => {
+    const sharp = { brightness: 0.6, contrast: 0.2, sharpness: 0.02 };
+    assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "bottom", regionMetrics: sharp }), true);
+    assert.equal(canUseBarcodeStill({ bottleSequence: false, surface: "bottom", regionMetrics: sharp }), false);
+    assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "front", regionMetrics: sharp }), false);
+    assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "box", regionMetrics: sharp }), false);
+    assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "bottom", regionMetrics: null }), false);
+    assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "bottom", regionMetrics: { ...sharp, sharpness: 0.004 } }), false);
+    assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "bottom", regionMetrics: { ...sharp, brightness: 0.05 } }), false);
+    assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "bottom", regionMetrics: { ...sharp, brightness: 0.99 } }), false);
+  });
+});
+
+describe("one photo per side, and no photo holds up the rest forever", () => {
+  it("surfaceAlreadyPending is true only for a side whose photo is still being read", () => {
+    const frames = [
+      { status: "uploading" as const, quality: { surface: "bottom" } },
+      { status: "uploaded" as const, quality: { surface: "front" } },
+      { status: "failed" as const, quality: { surface: "glass" } },
+    ];
+    assert.equal(surfaceAlreadyPending(frames, "bottom"), true);
+    assert.equal(surfaceAlreadyPending(frames, "front"), false);
+    assert.equal(surfaceAlreadyPending(frames, "glass"), false);
+    assert.equal(surfaceAlreadyPending(frames, null), false);
+  });
+
+  it("withTimeout passes a result or an error through and rejects a request that never settles", async () => {
+    assert.equal(await withTimeout(Promise.resolve(7), 1000, "late"), 7);
+    await assert.rejects(withTimeout(Promise.reject(new Error("boom")), 1000, "late"), /boom/);
+    await assert.rejects(withTimeout(new Promise(() => {}), 10, "took too long"), /took too long/);
   });
 });

@@ -6,7 +6,10 @@ import {
   bottleFlowReducer,
   DEFAULT_SURFACE_PROMPTS,
   deriveBottleCameraView,
+  deriveBottleCaptureView,
   INITIAL_BOTTLE_FLOW_STATE,
+  onlyOptionalBoxLeft,
+  serverWantsNoMoreFrames,
   shouldAutoCheck,
   shouldCheckBarcodeFrame,
   stillFrameTarget,
@@ -245,5 +248,121 @@ describe("stillFrameTarget", () => {
       frameType: "color",
       surface: null,
     });
+  });
+});
+
+describe("deriveBottleCaptureView (the next prompt while photos are read)", () => {
+  const started: BottleFlowClientState = { ...INITIAL_BOTTLE_FLOW_STATE, sessionStarted: true, nextFrame: serverSpec };
+
+  it("is the server's ask when nothing is pending", () => {
+    const state: BottleFlowClientState = { ...started, captured: ["front", "bottom"] };
+    const { view, reading } = deriveBottleCaptureView(state, { brandKnown: false, pending: [] });
+    assert.equal(reading, false);
+    assert.deepEqual(view, deriveBottleCameraView(state, { brandKnown: false }));
+    // Before the session starts it is the local order, as before.
+    assert.deepEqual(
+      deriveBottleCaptureView(INITIAL_BOTTLE_FLOW_STATE, { brandKnown: false, pending: [] }).view,
+      deriveBottleCameraView(INITIAL_BOTTLE_FLOW_STATE, { brandKnown: false }),
+    );
+  });
+
+  it("moves to the next surface as soon as a photo is taken, before the server answers", () => {
+    const first = deriveBottleCaptureView(INITIAL_BOTTLE_FLOW_STATE, { brandKnown: false, pending: ["front"] });
+    assert.equal(first.reading, true);
+    assert.equal(first.view?.surface, "bottom");
+    assert.equal(first.view?.prompt, DEFAULT_SURFACE_PROMPTS.bottom);
+    assert.equal(first.view?.step, 2);
+    const second = deriveBottleCaptureView(INITIAL_BOTTLE_FLOW_STATE, { brandKnown: false, pending: ["front", "bottom"] });
+    assert.equal(second.view?.surface, "glass");
+    assert.equal(second.view?.frameType, "color");
+  });
+
+  it("counts captured and skipped surfaces too", () => {
+    const state: BottleFlowClientState = { ...started, captured: ["front"], skipped: ["bottom"] };
+    assert.equal(deriveBottleCaptureView(state, { brandKnown: false, pending: ["front"] }).view?.surface, "glass");
+  });
+
+  it("skips the front when the brand is known", () => {
+    const { view } = deriveBottleCaptureView(INITIAL_BOTTLE_FLOW_STATE, { brandKnown: true, pending: ["bottom"] });
+    assert.equal(view?.surface, "glass");
+    assert.equal(view?.total, 2);
+  });
+
+  it("waits for the server once every surface it can predict is in", () => {
+    const all = deriveBottleCaptureView(INITIAL_BOTTLE_FLOW_STATE, { brandKnown: false, pending: ["front", "bottom", "glass"] });
+    assert.deepEqual(all, { view: null, reading: true });
+    // The server's stale ask (made before the pending photos) is not shown meanwhile.
+    const stale: BottleFlowClientState = { ...started, captured: ["front", "bottom"] };
+    assert.deepEqual(deriveBottleCaptureView(stale, { brandKnown: false, pending: ["glass"] }), { view: null, reading: true });
+  });
+
+  it("finishes the walk before going back to a surface the server wants again", () => {
+    const retry: CaptureFrameRequestSpec = { surface: "front", frameType: "label", prompt: "Show the front of the bottle", reason: "retry_quality", optional: false };
+    const state: BottleFlowClientState = { ...started, captured: ["front"], nextFrame: retry };
+    // The front's answer arrived while the bottle is being turned to the bottom: keep going.
+    const next = deriveBottleCaptureView(state, { brandKnown: false, pending: [] });
+    assert.equal(next.view?.surface, "bottom");
+    assert.equal(next.reading, false);
+    // Once the bottom and glass are in, the retry is shown as the server asked it.
+    const done: BottleFlowClientState = { ...state, captured: ["front", "bottom", "glass"] };
+    const back = deriveBottleCaptureView(done, { brandKnown: false, pending: [] });
+    assert.equal(back.view?.surface, "front");
+    assert.equal(back.view?.reason, "retry_quality");
+  });
+
+  it("leaves an optional ask (the box) until the walk is done", () => {
+    const box: CaptureFrameRequestSpec = { surface: "box", frameType: "label", prompt: "Have the box? Show the barcode", reason: "need_brand", optional: true };
+    const state: BottleFlowClientState = { ...started, captured: ["front", "bottom"], nextFrame: box };
+    assert.equal(deriveBottleCaptureView(state, { brandKnown: false, pending: [] }).view?.surface, "glass");
+    const done: BottleFlowClientState = { ...state, captured: ["front", "bottom", "glass"] };
+    assert.equal(deriveBottleCaptureView(done, { brandKnown: false, pending: [] }).view?.surface, "box");
+  });
+
+  it("shows the server's own ask when it is the next surface of the walk, or one not in the walk and required", () => {
+    // The glass is optional on the server and next in the walk: the server's copy and hint are kept.
+    const state: BottleFlowClientState = { ...started, captured: ["front", "bottom"] };
+    const view = deriveBottleCaptureView(state, { brandKnown: false, pending: [] }).view;
+    assert.equal(view?.surface, "glass");
+    assert.equal(view?.hint, serverSpec.hint);
+    const requiredBox: CaptureFrameRequestSpec = { surface: "box", frameType: "label", prompt: "Show the box", reason: "need_brand", optional: false };
+    const early: BottleFlowClientState = { ...started, captured: ["front"], nextFrame: requiredBox };
+    assert.equal(deriveBottleCaptureView(early, { brandKnown: false, pending: [] }).view?.surface, "box");
+  });
+
+  it("never predicts the box", () => {
+    const state: BottleFlowClientState = { ...started, captured: ["front", "bottom"] };
+    assert.equal(deriveBottleCaptureView(state, { brandKnown: false, pending: ["glass"] }).view, null);
+  });
+});
+
+describe("serverWantsNoMoreFrames", () => {
+  it("is true only once a started session's latest answer asked for nothing", () => {
+    assert.equal(serverWantsNoMoreFrames(INITIAL_BOTTLE_FLOW_STATE), false);
+    assert.equal(serverWantsNoMoreFrames({ ...INITIAL_BOTTLE_FLOW_STATE, sessionStarted: true, nextFrame: serverSpec }), false);
+    assert.equal(serverWantsNoMoreFrames({ ...INITIAL_BOTTLE_FLOW_STATE, sessionStarted: true, nextFrame: null }), true);
+  });
+});
+
+describe("onlyOptionalBoxLeft", () => {
+  const box: CaptureFrameRequestSpec = { surface: "box", frameType: "label", prompt: "Have the box? Show the barcode", reason: "need_name", optional: true };
+  const started = { ...INITIAL_BOTTLE_FLOW_STATE, sessionStarted: true };
+
+  const walked: BottleFlowClientState = { ...started, captured: ["front", "bottom", "glass"] };
+  const opts = { brandKnown: false };
+
+  it("is true for the optional box ask once the walk is done", () => {
+    assert.equal(onlyOptionalBoxLeft({ ...walked, nextFrame: box }, opts), true);
+    assert.equal(onlyOptionalBoxLeft({ ...started, captured: ["bottom"], skipped: ["glass"], nextFrame: box }, { brandKnown: true }), true);
+  });
+
+  it("is false while a side of the walk is still to be photographed", () => {
+    assert.equal(onlyOptionalBoxLeft({ ...started, captured: ["front", "bottom"], nextFrame: box }, opts), false);
+  });
+
+  it("is false for a required ask, another optional ask, nothing asked, or before the session starts", () => {
+    assert.equal(onlyOptionalBoxLeft({ ...walked, nextFrame: { ...box, optional: false } }, opts), false);
+    assert.equal(onlyOptionalBoxLeft({ ...walked, nextFrame: serverSpec }, opts), false);
+    assert.equal(onlyOptionalBoxLeft({ ...walked, nextFrame: null }, opts), false);
+    assert.equal(onlyOptionalBoxLeft({ ...INITIAL_BOTTLE_FLOW_STATE, nextFrame: box }, opts), false);
   });
 });

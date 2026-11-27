@@ -442,6 +442,9 @@ Client-side state for the bottle photo flow (front, bottom, glass, optional box)
 | `shouldAutoCheck(state, uploadedFrames)` | True right after an upload when the server asked for nothing more and at least one frame is uploaded |
 | `shouldCheckBarcodeFrame(session, barcode, { bottleSequence })` | Whether a freshly decoded barcode is checked at once: never in the bottle sequence (the frame's `nextFrame` decides), nor while photographing the label or once a verdict shows (#553) |
 | `stillFrameTarget(event, view)` / `StillFrameTrigger` | The frame type and surface a photo is sent as: a shutter, auto-shutter or file photo is the prompted surface's frame even with a barcode in view; a live barcode read stays a barcode frame |
+| `deriveBottleCaptureView(state, { brandKnown, pending })` | `{ view, reading }`: what the camera shows while photos are still being read (`pending` = surfaces taken but not yet answered). Asks for the next surface of the local order that is not captured, skipped or pending; `view: null` with `reading: true` = wait for the server. With nothing pending it is `deriveBottleCameraView`, except that a server ask for a surface already photographed or an optional one waits until the local order is done |
+| `serverWantsNoMoreFrames(state)` | True when a started session's latest answer asked for nothing more: a photo taken ahead and not yet sent is dropped |
+| `onlyOptionalBoxLeft(state, { brandKnown })` | True when the only thing left to photograph is the optional box: the client checks now instead of waiting for a photo or a skip |
 
 ### `capture/guide-region.ts`
 
@@ -449,7 +452,7 @@ The bottle-flow outline and `quality.guideRegion`, shared by the web, the Expo a
 
 | Export | Description |
 |--------|-------------|
-| `DEFAULT_GUIDE_REGIONS` | The outline per bottle surface as 0–1 fractions of the preview: what both clients draw, and the region the capture API measures when a frame has no `guideRegion` |
+| `DEFAULT_GUIDE_REGIONS` | The default region per bottle surface as 0–1 fractions: the outline the Expo app draws, the web's fallback when its (smaller) drawn outline cannot be measured (`AUTO_SHUTTER_REGIONS`), and the region the capture API measures when a frame has no `guideRegion` |
 | `GUIDE_REGION_MIN_SIDE` | 0.05: the server ignores a region with a smaller side |
 | `guideRegionInFrame({ guide, element, frame, mirrored? })` / `Size` / `ElementRect` | Where an outline drawn over a centred cover-crop preview lies in the camera frame, as fractions; `null` for anything it cannot map exactly |
 | `guideRegionForFrame({ bottleCapture, surface, trigger, shown })` / `ShownGuide` | The region to send: only a bottle-flow shutter or auto-shutter photo of the surface whose outline was drawn |
