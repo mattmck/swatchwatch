@@ -286,6 +286,43 @@ export function rapidAddPhase(
 }
 
 /**
+ * How long one bottle-sequence photo may take to send and be read. Photos are sent one after
+ * another, so a request that never settles (a phone browser can leave one hanging after the tab
+ * was in the background) would hold up every photo behind it; past this it fails like any
+ * other upload and can be retried.
+ */
+export const FRAME_UPLOAD_TIMEOUT_MS = 45_000;
+
+/** `promise`, or a rejection with `message` once `ms` have passed without it settling. */
+export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * Whether a photo of `surface` is already waiting to be read. The auto-shutter and a live barcode
+ * read can both fire for the same moment (the prompt only moves on with the next render), and
+ * one photo of a side is enough.
+ */
+export function surfaceAlreadyPending(
+  frames: readonly Pick<CaptureFrameEntry, "status" | "quality">[],
+  surface: BottleSurface | null,
+): boolean {
+  return surface !== null && pendingSurfaces(frames).includes(surface);
+}
+
+/**
  * The bottle surfaces of photos taken but not yet answered by the server, in the order taken
  * (`deriveBottleCaptureView`'s `pending`). A barcode-only frame has no surface.
  */

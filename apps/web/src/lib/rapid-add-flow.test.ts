@@ -26,6 +26,8 @@ import {
   shouldCheckBarcodeFrame,
   stillFrameTarget,
   summarizeFrames,
+  surfaceAlreadyPending,
+  withTimeout,
   type CaptureFrameEntry,
   type RapidAddSessionState,
 } from "./rapid-add-flow";
@@ -633,5 +635,25 @@ describe("photos taken ahead of the server (bottle sequence)", () => {
     assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "bottom", regionMetrics: { ...sharp, sharpness: 0.004 } }), false);
     assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "bottom", regionMetrics: { ...sharp, brightness: 0.05 } }), false);
     assert.equal(canUseBarcodeStill({ bottleSequence: true, surface: "bottom", regionMetrics: { ...sharp, brightness: 0.99 } }), false);
+  });
+});
+
+describe("one photo per side, and no photo holds up the rest forever", () => {
+  it("surfaceAlreadyPending is true only for a side whose photo is still being read", () => {
+    const frames = [
+      { status: "uploading" as const, quality: { surface: "bottom" } },
+      { status: "uploaded" as const, quality: { surface: "front" } },
+      { status: "failed" as const, quality: { surface: "glass" } },
+    ];
+    assert.equal(surfaceAlreadyPending(frames, "bottom"), true);
+    assert.equal(surfaceAlreadyPending(frames, "front"), false);
+    assert.equal(surfaceAlreadyPending(frames, "glass"), false);
+    assert.equal(surfaceAlreadyPending(frames, null), false);
+  });
+
+  it("withTimeout passes a result or an error through and rejects a request that never settles", async () => {
+    assert.equal(await withTimeout(Promise.resolve(7), 1000, "late"), 7);
+    await assert.rejects(withTimeout(Promise.reject(new Error("boom")), 1000, "late"), /boom/);
+    await assert.rejects(withTimeout(new Promise(() => {}), 10, "took too long"), /took too long/);
   });
 });

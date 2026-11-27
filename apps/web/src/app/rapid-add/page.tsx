@@ -92,7 +92,10 @@ import {
   canAddFrame,
   canCheckBarcodeFromMetadata,
   canUseBarcodeStill,
+  FRAME_UPLOAD_TIMEOUT_MS,
   pendingSurfaces,
+  surfaceAlreadyPending,
+  withTimeout,
   shouldCheckBarcodeFrame,
   stillFrameTarget,
   canCheck,
@@ -508,11 +511,17 @@ export default function RapidAddPage() {
           frame.frameType === "barcode" &&
           shouldCheckBarcodeFrame(sessionRef.current, barcode, { bottleSequence: bottleSequenceRef.current });
         if (checking) dispatch({ type: "busy", busy: "checking" });
-        const res = await addCaptureFrame(captureId, {
+        const request = addCaptureFrame(captureId, {
           frameType: frame.frameType,
           imageBlobUrl: frame.dataUrl,
           quality: frame.quality,
         });
+        // In the bottle sequence the next photo waits for this one, so it may not hang forever.
+        const res = await (bottleSequenceRef.current
+          ? withTimeout(request, FRAME_UPLOAD_TIMEOUT_MS, "it took too long")
+          : request);
+        // The scan was abandoned (Scan next) while this photo was being read: it belongs to no scan now.
+        if (scanRef.current !== scan) return;
         dispatchFrames({ type: "upload_succeeded", localId: frame.localId, frameId: res.frameId });
         if (res.readSoFar && scanRef.current === scan) setReadSoFar(res.readSoFar);
         if (checking && barcode) {
@@ -534,6 +543,8 @@ export default function RapidAddPage() {
           if (done && !sessionRef.current.verdict) await runBottleCheck();
         }
       } catch (error) {
+        // A failure of an abandoned scan's photo must not land on the next scan.
+        if (scanRef.current !== scan) return;
         dispatchFrames({
           type: "upload_failed",
           localId: frame.localId,
@@ -631,6 +642,10 @@ export default function RapidAddPage() {
       setQualityHint(warnings.length ? FRAME_QUALITY_WARNING_COPY[warnings[0]] : null);
 
       const target = stillFrameTarget(event, activeViewRef.current);
+      // An auto shot of a side whose photo is already waiting (a barcode read just supplied it).
+      if (bottleSequenceRef.current && event.trigger === "auto" && surfaceAlreadyPending(framesRef.current, target.surface)) {
+        return;
+      }
       const frame = {
         localId: newLocalId(),
         frameType: target.frameType,
@@ -671,6 +686,7 @@ export default function RapidAddPage() {
         still &&
         view &&
         canAddFrame(framesRef.current) &&
+        !surfaceAlreadyPending(framesRef.current, view.surface) &&
         canUseBarcodeStill({
           bottleSequence: bottleSequenceRef.current,
           surface: view.surface,
@@ -876,6 +892,8 @@ export default function RapidAddPage() {
   function resetScan() {
     scanRef.current += 1;
     sessionPromiseRef.current = null;
+    // The next scan's photos do not wait behind a request of this one.
+    uploadChainRef.current = Promise.resolve();
     setFailedAction(null);
     dispatch({ type: "reset" });
     dispatchFrames({ type: "reset" });
