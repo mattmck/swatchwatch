@@ -37,6 +37,8 @@ function drawableSize(source: DrawableSource): { width: number; height: number }
 
 export interface LuminanceSample {
   luminance: Uint8ClampedArray;
+  /** The thumbnail's RGBA pixels (for color tests such as `skinFraction`). */
+  rgba: Uint8ClampedArray;
   width: number;
   height: number;
   metrics: FrameQualityMetrics;
@@ -60,7 +62,7 @@ export function sampleLuminance(
   ctx.drawImage(source, 0, 0, width, height);
   const { data } = ctx.getImageData(0, 0, width, height);
   const luminance = rgbaToLuminance(data, width, height);
-  return { luminance, width, height, metrics: computeFrameQuality(luminance, width, height) };
+  return { luminance, rgba: data, width, height, metrics: computeFrameQuality(luminance, width, height) };
 }
 
 function measureQuality(canvas: HTMLCanvasElement): FrameQualityMetrics {

@@ -5,15 +5,15 @@ import {
   AUTO_SHUTTER_REGIONS,
   AUTO_SHUTTER_SETTINGS,
   autoShutterBlocker,
-  autoShutterScore,
   coarsenLuminance,
   cropLuminance,
   luminanceMotion,
+  skinFraction,
   stepAutoShutter,
-  type AutoShutterArrival,
   type AutoShutterSample,
   type AutoShutterState,
   type AutoShutterStatus,
+  type LuminanceArea,
 } from "./auto-shutter";
 
 const S = AUTO_SHUTTER_SETTINGS;
@@ -22,7 +22,7 @@ const W = 24;
 const H = 24;
 const INTERVAL = S.sampleIntervalMs;
 
-/** A 24×24 region of vertical stripes `period` px wide, shifted right by `shift` px. */
+/** A 24×24 area of vertical stripes `period` px wide, shifted right by `shift` px. */
 function stripes(low: number, high: number, period = 12, shift = 0): Uint8ClampedArray {
   const out = new Uint8ClampedArray(W * H);
   for (let y = 0; y < H; y += 1) {
@@ -30,18 +30,22 @@ function stripes(low: number, high: number, period = 12, shift = 0): Uint8Clampe
   }
   return out;
 }
+const area = (luminance: Uint8ClampedArray): LuminanceArea => ({ luminance, width: W, height: H });
 
-/** The guide region before anything is held up: a steady, sharp background. */
+/** The view before anything is held up. */
 const EMPTY = stripes(50, 70);
-/** The same region with the bottle in it. */
-const BOTTLE = stripes(40, 200);
-/** The bottle with a pixel of hand shake. */
-const BOTTLE_JITTER = stripes(40, 200, 12, 1);
+/** The bottle's first side, held in the outline. */
+const SIDE_A = stripes(40, 200);
+/** The same side with the hand's normal tremor (far below the limits on coarse cells). */
+const SIDE_A_TREMOR = stripes(40, 198);
 /** The bottle turned to another side. */
-const OTHER_SIDE = stripes(200, 60, 8);
+const SIDE_B = stripes(200, 60, 8);
+/** The bottle mid-turn. */
+const TURNING = stripes(120, 30, 6, 3);
 
-function sample(overrides: Partial<AutoShutterSample> = {}): AutoShutterSample {
-  return { luminance: BOTTLE, width: W, height: H, metrics: GOOD, ...overrides };
+/** One sample: by default the same picture in the outline's region and in the whole view. */
+function view(picture: Uint8ClampedArray, overrides: Partial<AutoShutterSample> = {}): AutoShutterSample {
+  return { ...area(picture), metrics: GOOD, scene: area(picture), skin: 0.1, ...overrides };
 }
 
 /** Feeds samples one interval apart and records each status. */
@@ -49,7 +53,6 @@ function feeder(frameType: "label" | "color" = "label", arm: Parameters<typeof a
   let state: AutoShutterState = armAutoShutter(start, arm);
   let now = start;
   const statuses: AutoShutterStatus[] = [];
-  const keeps: boolean[] = [];
   return {
     feed(s: AutoShutterSample, times = 1): AutoShutterStatus {
       let last!: AutoShutterStatus;
@@ -58,7 +61,6 @@ function feeder(frameType: "label" | "color" = "label", arm: Parameters<typeof a
         const step = stepAutoShutter(state, s, now, frameType);
         state = step.state;
         statuses.push(step.status);
-        keeps.push(step.keep);
         last = step.status;
       }
       return last;
@@ -69,12 +71,14 @@ function feeder(frameType: "label" | "color" = "label", arm: Parameters<typeof a
     get now() {
       return now;
     },
+    fires: () => statuses.filter((s) => s.phase === "fire").length,
+    fireAt: () => statuses.findIndex((s) => s.phase === "fire"),
     statuses,
-    keeps,
   };
 }
 
 const samplesFor = (ms: number) => Math.ceil(ms / INTERVAL);
+const HOLD = samplesFor(S.steadyMs) + 2;
 
 describe("coarsenLuminance", () => {
   it("averages each cell, row by row", () => {
@@ -91,9 +95,9 @@ describe("coarsenLuminance", () => {
 
 describe("luminanceMotion", () => {
   it("is 0 for identical frames and 1 for frames that can't be compared", () => {
-    assert.equal(luminanceMotion(BOTTLE, BOTTLE), 0);
-    assert.equal(luminanceMotion(null, BOTTLE), 1);
-    assert.equal(luminanceMotion(new Uint8ClampedArray(10), BOTTLE), 1);
+    assert.equal(luminanceMotion(SIDE_A, SIDE_A), 0);
+    assert.equal(luminanceMotion(null, SIDE_A), 1);
+    assert.equal(luminanceMotion(new Uint8ClampedArray(10), SIDE_A), 1);
   });
 
   it("is the mean absolute change on a 0–1 scale", () => {
@@ -107,13 +111,6 @@ describe("luminanceMotion", () => {
     const brighter = new Uint8ClampedArray([40, 80, 120, 160]);
     assert.ok(luminanceMotion(a, brighter) > 0.1);
     assert.equal(luminanceMotion(a, brighter, { ignoreBrightness: true }), 0);
-  });
-
-  it("on coarse cells a pixel of jitter on a striped label is far below the motion limit", () => {
-    const a = coarsenLuminance(BOTTLE, W, H);
-    const b = coarsenLuminance(BOTTLE_JITTER, W, H);
-    assert.ok(luminanceMotion(BOTTLE, BOTTLE_JITTER) > 0.04, "the old per-pixel limit read it as movement");
-    assert.ok(luminanceMotion(a, b, { ignoreBrightness: true }) < S.rules.label.maxMotion);
   });
 });
 
@@ -137,12 +134,34 @@ describe("cropLuminance", () => {
   });
 });
 
+describe("skinFraction", () => {
+  // A 4×2 RGBA thumbnail: the left half skin tone, the right half the purple of a polish bottle.
+  const px = (r: number, g: number, b: number) => [r, g, b, 255];
+  const skin = px(224, 172, 140);
+  const purple = px(110, 60, 160);
+  const rgba = new Uint8ClampedArray([...skin, ...skin, ...purple, ...purple, ...skin, ...skin, ...purple, ...purple]);
+
+  it("is the share of skin-tone pixels in the region", () => {
+    assert.equal(skinFraction(rgba, 4, 2, { x: 0, y: 0, w: 1, h: 1 }), 0.5);
+    assert.equal(skinFraction(rgba, 4, 2, { x: 0, y: 0, w: 0.5, h: 1 }), 1);
+    assert.equal(skinFraction(rgba, 4, 2, { x: 0.5, y: 0, w: 0.5, h: 1 }), 0);
+  });
+
+  it("does not take black, white or grey for skin, and is 0 for a bad size", () => {
+    const grey = new Uint8ClampedArray([...px(0, 0, 0), ...px(255, 255, 255), ...px(128, 128, 128), ...px(40, 40, 40)]);
+    assert.equal(skinFraction(grey, 4, 1, { x: 0, y: 0, w: 1, h: 1 }), 0);
+    assert.equal(skinFraction(rgba, 9, 9, { x: 0, y: 0, w: 1, h: 1 }), 0);
+  });
+});
+
 describe("autoShutterBlocker", () => {
-  it("passes a steady, sharp, well-exposed frame", () => {
+  it("passes a still, sharp, well-exposed frame", () => {
     assert.equal(autoShutterBlocker(GOOD, 0, "label"), null);
+    assert.equal(autoShutterBlocker(GOOD, 0.01, "label", { sceneMotion: 0.01, skin: 0.4 }), null);
   });
 
   it("names the first problem", () => {
+    assert.equal(autoShutterBlocker(GOOD, 0, "label", { skin: 0.9 }), "hand");
     assert.equal(autoShutterBlocker({ ...GOOD, brightness: 0.05 }, 0, "label"), "too-dark");
     assert.equal(autoShutterBlocker({ ...GOOD, brightness: 0.98 }, 0, "label"), "too-bright");
     assert.equal(autoShutterBlocker(GOOD, 0.2, "label"), "moving");
@@ -150,249 +169,203 @@ describe("autoShutterBlocker", () => {
     assert.equal(autoShutterBlocker({ ...GOOD, sharpness: 0.008 }, 0, "label"), "blurry");
   });
 
-  it("asks only for rough stillness of a glass (color) shot", () => {
+  it("counts the whole view moving although the outline's region is still", () => {
+    assert.equal(autoShutterBlocker(GOOD, 0, "label", { sceneMotion: S.maxSceneMotion * 1.2 }), "moving");
+  });
+
+  it("asks only for stillness of a glass (color) shot, but still refuses a hand", () => {
     // A patch of black or white lacquer: dark or bright, flat and without edges.
     const black = { brightness: 0.05, contrast: 0.005, sharpness: 0 };
     const white = { brightness: 0.99, contrast: 0.005, sharpness: 0 };
-    assert.equal(autoShutterBlocker(black, 0.05, "color"), null);
-    assert.equal(autoShutterBlocker(white, 0.05, "color"), null);
-    assert.equal(autoShutterBlocker(black, 0.05, "label"), "too-dark");
+    assert.equal(autoShutterBlocker(black, 0.02, "color"), null);
+    assert.equal(autoShutterBlocker(white, 0.02, "color"), null);
+    assert.equal(autoShutterBlocker(black, 0.02, "label"), "too-dark");
     assert.equal(autoShutterBlocker(black, 0.5, "color"), "moving");
-  });
-
-  it("relaxes sharpness and motion once the bottle has been in view a while", () => {
-    const soft = { ...GOOD, sharpness: S.rules.label.minSharpness * 0.6 };
-    assert.equal(autoShutterBlocker(soft, 0, "label"), "blurry");
-    assert.equal(autoShutterBlocker(soft, 0, "label", { relaxed: true }), null);
-    const wobble = S.rules.label.maxMotion * 1.3;
-    assert.equal(autoShutterBlocker(GOOD, wobble, "label"), "moving");
-    assert.equal(autoShutterBlocker(GOOD, wobble, "label", { relaxed: true }), null);
-  });
-});
-
-describe("autoShutterScore", () => {
-  it("prefers sharp and still", () => {
-    const sharpStill = autoShutterScore(GOOD, 0, "label");
-    assert.ok(sharpStill > autoShutterScore({ ...GOOD, sharpness: 0.004 }, 0, "label"));
-    assert.ok(sharpStill > autoShutterScore(GOOD, 0.06, "label"));
-    assert.ok(sharpStill > autoShutterScore({ ...GOOD, brightness: 0.99 }, 0, "label"));
-  });
-
-  it("does not ask a glass shot to be sharp", () => {
-    assert.equal(autoShutterScore({ ...GOOD, sharpness: 0 }, 0, "color"), 1);
+    assert.equal(autoShutterBlocker(black, 0.02, "color", { skin: 0.92 }), "hand");
   });
 });
 
 describe("stepAutoShutter: the first photo (arrival empty)", () => {
-  it("never fires on a steady scene that nothing was brought into", () => {
+  it("never photographs a view that nothing was brought into, and says what it waits for", () => {
     const f = feeder();
-    f.feed(sample({ luminance: EMPTY }), samplesFor(S.bestAfterMs * 3));
-    assert.ok(f.statuses.every((s) => s.phase === "waiting" && s.blocker === "unchanged"));
+    f.feed(view(EMPTY), samplesFor(10_000));
+    assert.equal(f.fires(), 0);
+    assert.ok(f.statuses.every((s) => s.blocker === "unchanged"));
     assert.equal(f.statuses[1].stalled, false);
-    assert.equal(f.statuses.at(-1)?.stalled, true, "after a while it says what it is waiting for");
-    assert.ok(f.keeps.every((k) => !k));
+    assert.equal(f.statuses.at(-1)?.stalled, true);
   });
 
-  it("fires once, soon after the bottle is brought in and held, then stays done", () => {
+  it("photographs a bottle once it is brought in and held still for steadyMs, then stays done", () => {
     const f = feeder();
-    f.feed(sample({ luminance: EMPTY }));
-    f.feed(sample(), samplesFor(S.steadyMs) + 4);
-    assert.equal(f.statuses[0].blocker, "unchanged", "the first sample is the reference scene");
-    assert.equal(f.statuses[1].blocker, "moving", "the bottle arriving is motion");
-    const fireAt = f.statuses.findIndex((s) => s.phase === "fire");
-    assert.ok(fireAt > 1);
-    assert.equal(f.statuses.filter((s) => s.phase === "fire").length, 1);
-    assert.equal(f.statuses[fireAt].useBest, false, "a steady shot is the live frame");
-    assert.ok(f.statuses.slice(2, fireAt).every((s) => s.phase === "steadying"));
+    f.feed(view(EMPTY), 2);
+    f.feed(view(SIDE_A), HOLD + 3);
+    assert.equal(f.fires(), 1);
+    const fireAt = f.fireAt();
+    // The hold starts with the sample after the bottle arrived (the arrival itself is movement).
+    assert.ok((fireAt - 3) * INTERVAL >= S.steadyMs, "not before a full hold");
+    assert.ok((fireAt - 3) * INTERVAL <= S.steadyMs + 2 * INTERVAL, "and right after it");
     assert.ok(f.statuses.slice(fireAt + 1).every((s) => s.phase === "done"));
-    // Within about a second of settling, not the old 1 s of perfect stillness plus resets.
-    assert.ok((fireAt - 2) * INTERVAL >= S.steadyMs);
-    assert.ok((fireAt - 1) * INTERVAL <= 1000);
   });
 
-  it("fires through a pixel of hand shake on every sample", () => {
+  it("takes no photo while the bottle is still being moved into place", () => {
+    // What the first version did: a change of view, a short pause, a photo.
     const f = feeder();
-    f.feed(sample({ luminance: EMPTY }));
-    for (let i = 0; i < samplesFor(S.steadyMs) + 4; i += 1) f.feed(sample({ luminance: i % 2 ? BOTTLE : BOTTLE_JITTER }));
-    assert.equal(f.statuses.filter((s) => s.phase === "fire").length, 1);
-    assert.equal(f.statuses.find((s) => s.phase === "fire")?.settling, false, "before any relaxing");
+    f.feed(view(EMPTY), 2);
+    for (let i = 0; i < 6; i += 1) {
+      f.feed(view(SIDE_A), samplesFor(S.steadyMs) - 3);
+      f.feed(view(TURNING));
+    }
+    assert.equal(f.fires(), 0);
   });
 
-  it("forgives one wobble but never shoots on it, and starts over on a second", () => {
-    const wobble = stripes(40, 200, 12, 2);
+  it("holds through the normal tremor of a hand", () => {
     const f = feeder();
-    f.feed(sample({ luminance: EMPTY }));
-    f.feed(sample(), 3);
-    const run = f.state.goodSince;
-    assert.notEqual(run, null);
-    const first = f.feed(sample({ luminance: wobble }));
-    assert.equal(first.phase, "steadying");
-    assert.equal(f.state.goodSince, run, "the run goes on");
-    assert.equal(f.state.wobbleUsed, true);
-    // Back from the wobble is one too, and that is the second in this run.
-    const second = f.feed(sample());
-    assert.equal(second.phase, "waiting");
-    assert.equal(second.blocker, "moving");
-    assert.equal(f.state.goodSince, null);
+    f.feed(view(EMPTY), 2);
+    for (let i = 0; i < HOLD + 3; i += 1) f.feed(view(i % 2 ? SIDE_A : SIDE_A_TREMOR));
+    assert.equal(f.fires(), 1);
   });
 
-  it("starts over at once when the bottle is swung away", () => {
+  it("forgives a twitch now and then, never shoots on one, and starts over on twitches in a row", () => {
+    // The outline's region twitches (a label shifting a little) while the whole view stays still.
+    const held = view(stripes(40, 150), { scene: area(SIDE_A) });
+    const twitch = view(stripes(40, 150, 12, 2), { scene: area(SIDE_A) });
     const f = feeder();
-    f.feed(sample({ luminance: EMPTY }));
-    f.feed(sample(), 3);
-    const moved = f.feed(sample({ luminance: OTHER_SIDE }));
-    assert.equal(moved.phase, "waiting");
-    assert.equal(moved.blocker, "moving");
-    assert.equal(f.state.goodSince, null);
+    f.feed(view(EMPTY), 2);
+    f.feed(held, 3);
+    const started = f.state.steadySince;
+    assert.notEqual(started, null);
+    assert.equal(f.feed(twitch).phase, "steadying");
+    assert.equal(f.state.steadySince, started, "the hold goes on");
+    // Coming back from the twitch is a second one right away: the hold starts over.
+    assert.equal(f.feed(held).blocker, "moving");
+    assert.equal(f.state.steadySince, null);
+
+    // Twitches spaced apart are forgiven, the photo is never taken on one, and it follows the hold.
+    const g = feeder();
+    g.feed(view(EMPTY), 2);
+    g.feed(held, 2);
+    const hold = g.state.steadySince;
+    const spaced = samplesFor(S.wobbleEveryMs) + 1;
+    g.feed(twitch);
+    g.feed(twitch, spaced);
+    assert.equal(g.state.steadySince, hold, "one twitch, then stillness: the hold goes on");
+    g.feed(twitch, HOLD);
+    assert.equal(g.fires(), 1);
   });
 
-  it("waits for armDelayMs even when the frame is good at once", () => {
-    let state = armAutoShutter(0, { arrival: "none" });
-    const cells = coarsenLuminance(BOTTLE, W, H);
-    // Pretend a good run started before arming, so only the arm delay holds the shot.
-    state = { ...state, previous: cells, arrivedAt: 0, goodSince: -10_000 };
-    const early = stepAutoShutter(state, sample(), S.armDelayNoneMs - 1, "label");
-    assert.equal(early.status.phase, "steadying");
-    const late = stepAutoShutter(early.state, sample(), S.armDelayNoneMs, "label");
-    assert.equal(late.status.phase, "fire");
-  });
-});
-
-describe("stepAutoShutter: a photo is always taken", () => {
-  it("relaxes for a label that will not get sharp, then takes it", () => {
-    // Held closer than the lens can focus: half the sharpness a label should have.
-    const soft = { ...GOOD, sharpness: S.rules.label.minSharpness * 0.6 };
+  it("does not photograph a hand held in the outline", () => {
     const f = feeder();
-    f.feed(sample({ luminance: EMPTY }));
-    f.feed(sample({ metrics: soft }), samplesFor(S.relaxAfterMs + S.relax.steadyMs) + 3);
-    const fireAt = f.statuses.findIndex((s) => s.phase === "fire");
-    assert.ok(fireAt > 0, "fired");
-    assert.equal(f.statuses[fireAt].settling, true);
-    assert.ok(f.statuses.slice(2, samplesFor(S.relaxAfterMs) - 1).every((s) => s.blocker === "blurry"));
-    assert.ok(fireAt * INTERVAL < S.bestAfterMs, "before the last-resort fallback");
+    f.feed(view(EMPTY), 2);
+    f.feed(view(SIDE_A, { skin: 0.9 }), samplesFor(10_000));
+    assert.equal(f.fires(), 0);
+    assert.ok(f.statuses.slice(4).every((s) => s.blocker === "hand"));
   });
 
-  it("takes the best frame seen when nothing ever passes", () => {
-    const blurry = { ...GOOD, sharpness: 0.001 };
-    const lessBlurry = { ...GOOD, sharpness: 0.005 };
+  it("does not photograph a view without label detail, however long it is held (no relaxing, no fallback)", () => {
+    // A seat cushion after the phone was swung onto it: it moved, it is still, it is not a label.
+    const seat = { ...GOOD, sharpness: S.rules.label.minSharpness * 0.8 };
     const f = feeder();
-    f.feed(sample({ luminance: EMPTY }));
-    f.feed(sample({ metrics: blurry }), 4);
-    f.feed(sample({ metrics: lessBlurry }), samplesFor(S.bestAfterMs) - 12);
-    f.feed(sample({ metrics: blurry }), 12);
-    const fireAt = f.statuses.findIndex((s) => s.phase === "fire");
-    assert.ok(fireAt > 0, "fired although every sample was blurry");
-    assert.equal(f.statuses[fireAt].useBest, true, "the less blurry frame kept earlier, not the live one");
-    assert.ok(f.keeps.some((k) => k));
-    // From the bottle arriving (the second sample) to the shot: bestAfterMs, give or take a sample.
-    assert.ok(Math.abs((fireAt - 1) * INTERVAL - S.bestAfterMs) <= INTERVAL);
+    f.feed(view(EMPTY), 2);
+    f.feed(view(SIDE_B, { metrics: seat }), samplesFor(15_000));
+    assert.equal(f.fires(), 0);
+    assert.ok(f.statuses.slice(4).every((s) => s.blocker === "blurry"));
   });
 
-  it("uses the live frame at the fallback when it is the best one", () => {
-    const blurry = { ...GOOD, sharpness: 0.001 };
-    const f = feeder();
-    f.feed(sample({ luminance: EMPTY }));
-    f.feed(sample({ metrics: blurry }), samplesFor(S.bestAfterMs) - 4);
-    f.feed(sample({ metrics: { ...GOOD, sharpness: 0.009 } }), 6);
-    const fired = f.statuses.find((s) => s.phase === "fire");
-    assert.ok(fired, "fired");
-    assert.equal(fired.useBest, false);
+  it("waits for the arm delay even when the view is good at once", () => {
+    const f = feeder("label", { arrival: "none" });
+    f.feed(view(SIDE_A), samplesFor(S.armDelayMs.none) + 2);
+    assert.equal(f.fires(), 1);
+    assert.ok((f.fireAt() + 1) * INTERVAL >= S.armDelayMs.none);
   });
 
-  it("uses the live frame when the kept one is no better", () => {
-    const blurry = { ...GOOD, sharpness: 0.001 };
-    const f = feeder();
-    f.feed(sample({ luminance: EMPTY }));
-    f.feed(sample({ metrics: blurry }), samplesFor(S.bestAfterMs) + 2);
-    assert.equal(f.statuses.find((s) => s.phase === "fire")?.useBest, false);
-  });
-
-  it("forgets a best frame older than bestWindowMs", () => {
-    const f = feeder();
-    f.feed(sample({ luminance: EMPTY }));
-    f.feed(sample({ metrics: { ...GOOD, sharpness: 0.011 } }), 2);
-    const kept = f.state.best;
-    assert.ok(kept);
-    f.feed(sample({ metrics: { ...GOOD, sharpness: 0.001 } }), samplesFor(S.bestWindowMs) + 2);
-    assert.ok(f.state.best && f.state.best.at > kept.at, "a newer, worse frame replaced the stale one");
-  });
-
-  it("fires on a flat, dark glass close-up", () => {
+  it("photographs a flat, dark glass close-up", () => {
     const flat = new Uint8ClampedArray(W * H).fill(12);
     const f = feeder("color");
-    f.feed(sample({ luminance: EMPTY }));
-    f.feed(sample({ luminance: flat, metrics: { brightness: 0.05, contrast: 0.002, sharpness: 0 } }), samplesFor(S.steadyMs) + 4);
-    assert.equal(f.statuses.filter((s) => s.phase === "fire").length, 1);
+    f.feed(view(EMPTY), 2);
+    f.feed(view(flat, { metrics: { brightness: 0.05, contrast: 0.002, sharpness: 0 } }), HOLD + 3);
+    assert.equal(f.fires(), 1);
   });
 });
 
-describe("stepAutoShutter: later photos", () => {
-  const lastShot: AutoShutterSample = sample();
+describe("stepAutoShutter: a later side (arrival changed)", () => {
+  const lastShot = { scene: area(SIDE_A), region: area(SIDE_A) };
+  const later = () => feeder("label", { arrival: "changed", reference: lastShot });
 
-  it("with nothing to compare, a changed arrival only waits out the arm delay", () => {
-    assert.equal(armAutoShutter(0, { arrival: "changed" }).arrival, "none");
-    assert.equal(armAutoShutter(0, { arrival: "changed", reference: lastShot }).arrival, "changed");
+  it("never photographs the side already taken, however long it is held", () => {
+    const f = later();
+    f.feed(view(SIDE_A), samplesFor(12_000));
+    assert.equal(f.fires(), 0);
+    assert.ok(f.statuses.every((s) => s.blocker === "unchanged"));
+    assert.equal(f.statuses.at(-1)?.stalled, true);
   });
 
-  it("fires at once on a bottle already turned to the next side when the prompt arms", () => {
-    const f = feeder("label", { arrival: "changed", reference: lastShot });
-    f.feed(sample({ luminance: OTHER_SIDE }), samplesFor(Math.max(S.steadyMs, S.armDelayMs)) + 3);
-    const fireAt = f.statuses.findIndex((s) => s.phase === "fire");
-    assert.ok(fireAt > 0, "no need to take the bottle out and bring it back");
-    assert.ok(f.statuses.every((s) => s.blocker !== "unchanged" || s === f.statuses[0]));
-  });
-
-  it("never shoots the side already photographed as the next side, however long it is held", () => {
-    const f = feeder("label", { arrival: "changed", reference: lastShot });
-    f.feed(sample(), samplesFor(S.bestAfterMs * 4));
-    assert.ok(f.statuses.every((s) => s.phase === "waiting" && s.blocker === "unchanged"));
-    assert.equal(f.statuses[2].stalled, false);
-    assert.equal(f.statuses.at(-1)?.stalled, true, "after a while it says what it is waiting for");
-    // Turned at last: the shot follows.
-    f.feed(sample({ luminance: OTHER_SIDE }), samplesFor(S.steadyMs) + 4);
-    assert.equal(f.statuses.filter((s) => s.phase === "fire").length, 1);
-  });
-
-  it("hand shake on the side already photographed is not a turn", () => {
-    const f = feeder("label", { arrival: "changed", reference: lastShot });
-    for (let i = 0; i < samplesFor(S.bestAfterMs * 2); i += 1) {
-      f.feed(sample({ luminance: stripes(40, 200, 12, i % 3) }));
+  it("does not take a label shifting in the outline for a turn of the bottle", () => {
+    // What the first version did (a phone recording, 2026-11-28): a second after the front photo
+    // it photographed the same front as the bottom, because the small outline region had changed.
+    const f = later();
+    for (let i = 0; i < samplesFor(8000); i += 1) {
+      f.feed(view(stripes(40, 200, 12, i % 4), { scene: area(SIDE_A) }));
     }
-    assert.ok(f.statuses.every((s) => s.phase === "waiting" && s.blocker === "unchanged"));
+    assert.equal(f.fires(), 0);
   });
 
-  it("a turned bottle near the limit does not flip in and out of view", () => {
-    // Two views of the next side: one just over the arrival limit from the last photo, one just under.
+  it("does not photograph a bottle that was moved and brought back to the same side", () => {
+    const f = later();
+    f.feed(view(SIDE_A), 2);
+    f.feed(view(TURNING), 2);
+    f.feed(view(SIDE_A), samplesFor(8000));
+    assert.equal(f.fires(), 0);
+  });
+
+  it("photographs the next side once the bottle was turned and held, not before the arm delay", () => {
+    const f = later();
+    f.feed(view(SIDE_A));
+    f.feed(view(TURNING), 2);
+    f.feed(view(SIDE_B), samplesFor(S.armDelayMs.changed) + HOLD);
+    assert.equal(f.fires(), 1);
+    assert.ok((f.fireAt() + 1) * INTERVAL >= S.armDelayMs.changed, "time to see the last photo confirmed and turn the bottle");
+  });
+
+  it("sees a turn of a bottle that is small in the view: the outline's region changes, the whole view hardly", () => {
+    const background = stripes(60, 64);
+    const f = feeder("label", { arrival: "changed", reference: { scene: area(background), region: area(SIDE_A) } });
+    f.feed(view(SIDE_A, { scene: area(background) }), samplesFor(3000));
+    assert.equal(f.fires(), 0, "the side already taken");
+    f.feed(view(TURNING, { scene: area(background) }), 2);
+    f.feed(view(SIDE_B, { scene: area(background) }), samplesFor(S.armDelayMs.changed) + HOLD);
+    assert.equal(f.fires(), 1);
+  });
+
+  it("with nothing to compare (the last photo was an upload) it goes by the turn alone", () => {
+    const f = feeder("label", { arrival: "changed" });
+    f.feed(view(SIDE_A), samplesFor(4000));
+    assert.equal(f.fires(), 0, "no movement yet");
+    f.feed(view(TURNING), 2);
+    f.feed(view(SIDE_B), samplesFor(S.armDelayMs.changed) + HOLD);
+    assert.equal(f.fires(), 1);
+  });
+
+  it("a view just past the limit does not flip in and out", () => {
     const reference = new Uint8ClampedArray(W * H).fill(100);
-    const over = new Uint8ClampedArray(W * H).fill(100 + Math.ceil(255 * S.minArrivalChange.changed) + 2);
-    const under = new Uint8ClampedArray(W * H).fill(100 + Math.floor(255 * S.minArrivalChange.changed) - 6);
-    const f = feeder("label", { arrival: "changed", reference: { luminance: reference, width: W, height: H } });
-    f.feed(sample({ luminance: under }), 3);
-    assert.equal(f.state.arrivedAt, null, "under the limit nothing has arrived");
-    f.feed(sample({ luminance: over }));
-    const arrivedAt = f.state.arrivedAt;
-    assert.notEqual(arrivedAt, null);
-    f.feed(sample({ luminance: under }), 2);
-    assert.equal(f.state.arrivedAt, arrivedAt, "once arrived it stays arrived just under the limit");
-    f.feed(sample({ luminance: reference }));
-    assert.equal(f.state.arrivedAt, null, "back to the last photo's view: gone again");
+    const over = new Uint8ClampedArray(W * H).fill(100 + Math.ceil(255 * S.minArrivalChange.scene.changed) + 2);
+    const under = new Uint8ClampedArray(W * H).fill(100 + Math.floor(255 * S.minArrivalChange.scene.changed) - 6);
+    const f = feeder("label", { arrival: "changed", reference: { scene: area(reference), region: area(reference) } });
+    f.feed(view(under), 3);
+    assert.equal(f.state.differs, false);
+    f.feed(view(over));
+    assert.equal(f.state.differs, true);
+    f.feed(view(under), 2);
+    assert.equal(f.state.differs, true, "once different it stays different just under the limit");
+    f.feed(view(reference));
+    assert.equal(f.state.differs, false, "back to the last photo's view");
   });
+});
 
-  it("a reference of another size (another outline) counts as changed", () => {
-    const other: AutoShutterSample = { luminance: new Uint8ClampedArray(36).fill(90), width: 6, height: 6, metrics: GOOD };
-    const f = feeder("label", { arrival: "changed", reference: other });
-    f.feed(sample(), samplesFor(Math.max(S.steadyMs, S.armDelayMs)) + 3);
-    assert.equal(f.statuses.filter((s) => s.phase === "fire").length, 1);
-  });
-
-  it("arrival none shoots a bottle that never moved (a barcode was just read off it)", () => {
-    const arrival: AutoShutterArrival = "none";
-    const f = feeder("label", { arrival });
-    f.feed(sample(), samplesFor(S.armDelayNoneMs) + 3);
+describe("stepAutoShutter: the same side again (arrival none)", () => {
+  it("photographs a bottle that never moved, after the arm delay and a hold", () => {
+    const f = feeder("label", { arrival: "none" });
+    f.feed(view(SIDE_A), samplesFor(S.armDelayMs.none) + HOLD);
     assert.equal(f.statuses[0].blocker, null);
-    assert.equal(f.statuses.filter((s) => s.phase === "fire").length, 1);
-    // Not before the longer arm delay: time to read the prompt and adjust.
-    const fireAt = f.statuses.findIndex((s) => s.phase === "fire");
-    assert.ok((fireAt + 1) * INTERVAL >= S.armDelayNoneMs);
+    assert.equal(f.fires(), 1);
   });
 });
