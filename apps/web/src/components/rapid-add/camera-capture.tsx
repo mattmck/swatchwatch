@@ -165,8 +165,9 @@ export interface CameraCaptureProps {
   hideFrameTypeOptions?: boolean;
   /**
    * Arms the auto-shutter for one photo of `frameType`: a new key re-arms it, null turns it off.
-   * It fires once per key, when the bottle is in the outline and roughly still, or with the best
-   * frame seen after a few seconds (`lib/auto-shutter.ts`).
+   * It fires at most once per key, on a deliberate hold of the bottle in the outline
+   * (`lib/auto-shutter.ts`). It has no fallback: without such a hold it waits, and the photo is
+   * taken by a tap on the picture or the Capture button.
    */
   autoCaptureKey?: string | null;
   /** What the auto-shutter waits for before a photo (`AutoShutterArrival`, default `empty`). */
@@ -791,7 +792,8 @@ export function CameraCapture({
 function ViewfinderStatusPill({ status }: { status: ViewfinderStatus }) {
   const Icon = STATUS_TONE_ICON[status.tone];
   return (
-    <div className="absolute inset-x-3 top-3 flex justify-center" role="status" aria-live="polite">
+    // Click-through, so a tap on the pill's band still takes the photo; only its action button takes taps.
+    <div className="pointer-events-none absolute inset-x-3 top-3 flex justify-center" role="status" aria-live="polite">
       <div
         className={cn(
           "flex max-w-full items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium shadow-lg backdrop-blur",
@@ -807,7 +809,7 @@ function ViewfinderStatusPill({ status }: { status: ViewfinderStatus }) {
               event.stopPropagation();
               status.action?.onClick();
             }}
-            className="shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold underline-offset-2 hover:bg-white/30 pointer-coarse:py-1.5"
+            className="pointer-events-auto shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold underline-offset-2 hover:bg-white/30 pointer-coarse:py-1.5"
           >
             {status.action.label}
           </button>
