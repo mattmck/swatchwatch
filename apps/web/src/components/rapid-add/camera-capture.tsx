@@ -10,9 +10,9 @@ import {
   AUTO_SHUTTER_BLOCKER_COPY,
   AUTO_SHUTTER_REGIONS,
   AUTO_SHUTTER_SETTINGS,
-  AUTO_SHUTTER_SETTLING_COPY,
   AUTO_SHUTTER_STALLED_COPY,
   cropLuminance,
+  skinFraction,
   stepAutoShutter,
   type AutoShutterArrival,
   type AutoShutterBlocker,
@@ -65,20 +65,20 @@ const GUIDE_CLASS: Record<CameraGuide, string> = {
 
 const GUIDE_AUTO_HINT: Record<CameraGuide, string> = {
   barcode: "Hold the barcode in the band. It captures by itself.",
-  label: "Hold the label in the outline, about 6 in away. It captures by itself.",
-  front: "Hold the front of the bottle in the outline, about 6 in away. It captures by itself.",
-  bottom: "Hold the bottom sticker over the circle, about 6 in away. It captures by itself.",
-  glass: "Hold the polish color over the square. Blurry is fine. It captures by itself.",
-  box: "Hold the box in the square. It captures by itself.",
+  label: "Hold the label still in the outline, about 6 in away, or tap the picture.",
+  front: "Hold the front of the bottle still in the outline, about 6 in away, or tap the picture.",
+  bottom: "Hold the bottom sticker still over the circle, about 6 in away, or tap the picture.",
+  glass: "Hold the polish color still over the square, or tap the picture. Blurry is fine.",
+  box: "Hold the box still in the square, or tap the picture.",
 };
 
 const GUIDE_MANUAL_HINT: Record<CameraGuide, string> = {
   barcode: "Point at the barcode — it scans automatically",
-  label: "Hold the label in the outline, about 6 in away, then tap Capture",
-  front: "Hold the front of the bottle in the outline, about 6 in away, then tap Capture",
-  bottom: "Hold the bottom sticker over the circle, about 6 in away, then tap Capture",
-  glass: "Hold the polish color over the square, then tap Capture",
-  box: "Hold the box in the square, then tap Capture",
+  label: "Hold the label in the outline, about 6 in away, then tap the picture",
+  front: "Hold the front of the bottle in the outline, about 6 in away, then tap the picture",
+  bottom: "Hold the bottom sticker over the circle, about 6 in away, then tap the picture",
+  glass: "Hold the polish color over the square, then tap the picture",
+  box: "Hold the box in the square, then tap the picture",
 };
 
 /** What the viewfinder says for a moment after a photo is taken. */
@@ -148,8 +148,6 @@ export interface AutoShutterReport {
   arrival: AutoShutterArrival;
   /** Milliseconds from the prompt arming to the photo. */
   ms: number;
-  /** `steady`: the checks passed; `relaxed`: they passed once relaxed; `best`: the fallback took the best frame. */
-  via: "steady" | "relaxed" | "best";
   /** Samples each check held up. */
   blockers: Partial<Record<AutoShutterBlocker, number>>;
 }
@@ -267,8 +265,6 @@ export function CameraCapture({
   const lastReportedRef = useRef<{ gtin: string; at: number } | null>(null);
   /** The preview thumbnail at the last photo: what the next prompt's outline must differ from. */
   const lastShotRef = useRef<LuminanceSample | null>(null);
-  /** The best frame the auto-shutter has seen for the current prompt (a full-frame snapshot). */
-  const bestFrameRef = useRef<HTMLCanvasElement | null>(null);
   const onAutoShutterRef = useRef(onAutoShutter);
   /** The barcode the "Barcode read" confirmation was last shown for: repeat reads stay quiet. */
   const lastChipRef = useRef<{ gtin: string; at: number } | null>(null);
@@ -313,6 +309,18 @@ export function CameraCapture({
     [guide],
   );
 
+  /** The part of the camera frame the preview shows (it is `object-cover`), as fractions of the frame. */
+  const visibleRegion = useCallback((video: HTMLVideoElement) => {
+    const box = video.getBoundingClientRect();
+    return (
+      guideRegionInFrame({
+        guide: { left: 0, top: 0, width: box.width, height: box.height },
+        element: { width: box.width, height: box.height },
+        frame: { width: video.videoWidth, height: video.videoHeight },
+      }) ?? { x: 0, y: 0, w: 1, h: 1 }
+    );
+  }, []);
+
   /** The part of the preview thumbnail the auto-shutter measures: a little inside the outline. */
   const measuredRegion = useCallback(
     (video: HTMLVideoElement) => {
@@ -322,12 +330,12 @@ export function CameraCapture({
     [guide, measureShownGuide],
   );
 
-  /** A photo of `source` (the live video or a kept full-frame snapshot of it), cut around the outline. */
+  /** A photo of the live video, cut around the outline. */
   const takeStill = useCallback(
-    (video: HTMLVideoElement, source: HTMLVideoElement | HTMLCanvasElement = video) => {
+    (video: HTMLVideoElement) => {
       const shown = measureShownGuide(video);
       const plan = shown ? planGuideCrop(guide, shown.region) : null;
-      const frame = captureFrameFromSource(source, undefined, plan?.crop);
+      const frame = captureFrameFromSource(video, undefined, plan?.crop);
       const shownGuide: ShownGuide | undefined = plan?.region ? { guide, region: plan.region } : undefined;
       return { frame, shownGuide };
     },
@@ -433,7 +441,6 @@ export function CameraCapture({
     let gate: AutoShutterState | null = null;
     const blockers: Partial<Record<AutoShutterBlocker, number>> = {};
     const scratch = document.createElement("canvas");
-    bestFrameRef.current = null;
     // A new bottle starts from the empty scene, not from the last bottle's photo.
     if (autoCaptureArrival === "empty") lastShotRef.current = null;
     const timer = setInterval(() => {
@@ -442,20 +449,33 @@ export function CameraCapture({
       if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
       const sample = sampleLuminance(video, scratch);
       if (!sample) return;
-      // Measure only what is inside the guide: the background is sharp and steady too.
+      // The outline's region says whether the photo would be good; the whole view the user sees
+      // says whether the phone or the bottle is moving.
       const area = measuredRegion(video);
+      const visible = visibleRegion(video);
       const region = cropLuminance(sample.luminance, sample.width, sample.height, area);
+      const scene = cropLuminance(sample.luminance, sample.width, sample.height, visible);
       const now = Date.now();
       if (!gate) {
         const last = lastShotRef.current;
         gate = armAutoShutter(now, {
           arrival: autoCaptureArrival,
-          reference: last ? cropLuminance(last.luminance, last.width, last.height, area) : null,
+          reference: last
+            ? {
+                scene: cropLuminance(last.luminance, last.width, last.height, visible),
+                region: cropLuminance(last.luminance, last.width, last.height, area),
+              }
+            : null,
         });
       }
       const step = stepAutoShutter(
         gate,
-        { ...region, metrics: computeFrameQuality(region.luminance, region.width, region.height) },
+        {
+          ...region,
+          metrics: computeFrameQuality(region.luminance, region.width, region.height),
+          scene,
+          skin: skinFraction(sample.rgba, sample.width, sample.height, area),
+        },
         now,
         frameType,
       );
@@ -464,30 +484,10 @@ export function CameraCapture({
       gate = step.state;
       setAutoStatus(step.status);
       if (step.status.blocker) blockers[step.status.blocker] = (blockers[step.status.blocker] ?? 0) + 1;
-      if (step.keep) {
-        // Keep this moment (the whole camera frame) in case the fallback needs it.
-        try {
-          const canvas = bestFrameRef.current ?? document.createElement("canvas");
-          if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
-          if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
-          canvas.getContext("2d")?.drawImage(video, 0, 0);
-          bestFrameRef.current = canvas;
-        } catch {
-          bestFrameRef.current = null;
-        }
-      }
       if (step.status.phase === "fire") {
         clearInterval(timer);
-        const useBest = step.status.useBest && bestFrameRef.current !== null;
-        onAutoShutterRef.current?.({
-          guide,
-          frameType,
-          arrival,
-          ms: now - armedAt,
-          via: useBest ? "best" : step.status.settling ? "relaxed" : "steady",
-          blockers,
-        });
-        void shutterRef.current("auto", useBest ? bestFrameRef.current : null);
+        onAutoShutterRef.current?.({ guide, frameType, arrival, ms: now - armedAt, blockers });
+        void shutterRef.current("auto");
       }
     }, AUTO_SHUTTER_SETTINGS.sampleIntervalMs);
     return () => {
@@ -495,7 +495,7 @@ export function CameraCapture({
       clearInterval(timer);
       setAutoStatus(null);
     };
-  }, [autoArmed, autoCaptureKey, autoCaptureArrival, frameType, guide, measuredRegion]);
+  }, [autoArmed, autoCaptureKey, autoCaptureArrival, frameType, guide, measuredRegion, visibleRegion]);
 
   function toggleAuto() {
     setAutoOn((on) => {
@@ -513,15 +513,14 @@ export function CameraCapture({
     }
   }
 
-  /** Take the photo: the live frame, or `kept`, a full-frame snapshot the auto-shutter kept as its best. */
-  async function handleShutter(trigger: "shutter" | "auto" = "shutter", kept: HTMLCanvasElement | null = null) {
+  async function handleShutter(trigger: "shutter" | "auto" = "shutter") {
     const video = videoRef.current;
     if (!video) return;
     setLocalError(null);
     setProcessing(true);
     try {
-      const { frame, shownGuide } = takeStill(video, kept ?? video);
-      lastShotRef.current = sampleLuminance(kept ?? video);
+      const { frame, shownGuide } = takeStill(video);
+      lastShotRef.current = sampleLuminance(video);
       // Say so at once: reading the photo takes the server a few seconds.
       setShot({ text: GUIDE_SHOT_LABEL[guide], imageUrl: frame.dataUrl });
       navigator.vibrate?.(40);
@@ -576,17 +575,15 @@ export function CameraCapture({
   const liveHint = autoArmed
     ? processing
       ? "Capturing…"
-      : autoStatus?.settling
-        ? AUTO_SHUTTER_SETTLING_COPY
-        : autoStatus?.stalled && autoCaptureArrival !== "none"
-          ? AUTO_SHUTTER_STALLED_COPY[autoCaptureArrival]
-          : autoStatus?.blocker && autoStatus.blocker !== "unchanged"
+      : autoStatus?.stalled && autoCaptureArrival !== "none"
+        ? AUTO_SHUTTER_STALLED_COPY[autoCaptureArrival]
+        : autoStatus?.blocker && autoStatus.blocker !== "unchanged"
           ? AUTO_SHUTTER_BLOCKER_COPY[autoStatus.blocker]
           : autoStatus?.phase === "steadying"
             ? "Hold it there…"
             : GUIDE_AUTO_HINT[guide]
     : guide === "barcode" && scannerFailed
-      ? "Frame the label or bottle, then tap Capture"
+      ? "Frame the label or bottle, then tap the picture"
       : scanBarcodes && !scannerFailed && guide !== "barcode"
         ? `${GUIDE_MANUAL_HINT[guide]} (barcodes scan on their own)`
         : GUIDE_MANUAL_HINT[guide];
@@ -607,6 +604,18 @@ export function CameraCapture({
           autoPlay
           aria-label="Live camera preview"
         />
+        {isLive && guide !== "barcode" && (
+          // The whole picture is a shutter: the auto-shutter only fires on a deliberate hold,
+          // and a tap is the quick way to take the photo now. (The Capture button below does
+          // the same and is the keyboard and screen-reader control.)
+          <div
+            aria-hidden
+            className={cn("absolute inset-0", !(captureDisabled || processing) && "cursor-pointer")}
+            onClick={() => {
+              if (!captureDisabled && !processing) void handleShutter();
+            }}
+          />
+        )}
 
         {isLive && (
           <>
@@ -647,7 +656,7 @@ export function CameraCapture({
             )}
             {status && <ViewfinderStatusPill status={status} />}
             <p
-              className="absolute inset-x-0 bottom-3 px-3 text-center text-xs font-medium text-white drop-shadow"
+              className="pointer-events-none absolute inset-x-0 bottom-3 px-3 text-center text-xs font-medium text-white drop-shadow"
               aria-live="polite"
             >
               {liveHint}
@@ -792,7 +801,10 @@ function ViewfinderStatusPill({ status }: { status: ViewfinderStatus }) {
         {status.action && (
           <button
             type="button"
-            onClick={status.action.onClick}
+            onClick={(event) => {
+              event.stopPropagation();
+              status.action?.onClick();
+            }}
             className="shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold underline-offset-2 hover:bg-white/30 pointer-coarse:py-1.5"
           >
             {status.action.label}

@@ -1,31 +1,38 @@
 /**
- * Auto-shutter for Rapid Add label, glass and box photos: take the photo once the bottle has been
- * brought into the guide and held roughly still for a moment, so the user only has to hold it up.
- * Everything is measured inside the guide's region of the preview (not the whole frame, whose
- * sharp, steady background used to fire the shot before the bottle arrived).
+ * Auto-shutter for Rapid Add label, glass and box photos: take the photo when the bottle is held
+ * still in the guide, so the user only has to hold it up.
  *
- * It is built to take a photo, not to wait for a perfect one (2026-11-27: on a phone the old gate
- * almost never fired): hand shake is measured on coarse cells so a pixel of jitter on a printed
- * label is not "moving", one wobble is forgiven, a glass (color) shot needs no sharpness or
- * contrast, the checks relax once the bottle has been in the outline a while, and after
- * `bestAfterMs` the best frame seen is taken whatever the checks say.
+ * It cannot see what is in the outline: nothing cheap tells a bottle from a seat or a hand
+ * (measured on a phone recording, 2026-11-28: outline-versus-surround contrast and sharpness
+ * overlap for all three). So it goes by what the user does, and errs toward not shooting, since
+ * the Capture button is always there:
+ * - the whole view and the outline's region must both be still for `steadyMs` (a deliberate hold
+ *   moves under 0.02 between samples; positioning or turning a bottle moves 0.03 to 0.2);
+ * - a label must be sharp and have contrast, with no relaxing over time and no fallback shot;
+ * - a hand in the outline (mostly skin tone) is never photographed;
+ * - a later side needs time (`armDelayMs`) and a real turn of the bottle (movement of the whole
+ *   view since the last photo, and a view that then differs from that photo). The first version
+ *   compared only the outline's small region, where a label shifting a little reads as a change,
+ *   and so photographed the same side twice a second apart.
  *
- * DOM-free so it can be unit tested in Node; the sampling glue (a ~160px luminance thumbnail every
- * `sampleIntervalMs`, cropped with `cropLuminance`) lives in `components/rapid-add/camera-capture.tsx`.
+ * DOM-free so it can be unit tested in Node; the sampling glue (a ~160px thumbnail every
+ * `sampleIntervalMs`) lives in `components/rapid-add/camera-capture.tsx`.
  */
 import { DEFAULT_GUIDE_REGIONS, type BottleSurface, type CaptureFrameType } from "swatchwatch-shared";
 import { FRAME_QUALITY_THRESHOLDS, type FrameQualityMetrics } from "./camera";
 
 const LABEL_RULES = {
   /**
-   * Largest coarse-cell change (0–1) between two samples that still counts as steady. A white
-   * sticker on a dark bottle shifting two thumbnail pixels (a normal hand tremor) is about 0.06.
+   * Largest coarse-cell change (0–1) of the outline's region between two samples that still counts
+   * as still. The region is small and full of print, so it moves more than the whole view: a held
+   * bottom sticker measured 0.015 to 0.054, one being turned in place mostly 0.06 to 0.12 (and
+   * those samples also fail the whole-view limit).
    */
-  maxMotion: 0.07,
+  maxMotion: 0.06,
   /** Region brightness outside this is a covered lens or pure glare. */
   minBrightness: 0.1,
   maxBrightness: 0.96,
-  /** Below this contrast the region is a blank wall or a hand, not a label. */
+  /** Below this contrast the region is a blank wall, not a label. */
   minContrast: 0.04,
   /** A label needs readable text. */
   minSharpness: FRAME_QUALITY_THRESHOLDS.minSharpness as number,
@@ -42,68 +49,68 @@ export interface AutoShutterRules {
 export const AUTO_SHUTTER_SETTINGS = {
   /** How often the preview is sampled. */
   sampleIntervalMs: 120,
-  /** How long the samples must pass before the shutter fires. */
-  steadyMs: 400,
-  /** Ignore the first moments after arming, while the user is still bringing the bottle in. */
-  armDelayMs: 500,
+  /** How long the view must be still before the shutter fires: a deliberate hold, not a pause. */
+  steadyMs: 900,
   /**
-   * The arm delay when nothing has to arrive (`none`: the same side is asked for again, or a
-   * barcode was just read off the bottle): time to read the prompt and adjust before the shot.
+   * The earliest a photo may follow the prompt. For a later side (`changed`, `none`) that is
+   * time to see the last photo confirmed, read the prompt and turn the bottle.
    */
-  armDelayNoneMs: 1200,
+  armDelayMs: { empty: 600, changed: 1500, none: 1500 },
   /** Thumbnail pixels per coarse cell: motion is compared on cell means, so jitter of a pixel or two is ignored. */
   motionCell: 6,
-  /** Motion up to this many times `maxMotion` is a wobble (forgiven once per run); more restarts the run. */
-  jerkFactor: 2.5,
+  /** Largest coarse-cell change (0–1) of the whole view between two samples that still counts as still. */
+  maxSceneMotion: 0.02,
   /**
-   * Smallest coarse-cell change (0–1) between the guide region now and the reference scene: below
-   * it nothing new has been brought into the outline yet, so the shot waits. Both are well above
-   * what hand shake alone changes (`maxMotion`), or a bottle held still would count as turned:
-   * `empty` compares with the scene before the bottle, `changed` with the last photo.
+   * Motion up to this many times the limit is a wobble: a hand holding a bottle still twitches
+   * about twice a second (measured). A wobble does not restart the hold if the last one was at
+   * least `wobbleEveryMs` ago; a larger movement, or wobbles in a row, do.
    */
-  minArrivalChange: { empty: 0.1, changed: 0.14 },
+  jerkFactor: 1.5,
+  wobbleEveryMs: 350,
   /**
-   * Once something has arrived it only counts as gone again below this share of
-   * `minArrivalChange`, so a scene near the limit does not flip in and out (which would keep
-   * restarting the wait for the best frame).
+   * Motion between two samples at or above this is the bottle (or the phone) being moved: a turn
+   * has started. Either the whole view or the outline's region shows it (a bottle that is small
+   * in the view barely moves the whole view; a held one twitches up to 0.054 in the region).
    */
+  turnMotion: { scene: 0.06, region: 0.12 },
+  /**
+   * Smallest coarse-cell change (0–1) from the reference (the view when the prompt armed for
+   * `empty`, the last photo for `changed`) that counts as a different view; either measure is
+   * enough. Measured on a phone: the same side shifting in the hand changes the whole view by up
+   * to 0.04 and the region by up to 0.07; a bottle turned to another side changes the view by
+   * about 0.10, and the region by 0.11 to 0.32.
+   */
+  minArrivalChange: { scene: { empty: 0.08, changed: 0.07 }, region: 0.12 },
+  /** Once different, the view only counts as back to the reference below this share of `minArrivalChange`. */
   arrivalRelease: 0.5,
+  /** At or above this share of skin-tone pixels the outline holds a hand, not a bottle. */
+  maxSkin: 0.75,
   /**
    * Per frame type. A glass (color) close-up is a patch of lacquer: it has no edges to be sharp,
    * no contrast, and a black or white polish is as dark or bright as the lens allows, so only
-   * stillness (loosely) is asked of it.
+   * stillness is asked of it.
    */
   rules: {
     label: LABEL_RULES,
     barcode: LABEL_RULES,
     other: LABEL_RULES,
-    color: { maxMotion: 0.12, minBrightness: 0.02, maxBrightness: 1.01, minContrast: 0, minSharpness: 0 },
+    color: { maxMotion: 0.06, minBrightness: 0.02, maxBrightness: 1.01, minContrast: 0, minSharpness: 0 },
   } satisfies Record<CaptureFrameType, AutoShutterRules>,
-  /** Once the bottle has been in the outline this long the checks relax (`relax`). */
-  relaxAfterMs: 1800,
-  relax: { motion: 1.6, sharpness: 0.5, steadyMs: 250 },
-  /** Once the bottle has been in the outline this long the best frame seen is taken, whatever the checks say. */
-  bestAfterMs: 3500,
-  /** A kept best frame older than this is stale (the bottle has likely been turned since). */
-  bestWindowMs: 2500,
-  /** An arrival that has waited this long says what it is waiting for (`AUTO_SHUTTER_STALLED_COPY`). */
+  /** A prompt that has waited this long for its arrival says what it is waiting for (`AUTO_SHUTTER_STALLED_COPY`). */
   stalledAfterMs: 3000,
-  /** An equally good newer sample replaces the kept best frame this often. */
-  bestRefreshMs: 500,
 } as const;
 
-export type AutoShutterBlocker = "unchanged" | "moving" | "too-dark" | "too-bright" | "blurry" | "empty";
+export type AutoShutterBlocker = "unchanged" | "moving" | "too-dark" | "too-bright" | "blurry" | "empty" | "hand";
 
 /**
  * What must happen before a photo may be taken:
- * - `empty`: the first photo of a bottle. The first sample is the empty scene; wait until
- *   something is brought into the outline.
- * - `changed`: a later photo. The reference is how the outline looked at the last photo; wait
- *   until it looks different (the bottle was turned). It waits as long as that takes: a shot of
- *   the side already photographed, sent as the next side, is worse than waiting (the Capture
- *   button is always there).
- * - `none`: the bottle is known to be in view (a barcode was just read off it, or the same side
- *   is asked for again): only the arm delay applies.
+ * - `empty`: the first photo of a bottle. The view must have moved or changed since the prompt
+ *   armed (a bottle was brought in); a view that never changes waits for a tap.
+ * - `changed`: a later photo. The bottle must have been turned: the whole view moved since the
+ *   prompt armed, and now differs from the last photo. It waits as long as that takes: a photo
+ *   of the side already taken, sent as the next side, is worse than waiting.
+ * - `none`: the same side is asked for again, or a barcode was just read off the bottle: only
+ *   the arm delay and the hold apply.
  */
 export type AutoShutterArrival = "empty" | "changed" | "none";
 
@@ -152,51 +159,55 @@ export function cropLuminance(
   return { luminance: out, width: w, height: h };
 }
 
-export interface AutoShutterSample {
-  /** 8-bit luminance of the guide region of the thumbnail (`rgbaToLuminance`, `cropLuminance`). */
+/** A luminance buffer and its size. */
+export interface LuminanceArea {
   luminance: ArrayLike<number>;
   width: number;
   height: number;
+}
+
+export interface AutoShutterSample extends LuminanceArea {
+  /** `luminance` is the guide region of the thumbnail (`rgbaToLuminance`, `cropLuminance`); its quality: */
   metrics: FrameQualityMetrics;
+  /** The whole visible preview (what the user sees), for movement of the phone or the bottle. */
+  scene: LuminanceArea;
+  /** 0–1 share of skin-tone pixels in the guide region (`skinFraction`). */
+  skin: number;
 }
 
 export interface AutoShutterState {
   armedAt: number;
   arrival: AutoShutterArrival;
-  /** Coarse cells of the scene a new arrival is compared with (null: nothing to compare). */
+  /** Coarse cells of the whole view and of the outline's region an arrival is compared with (null: nothing to compare). */
   reference: ArrayLike<number> | null;
-  /** Coarse cells of the previous sample. */
-  previous: ArrayLike<number> | null;
-  /** When the subject was first seen in the outline in the current unbroken run, or null. */
-  arrivedAt: number | null;
-  /** When the current run of good samples started, or null. */
-  goodSince: number | null;
-  /** The current run already used its one forgiven wobble. */
-  wobbleUsed: boolean;
-  /** The best sample since the subject arrived (the caller keeps its frame), or null. */
-  best: { score: number; at: number } | null;
+  referenceRegion: ArrayLike<number> | null;
+  /** Coarse cells of the previous sample's guide region and whole view. */
+  previousRegion: ArrayLike<number> | null;
+  previousScene: ArrayLike<number> | null;
+  /** The whole view has moved (`turnMotion`) since the prompt armed. */
+  moved: boolean;
+  /** The view differs from the reference (kept until it returns to it, `arrivalRelease`). */
+  differs: boolean;
+  /** When the current run of still, good samples started, or null. */
+  steadySince: number | null;
+  /** When the current hold last had a forgiven wobble, or null. */
+  lastWobbleAt: number | null;
   fired: boolean;
 }
 
 export interface AutoShutterStatus {
   /** `fire` is returned once per arming; after that the gate stays `done`. */
   phase: "waiting" | "steadying" | "fire" | "done";
-  /** 0–1 share of the steady time the current good run has lasted. */
+  /** 0–1 share of `steadyMs` the current hold has lasted. */
   progress: number;
   blocker: AutoShutterBlocker | null;
-  /** The checks have relaxed and the best frame will be taken soon: say so instead of the blocker. */
-  settling: boolean;
-  /** With `fire`: take the kept best frame (`keep`) instead of the live one. */
-  useBest: boolean;
-  /** Nothing has arrived in the outline for `stalledAfterMs`: say what it is waiting for (`AUTO_SHUTTER_STALLED_COPY`). */
+  /** Nothing has arrived for `stalledAfterMs`: say what it is waiting for (`AUTO_SHUTTER_STALLED_COPY`). */
   stalled: boolean;
 }
 
 export interface AutoShutterStep {
   state: AutoShutterState;
   status: AutoShutterStatus;
-  /** This sample is the best seen so far: keep its frame in case the fallback needs it. */
-  keep: boolean;
 }
 
 /** Mean of each `cell`×`cell` block of a `width`×`height` luminance buffer, row by row. */
@@ -252,70 +263,92 @@ export function luminanceMotion(
   return sum / (b.length * 255);
 }
 
+/**
+ * 0–1 share of skin-tone pixels in `region` of a `width`-wide RGBA thumbnail (YCbCr box, as
+ * common skin detectors use). It also matches beige leather or wood, so it is only used to
+ * refuse a view that is almost all skin: a hand held in the outline.
+ */
+export function skinFraction(
+  rgba: ArrayLike<number>,
+  width: number,
+  height: number,
+  region: NormalizedRegion,
+): number {
+  if (width <= 0 || height <= 0 || rgba.length < width * height * 4) return 0;
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  const left = Math.min(width - 1, Math.floor(clamp(region.x) * width));
+  const top = Math.min(height - 1, Math.floor(clamp(region.y) * height));
+  const right = Math.max(left + 1, Math.min(width, Math.ceil(clamp(region.x + region.w) * width)));
+  const bottom = Math.max(top + 1, Math.min(height, Math.ceil(clamp(region.y + region.h) * height)));
+  let skin = 0;
+  for (let y = top; y < bottom; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      const i = (y * width + x) * 4;
+      const r = rgba[i];
+      const g = rgba[i + 1];
+      const b = rgba[i + 2];
+      const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+      const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+      if (r > 60 && cr > 135 && cr < 180 && cb > 85 && cb < 135) skin += 1;
+    }
+  }
+  return skin / ((right - left) * (bottom - top));
+}
+
 export function armAutoShutter(
   now: number,
-  opts: { arrival?: AutoShutterArrival; reference?: Pick<AutoShutterSample, "luminance" | "width" | "height"> | null } = {},
+  opts: {
+    arrival?: AutoShutterArrival;
+    /** The last photo, for a `changed` arrival: the whole view and the part the current outline covers. */
+    reference?: { scene: LuminanceArea; region: LuminanceArea } | null;
+  } = {},
 ): AutoShutterState {
-  const wanted = opts.arrival ?? "empty";
-  const reference =
-    wanted === "changed" && opts.reference
-      ? coarsenLuminance(opts.reference.luminance, opts.reference.width, opts.reference.height)
-      : null;
-  // A `changed` arrival with nothing to compare with can only wait out the arm delay.
-  const arrival: AutoShutterArrival = wanted === "changed" && (!reference || reference.length === 0) ? "none" : wanted;
+  const arrival = opts.arrival ?? "empty";
+  const cells = (a: LuminanceArea | undefined) => {
+    const c = a && arrival === "changed" ? coarsenLuminance(a.luminance, a.width, a.height) : null;
+    return c && c.length > 0 ? c : null;
+  };
   return {
     armedAt: now,
     arrival,
-    reference: arrival === "changed" ? reference : null,
-    previous: null,
-    arrivedAt: null,
-    goodSince: null,
-    wobbleUsed: false,
-    best: null,
+    // With nothing to compare (the last photo was an upload), a `changed` arrival goes by movement alone.
+    reference: cells(opts.reference?.scene),
+    referenceRegion: cells(opts.reference?.region),
+    previousRegion: null,
+    previousScene: null,
+    moved: false,
+    differs: false,
+    steadySince: null,
+    lastWobbleAt: null,
     fired: false,
   };
 }
 
-function rulesFor(frameType: CaptureFrameType, relaxed: boolean): AutoShutterRules {
-  const rules: AutoShutterRules = AUTO_SHUTTER_SETTINGS.rules[frameType];
-  if (!relaxed) return rules;
-  return {
-    ...rules,
-    maxMotion: rules.maxMotion * AUTO_SHUTTER_SETTINGS.relax.motion,
-    minSharpness: rules.minSharpness * AUTO_SHUTTER_SETTINGS.relax.sharpness,
-  };
-}
-
-/** What keeps this sample from counting toward the shot (first blocker wins), or null. */
+/**
+ * What keeps this sample from counting toward the shot (first blocker wins), or null. `motion`
+ * is the guide region's, `sceneMotion` the whole view's.
+ */
 export function autoShutterBlocker(
   metrics: FrameQualityMetrics,
   motion: number,
   frameType: CaptureFrameType,
-  opts: { relaxed?: boolean } = {},
+  opts: { sceneMotion?: number; skin?: number } = {},
 ): AutoShutterBlocker | null {
-  const rules = rulesFor(frameType, opts.relaxed === true);
+  const rules: AutoShutterRules = AUTO_SHUTTER_SETTINGS.rules[frameType];
+  if ((opts.skin ?? 0) >= AUTO_SHUTTER_SETTINGS.maxSkin) return "hand";
   if (metrics.brightness < rules.minBrightness) return "too-dark";
   if (metrics.brightness > rules.maxBrightness) return "too-bright";
-  if (motion > rules.maxMotion) return "moving";
+  if (motion > rules.maxMotion || (opts.sceneMotion ?? 0) > AUTO_SHUTTER_SETTINGS.maxSceneMotion) return "moving";
   if (metrics.contrast < rules.minContrast) return "empty";
   if (metrics.sharpness < rules.minSharpness) return "blurry";
   return null;
 }
 
-/** 0–1: how good a sample is as the photo to fall back on (sharp, still, well exposed). */
-export function autoShutterScore(metrics: FrameQualityMetrics, motion: number, frameType: CaptureFrameType): number {
-  const rules: AutoShutterRules = AUTO_SHUTTER_SETTINGS.rules[frameType];
-  const sharp = rules.minSharpness > 0 ? Math.min(1, metrics.sharpness / (rules.minSharpness * 2)) : 1;
-  const still = 1 - Math.min(1, motion / (rules.maxMotion * AUTO_SHUTTER_SETTINGS.jerkFactor));
-  const exposed = metrics.brightness >= rules.minBrightness && metrics.brightness <= rules.maxBrightness ? 1 : 0.5;
-  return (0.2 + 0.8 * sharp) * (0.3 + 0.7 * still) * exposed;
-}
-
-const NOT_FIRING = { settling: false, useBest: false, stalled: false } as const;
+const IDLE = { stalled: false } as const;
 
 /**
- * Feed one preview sample (the guide region); returns the next state, whether to take the photo
- * now, and whether to keep this sample's frame as the best so far.
+ * Feed one preview sample; returns the next state and whether to take the photo now. The first
+ * sample after arming only sets the scene.
  */
 export function stepAutoShutter(
   state: AutoShutterState,
@@ -324,111 +357,96 @@ export function stepAutoShutter(
   frameType: CaptureFrameType,
 ): AutoShutterStep {
   if (state.fired) {
-    return { state, status: { phase: "done", progress: 1, blocker: null, ...NOT_FIRING }, keep: false };
+    return { state, status: { phase: "done", progress: 1, blocker: null, ...IDLE } };
   }
   const S = AUTO_SHUTTER_SETTINGS;
-  const coarse = coarsenLuminance(sample.luminance, sample.width, sample.height);
-  if (!state.previous) {
-    // The first sample only sets the scene; with an `empty` arrival it is the scene to move away from.
+  const region = coarsenLuminance(sample.luminance, sample.width, sample.height);
+  const scene = coarsenLuminance(sample.scene.luminance, sample.scene.width, sample.scene.height);
+  if (!state.previousScene || !state.previousRegion) {
     return {
-      state: { ...state, previous: coarse, reference: state.arrival === "empty" ? coarse : state.reference },
-      status: { phase: "waiting", progress: 0, blocker: state.arrival === "none" ? null : "unchanged", ...NOT_FIRING },
-      keep: false,
+      state: {
+        ...state,
+        previousRegion: region,
+        previousScene: scene,
+        reference: state.arrival === "empty" ? scene : state.reference,
+        referenceRegion: state.arrival === "empty" ? region : state.referenceRegion,
+      },
+      status: { phase: "waiting", progress: 0, blocker: state.arrival === "none" ? null : "unchanged", ...IDLE },
     };
   }
 
-  const change = state.arrival === "none" || !state.reference ? 1 : luminanceMotion(state.reference, coarse);
-  const needed = state.arrival === "none" ? 0 : S.minArrivalChange[state.arrival];
-  const arrived = change >= (state.arrivedAt === null ? needed : needed * S.arrivalRelease);
+  const motion = luminanceMotion(state.previousRegion, region, { ignoreBrightness: true });
+  const sceneMotion = luminanceMotion(state.previousScene, scene, { ignoreBrightness: true });
+  const moved = state.moved || sceneMotion >= S.turnMotion.scene || motion >= S.turnMotion.region;
+  // The view differs from the reference when the whole view or the outline's region does.
+  const release = state.differs ? S.arrivalRelease : 1;
+  const sceneNeeded = state.arrival === "none" ? 0 : S.minArrivalChange.scene[state.arrival];
+  const sceneChange = state.reference ? luminanceMotion(state.reference, scene) : 1;
+  const regionChange = state.referenceRegion ? luminanceMotion(state.referenceRegion, region) : 0;
+  const differs = sceneChange >= sceneNeeded * release || regionChange >= S.minArrivalChange.region * release;
+  // A first photo: something moved or the view changed. A later side: the bottle was turned
+  // (it moved) and the view is no longer the last photo's.
+  const arrived =
+    state.arrival === "none" ? true : state.arrival === "empty" ? moved || differs : moved && differs;
+  const base = { ...state, previousRegion: region, previousScene: scene, moved, differs };
+
   if (!arrived) {
     return {
-      state: { ...state, previous: coarse, arrivedAt: null, goodSince: null, wobbleUsed: false, best: null },
+      state: { ...base, steadySince: null, lastWobbleAt: null },
       status: {
         phase: "waiting",
         progress: 0,
         blocker: "unchanged",
-        ...NOT_FIRING,
         stalled: now - state.armedAt >= S.stalledAfterMs,
       },
-      keep: false,
     };
   }
 
-  const arrivedAt = state.arrivedAt ?? now;
-  const inView = now - arrivedAt;
-  const relaxed = inView >= S.relaxAfterMs;
-  const armed = now - state.armedAt >= (state.arrival === "none" ? S.armDelayNoneMs : S.armDelayMs);
-  const motion = luminanceMotion(state.previous, coarse, { ignoreBrightness: true });
-  const blocker = autoShutterBlocker(sample.metrics, motion, frameType, { relaxed });
-  const score = autoShutterScore(sample.metrics, motion, frameType);
-
-  const liveBest = state.best && now - state.best.at <= S.bestWindowMs ? state.best : null;
-  // Keep a clearly better sample, and refresh the kept one with an equally good newer sample.
-  const keep =
-    !liveBest ||
-    score > liveBest.score + 0.02 ||
-    (score >= liveBest.score - 0.02 && now - liveBest.at >= AUTO_SHUTTER_SETTINGS.bestRefreshMs);
-  const best = keep ? { score, at: now } : liveBest;
-  // The kept frame is used only when it is clearly better than what the camera shows now.
-  const useBest = liveBest !== null && liveBest.score > score + 0.02;
-  const base = { ...state, previous: coarse, arrivedAt, best };
-
-  // The fallback: the bottle has been in the outline long enough, so take the best frame seen.
-  if (armed && inView >= S.bestAfterMs) {
-    return {
-      state: { ...base, fired: true },
-      status: { phase: "fire", progress: 1, blocker: null, settling: true, useBest, stalled: false },
-      keep,
-    };
-  }
-
-  const steadyMs = relaxed ? S.relax.steadyMs : S.steadyMs;
+  const blocker = autoShutterBlocker(sample.metrics, motion, frameType, { sceneMotion, skin: sample.skin });
   if (blocker) {
-    const limit = rulesFor(frameType, relaxed).maxMotion * S.jerkFactor;
-    if (blocker === "moving" && motion <= limit && state.goodSince !== null && !state.wobbleUsed) {
-      // One wobble does not restart the run, but the shot is never taken on it.
-      const progress = Math.min(1, (now - state.goodSince) / steadyMs);
-      return {
-        state: { ...base, wobbleUsed: true },
-        status: { phase: "steadying", progress, blocker: null, settling: relaxed, useBest: false, stalled: false },
-        keep,
-      };
+    const rules: AutoShutterRules = S.rules[frameType];
+    const wobble =
+      blocker === "moving" &&
+      motion <= rules.maxMotion * S.jerkFactor &&
+      sceneMotion <= S.maxSceneMotion * S.jerkFactor &&
+      state.steadySince !== null &&
+      (state.lastWobbleAt === null || now - state.lastWobbleAt >= S.wobbleEveryMs);
+    if (wobble) {
+      // A twitch does not restart the hold, but the shot is never taken on it.
+      const progress = Math.min(1, (now - (state.steadySince as number)) / S.steadyMs);
+      return { state: { ...base, lastWobbleAt: now }, status: { phase: "steadying", progress, blocker: null, ...IDLE } };
     }
     return {
-      state: { ...base, goodSince: null, wobbleUsed: false },
-      status: { phase: "waiting", progress: 0, blocker, settling: relaxed, useBest: false, stalled: false },
-      keep,
+      state: { ...base, steadySince: null, lastWobbleAt: null },
+      status: { phase: "waiting", progress: 0, blocker, ...IDLE },
     };
   }
 
-  const goodSince = state.goodSince ?? now;
-  const progress = Math.min(1, (now - goodSince) / steadyMs);
-  const ready = progress >= 1 && armed;
+  const steadySince = state.steadySince ?? now;
+  const progress = Math.min(1, (now - steadySince) / S.steadyMs);
+  const ready = progress >= 1 && now - state.armedAt >= S.armDelayMs[state.arrival];
   return {
-    state: { ...base, goodSince, fired: ready },
-    status: { phase: ready ? "fire" : "steadying", progress, blocker: null, settling: relaxed, useBest: false, stalled: false },
-    keep,
+    state: { ...base, steadySince, fired: ready },
+    status: { phase: ready ? "fire" : "steadying", progress, blocker: null, ...IDLE },
   };
 }
 
 export const AUTO_SHUTTER_BLOCKER_COPY: Record<AutoShutterBlocker, string> = {
-  unchanged: "Bring the bottle into the outline (or tap Capture)",
-  moving: "Hold it still for a moment…",
+  unchanged: "Bring the bottle into the outline, or tap the picture",
+  moving: "Hold it still…",
   "too-dark": "Too dark — move into better light",
   "too-bright": "Too much glare — tilt the bottle a little",
-  blurry: "Too close to focus — pull back a little",
+  blurry: "Not sharp yet — hold it about 6 in away",
   empty: "Center the bottle in the outline",
+  hand: "That looks like a hand. Hold the bottle in the outline.",
 };
 
-/** Shown instead of a blocker once the checks have relaxed: a photo is coming either way. */
-export const AUTO_SHUTTER_SETTLING_COPY = "Taking the best shot…";
-
 /**
- * Shown when the outline has not changed for a while. `empty`: the bottle was already in view
- * when the prompt armed, or is not there yet. `changed`: the outline still shows the side just
- * photographed.
+ * Shown when nothing has arrived for a while. `empty`: the view has not changed since the prompt
+ * (the bottle was already there, or is not there yet). `changed`: the bottle has not been turned
+ * since the last photo.
  */
 export const AUTO_SHUTTER_STALLED_COPY: Record<Exclude<AutoShutterArrival, "none">, string> = {
-  empty: "Move the bottle into the outline, or tap Capture.",
-  changed: "Got this side already. Turn the bottle, or tap Capture.",
+  empty: "Move the bottle into the outline, or tap the picture.",
+  changed: "Turn the bottle to the next side, or tap the picture.",
 };

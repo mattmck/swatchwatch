@@ -674,6 +674,11 @@ export default function RapidAddPage() {
       dispatchFrames({ type: "added", frame });
       // A surface picked by hand is for one photo.
       setManualSurface(null);
+      // How each bottle photo was taken (a hold, a tap, an upload): the share of taps says how
+      // well the auto-shutter serves people.
+      if (bottleSequenceRef.current && event.trigger !== "live-scan") {
+        trackEvent("rapid_add.bottle_photo", { trigger: event.trigger, surface: target.surface });
+      }
       sendFrame(frame, event.barcode ?? sessionRef.current.barcode);
 
       // A barcode read off the bottom sticker: the same moment is the bottom photo too, so the
