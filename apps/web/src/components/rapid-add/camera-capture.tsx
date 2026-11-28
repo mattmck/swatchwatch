@@ -604,10 +604,12 @@ export function CameraCapture({
           autoPlay
           aria-label="Live camera preview"
         />
-        {isLive && guide !== "barcode" && (
+        {isLive && (guide !== "barcode" || scannerFailed) && (
           // The whole picture is a shutter: the auto-shutter only fires on a deliberate hold,
           // and a tap is the quick way to take the photo now. (The Capture button below does
-          // the same and is the keyboard and screen-reader control.)
+          // the same and is the keyboard and screen-reader control.) Not over the barcode band,
+          // where the live scan does the work, unless the scanner is unavailable: the hint then
+          // asks for a tap on the picture.
           <div
             aria-hidden
             className={cn("absolute inset-0", !(captureDisabled || processing) && "cursor-pointer")}
